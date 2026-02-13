@@ -41,9 +41,12 @@ function generateDateHeaders(start: Date, end: Date): { key: string; month: stri
 // based on stock levels, item type, cost, and price.
 
 function estimateDemand(item: AccurateItem, monthCount: number): {
-    monthlyData: Map<string, { qty: number; revenue: number }>;
+    monthlyData: Map<string, { qty: number; qtyBox: number; revenue: number }>;
     totalQty: number;
+    totalQtyBox: number;
     totalRevenue: number;
+    unitConversion: number;
+    salesUnitName: string;
 } {
     const qty = item.quantity || 0;
     const cost = item.cost || 0;
@@ -86,7 +89,7 @@ function estimateDemand(item: AccurateItem, monthCount: number): {
 
     // Seasonal pattern with trend
     const dateHeaders = generateDateHeaders(DEFAULT_ANALYSIS_START, new Date());
-    const monthlyData = new Map<string, { qty: number; revenue: number }>();
+    const monthlyData = new Map<string, { qty: number; qtyBox: number; revenue: number }>();
     let totalQty = 0;
     let totalRevenue = 0;
 
@@ -108,12 +111,12 @@ function estimateDemand(item: AccurateItem, monthCount: number): {
         const sellPrice = price > 0 ? price : cost * 1.3;
         const monthlyRevenue = monthlyQty * sellPrice;
 
-        monthlyData.set(h.key, { qty: monthlyQty, revenue: monthlyRevenue });
+        monthlyData.set(h.key, { qty: monthlyQty, qtyBox: monthlyQty, revenue: monthlyRevenue });
         totalQty += monthlyQty;
         totalRevenue += monthlyRevenue;
     });
 
-    return { monthlyData, totalQty, totalRevenue };
+    return { monthlyData, totalQty, totalQtyBox: totalQty, totalRevenue, unitConversion: 0, salesUnitName: '' };
 }
 
 // Deterministic hash for consistent random per item
@@ -158,11 +161,7 @@ export async function GET(request: NextRequest) {
 
         // 2. Fetch real sales data (from cache if available, otherwise fresh fetch)
         let dataSource: 'API' | 'ESTIMATED' = 'ESTIMATED';
-        const itemSalesMap = new Map<string, {
-            totalQty: number;
-            totalRevenue: number;
-            monthlyData: Map<string, { qty: number; revenue: number }>;
-        }>();
+        const itemSalesMap = new Map<string, ItemSalesData>();
 
         try {
             const cachedSales = loadSalesCache(analysisStart, branchId);
@@ -203,7 +202,8 @@ export async function GET(request: NextRequest) {
         // 4. Transform to InventoryItem with full analysis
         const inventoryItems: InventoryItem[] = accurateItems.map(item => {
             const salesData = itemSalesMap.get(item.no) || {
-                totalQty: 0, totalRevenue: 0, monthlyData: new Map()
+                totalQty: 0, totalQtyBox: 0, totalRevenue: 0, monthlyData: new Map(),
+                unitConversion: 0, salesUnitName: '',
             };
 
             // ── Core Metrics ────────────────────
@@ -287,11 +287,12 @@ export async function GET(request: NextRequest) {
 
             // ── Monthly Sales Array ─────────────
             const monthlySales: MonthlySales[] = dateHeaders.map(h => {
-                const data = salesData.monthlyData.get(h.key) || { qty: 0, revenue: 0 };
+                const data = salesData.monthlyData.get(h.key) || { qty: 0, qtyBox: 0, revenue: 0 };
                 return {
                     month: h.month,
                     year: h.year,
                     qty: data.qty,
+                    qtyBox: data.qtyBox || 0,
                     revenue: data.revenue
                 };
             });
@@ -324,7 +325,10 @@ export async function GET(request: NextRequest) {
                 demandCategory,
                 stockAgeDays,
                 totalSalesQty: salesData.totalQty,
+                totalSalesQtyBox: salesData.totalQtyBox || 0,
                 totalSalesRevenue: salesData.totalRevenue,
+                unitConversion: salesData.unitConversion || 0,
+                salesUnitName: salesData.salesUnitName || '',
                 daysOfSupply,
                 stockValue,
                 status,

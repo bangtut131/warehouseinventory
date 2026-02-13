@@ -144,9 +144,11 @@ export interface AccurateInvoiceItem {
     no: string;
     name: string;
   };
-  quantity: number;
+  quantity: number;          // qty in sales unit (box/karung/etc)
+  quantityInBase: number;    // qty in base unit (pcs)
   unitPrice: number;
   totalPrice?: number;
+  itemUnitName?: string;     // sales unit name (e.g. "Box", "Karung")
 }
 
 export interface AccurateInvoice {
@@ -252,8 +254,10 @@ async function fetchInvoiceDetail(invoiceId: number): Promise<AccurateInvoice | 
         detailItem: d.detailItem?.map((di: any) => ({
           item: di.item ? { id: di.item.id, no: di.item.no, name: di.item.name } : { id: 0, no: '', name: '' },
           quantity: di.quantity || 0,
+          quantityInBase: di.quantityInBase || di.quantity || 0,
           unitPrice: di.unitPrice || 0,
           totalPrice: di.totalPrice || 0,
+          itemUnitName: di.itemUnitName || di.unitName || '',
         })) || []
       };
     }
@@ -291,17 +295,23 @@ async function fetchDetailsInBatch(
 // ─── AGGREGATED SALES DATA ───────────────────────────────────
 
 export interface ItemSalesData {
-  totalQty: number;
+  totalQty: number;          // total in base unit (pcs)
+  totalQtyBox: number;       // total in sales unit (box/karung)
   totalRevenue: number;
-  monthlyData: Map<string, { qty: number; revenue: number }>;
+  monthlyData: Map<string, { qty: number; qtyBox: number; revenue: number }>;
+  unitConversion: number;    // pcs per box (0 = same unit)
+  salesUnitName: string;     // e.g. "Box", "Karung", "Pcs"
 }
 
 interface CachedSalesData {
   timestamp: number;
   data: Record<string, {
     totalQty: number;
+    totalQtyBox: number;
     totalRevenue: number;
-    monthlyData: Record<string, { qty: number; revenue: number }>;
+    monthlyData: Record<string, { qty: number; qtyBox: number; revenue: number }>;
+    unitConversion: number;
+    salesUnitName: string;
   }>;
 }
 
@@ -344,8 +354,11 @@ export function loadSalesCache(fromDate: Date, branchId?: number): Map<string, I
     for (const [itemNo, data] of Object.entries(cached.data)) {
       map.set(itemNo, {
         totalQty: data.totalQty,
+        totalQtyBox: data.totalQtyBox || 0,
         totalRevenue: data.totalRevenue,
         monthlyData: new Map(Object.entries(data.monthlyData)),
+        unitConversion: data.unitConversion || 0,
+        salesUnitName: data.salesUnitName || '',
       });
     }
     return map;
@@ -363,8 +376,11 @@ function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesData>, br
     salesMap.forEach((val, key) => {
       data[key] = {
         totalQty: val.totalQty,
+        totalQtyBox: val.totalQtyBox || 0,
         totalRevenue: val.totalRevenue,
         monthlyData: Object.fromEntries(val.monthlyData),
+        unitConversion: val.unitConversion || 0,
+        salesUnitName: val.salesUnitName || '',
       };
     });
     const cached: CachedSalesData = { timestamp: Date.now(), data };
@@ -443,18 +459,30 @@ export async function fetchAllSalesData(fromDate: Date, force: boolean = false, 
         const itemNo = d.item?.no;
         if (!itemNo) return;
 
+        const qtyPcs = d.quantityInBase || d.quantity;
+        const qtyBox = d.quantity;
         const lineRevenue = d.totalPrice || (d.quantity * d.unitPrice);
+        const unitName = d.itemUnitName || '';
+        // Compute conversion: pcs per box
+        const convRatio = (qtyBox > 0 && qtyPcs !== qtyBox) ? Math.round(qtyPcs / qtyBox) : 0;
 
         // Aggregate to main (all branches) map
         const entry = salesMap.get(itemNo) || {
           totalQty: 0,
+          totalQtyBox: 0,
           totalRevenue: 0,
-          monthlyData: new Map()
+          monthlyData: new Map(),
+          unitConversion: 0,
+          salesUnitName: '',
         };
-        entry.totalQty += d.quantity;
+        entry.totalQty += qtyPcs;
+        entry.totalQtyBox += qtyBox;
         entry.totalRevenue += lineRevenue;
-        const curr = entry.monthlyData.get(monthKey) || { qty: 0, revenue: 0 };
-        curr.qty += d.quantity;
+        if (convRatio > 0) entry.unitConversion = convRatio;
+        if (unitName) entry.salesUnitName = unitName;
+        const curr = entry.monthlyData.get(monthKey) || { qty: 0, qtyBox: 0, revenue: 0 };
+        curr.qty += qtyPcs;
+        curr.qtyBox += qtyBox;
         curr.revenue += lineRevenue;
         entry.monthlyData.set(monthKey, curr);
         salesMap.set(itemNo, entry);
@@ -467,13 +495,20 @@ export async function fetchAllSalesData(fromDate: Date, force: boolean = false, 
           const branchMap = branchSalesMaps.get(invBranchId)!;
           const brEntry = branchMap.get(itemNo) || {
             totalQty: 0,
+            totalQtyBox: 0,
             totalRevenue: 0,
-            monthlyData: new Map()
+            monthlyData: new Map(),
+            unitConversion: 0,
+            salesUnitName: '',
           };
-          brEntry.totalQty += d.quantity;
+          brEntry.totalQty += qtyPcs;
+          brEntry.totalQtyBox += qtyBox;
           brEntry.totalRevenue += lineRevenue;
-          const brCurr = brEntry.monthlyData.get(monthKey) || { qty: 0, revenue: 0 };
-          brCurr.qty += d.quantity;
+          if (convRatio > 0) brEntry.unitConversion = convRatio;
+          if (unitName) brEntry.salesUnitName = unitName;
+          const brCurr = brEntry.monthlyData.get(monthKey) || { qty: 0, qtyBox: 0, revenue: 0 };
+          brCurr.qty += qtyPcs;
+          brCurr.qtyBox += qtyBox;
           brCurr.revenue += lineRevenue;
           brEntry.monthlyData.set(monthKey, brCurr);
           branchMap.set(itemNo, brEntry);

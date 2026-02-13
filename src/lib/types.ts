@@ -6,7 +6,8 @@
 export interface MonthlySales {
     month: string;   // 3-letter: "Jan", "Feb", ...
     year: number;    // 2025, 2026
-    qty: number;     // Total units sold
+    qty: number;     // Total units sold (pcs / base unit)
+    qtyBox: number;  // Total units sold (box / sales unit)
     revenue: number; // Total revenue (qty × price)
 }
 
@@ -42,8 +43,11 @@ export interface InventoryItem {
     turnoverRate: number;          // Annual Inventory Turnover
     demandCategory: 'FAST' | 'SLOW' | 'NON-MOVING' | 'DEAD';
     stockAgeDays: number;          // Estimated stock age
-    totalSalesQty: number;         // Total units sold in analysis period
+    totalSalesQty: number;         // Total units sold in analysis period (pcs)
+    totalSalesQtyBox: number;      // Total units sold in sales unit (box)
     totalSalesRevenue: number;     // Total revenue in analysis period
+    unitConversion: number;        // Pcs per box (0 = same unit)
+    salesUnitName: string;         // Sales unit name (e.g. "Box", "Karung")
 
     // Computed
     daysOfSupply: number;
