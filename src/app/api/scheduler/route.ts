@@ -12,19 +12,19 @@ import {
 
 // Lazy-init: start scheduler on first API access
 let initialized = false;
-function ensureSchedulerStarted() {
+async function ensureSchedulerStarted() {
     if (!initialized) {
         initialized = true;
-        startScheduler();
+        await startScheduler();
     }
 }
 
 // ─── GET: Get scheduler status + history ─────────────────────
 export async function GET() {
     try {
-        ensureSchedulerStarted();
-        const status = getSchedulerStatus();
-        const history = loadHistory();
+        await ensureSchedulerStarted();
+        const status = await getSchedulerStatus();
+        const history = await loadHistory();
 
         return NextResponse.json({
             ...status,
@@ -38,7 +38,7 @@ export async function GET() {
 // ─── POST: Update config or trigger manual sync ──────────────
 export async function POST(request: NextRequest) {
     try {
-        ensureSchedulerStarted();
+        await ensureSchedulerStarted();
         const url = new URL(request.url);
         const action = url.searchParams.get('action');
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
         // Update config
         const body: Partial<SchedulerConfig> = await request.json();
-        const newConfig = updateConfig(body);
+        const newConfig = await updateConfig(body);
 
         return NextResponse.json({
             message: 'Config updated',

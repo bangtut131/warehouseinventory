@@ -1,14 +1,8 @@
 import cron from 'node-cron';
-import fs from 'fs';
-import path from 'path';
+import { prisma } from './prisma';
 import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, syncProgress } from './accurate';
 
 // ─── Config ──────────────────────────────────────────────────
-
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const CONFIG_FILE = path.join(DATA_DIR, 'scheduler-config.json');
-const HISTORY_FILE = path.join(DATA_DIR, 'sync-history.json');
-const MAX_HISTORY = 50;
 
 export interface SchedulerConfig {
     enabled: boolean;
@@ -23,8 +17,8 @@ export interface SchedulerConfig {
 }
 
 export interface SyncHistoryEntry {
-    id: string;
-    startedAt: string;
+    id: number; // Changed to number (Int in DB)
+    startedAt: string; // ISO string
     completedAt: string | null;
     status: 'success' | 'error' | 'running';
     durationSec: number | null;
@@ -46,94 +40,98 @@ const DEFAULT_CONFIG: SchedulerConfig = {
 
 // ─── Helpers ─────────────────────────────────────────────────
 
-function ensureDataDir(): void {
-    if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-}
-
-export function loadConfig(): SchedulerConfig {
+export async function loadConfig(): Promise<SchedulerConfig> {
     try {
-        ensureDataDir();
-        if (fs.existsSync(CONFIG_FILE)) {
-            const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
-            return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+        const setting = await prisma.systemSetting.findUnique({
+            where: { key: 'scheduler_config' },
+        });
+        if (setting && setting.value) {
+            return { ...DEFAULT_CONFIG, ...(setting.value as any) };
         }
     } catch (err: any) {
-        console.warn('[Scheduler] Failed to load config:', err.message);
+        console.warn('[Scheduler] Failed to load config from DB:', err.message);
     }
     return { ...DEFAULT_CONFIG };
 }
 
-export function saveConfig(config: SchedulerConfig): void {
+export async function saveConfig(config: SchedulerConfig): Promise<void> {
     try {
-        ensureDataDir();
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
-        console.log('[Scheduler] Config saved');
+        await prisma.systemSetting.upsert({
+            where: { key: 'scheduler_config' },
+            update: { value: config as any },
+            create: { key: 'scheduler_config', value: config as any },
+        });
+        console.log('[Scheduler] Config saved to DB');
     } catch (err: any) {
-        console.warn('[Scheduler] Failed to save config:', err.message);
+        console.warn('[Scheduler] Failed to save config to DB:', err.message);
     }
 }
 
-export function loadHistory(): SyncHistoryEntry[] {
+export async function loadHistory(): Promise<SyncHistoryEntry[]> {
     try {
-        ensureDataDir();
-        if (fs.existsSync(HISTORY_FILE)) {
-            return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
-        }
-    } catch {
-        // ignore
+        const logs = await prisma.syncLog.findMany({
+            orderBy: { startedAt: 'desc' },
+            take: 50,
+        });
+
+        return logs.map(log => ({
+            id: log.id,
+            startedAt: log.startedAt.toISOString(),
+            completedAt: log.completedAt ? log.completedAt.toISOString() : null,
+            status: log.status as any,
+            durationSec: log.completedAt ? Math.round((log.completedAt.getTime() - log.startedAt.getTime()) / 1000) : null,
+            itemCount: null, // We might want to add these columns to SyncLog if needed, for now simplified
+            invoiceCount: null,
+            error: log.status === 'FAILED' ? log.message : null,
+            trigger: log.trigger as any,
+        }));
+    } catch (err: any) {
+        console.warn('[Scheduler] Failed to load history:', err.message);
     }
     return [];
 }
 
-function saveHistory(history: SyncHistoryEntry[]): void {
+// Internal helper for adding logs
+async function createLogEntry(trigger: string): Promise<number> {
     try {
-        ensureDataDir();
-        const trimmed = history.slice(0, MAX_HISTORY);
-        fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2), 'utf-8');
-    } catch {
-        // ignore
+        const log = await prisma.syncLog.create({
+            data: {
+                status: 'RUNNING',
+                trigger,
+                message: null,
+            },
+        });
+        return log.id;
+    } catch (err) {
+        console.error('Failed to create sync log', err);
+        return 0;
     }
 }
 
-function addHistoryEntry(entry: SyncHistoryEntry): void {
-    const history = loadHistory();
-    history.unshift(entry);
-    saveHistory(history);
-}
-
-function updateHistoryEntry(id: string, updates: Partial<SyncHistoryEntry>): void {
-    const history = loadHistory();
-    const idx = history.findIndex(h => h.id === id);
-    if (idx >= 0) {
-        history[idx] = { ...history[idx], ...updates };
-        saveHistory(history);
+async function updateLogEntry(id: number, status: string, message?: string | null): Promise<void> {
+    if (!id) return;
+    try {
+        await prisma.syncLog.update({
+            where: { id },
+            data: {
+                status,
+                completedAt: new Date(), // Assuming update happens at completion
+                message,
+            },
+        });
+    } catch (err) {
+        console.error('Failed to update sync log', err);
     }
 }
 
 // ─── Sync execution ─────────────────────────────────────────
 
 export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'scheduled'): Promise<void> {
-    const config = loadConfig();
-    const entryId = `sync-${Date.now()}`;
-    const startedAt = new Date().toISOString();
+    const config = await loadConfig();
+    const start = Date.now();
 
     console.log(`[Scheduler] Starting ${trigger} sync...`);
-
-    addHistoryEntry({
-        id: entryId,
-        startedAt,
-        completedAt: null,
-        status: 'running',
-        durationSec: null,
-        itemCount: null,
-        invoiceCount: null,
-        error: null,
-        trigger,
-    });
-
-    const start = Date.now();
+    const logId = await createLogEntry(trigger.toUpperCase());
 
     try {
         const fromDate = new Date(config.fromDate);
@@ -159,30 +157,18 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
             syncProgress.message = `Auto-sync: Stock gudang ${done}/${total}`;
         });
 
-        saveWarehouseStockCache(warehouseStockMap);
+        await saveWarehouseStockCache(warehouseStockMap);
 
         syncProgress.phase = 'done';
         syncProgress.message = 'Auto-sync selesai!';
 
         const durationSec = Math.round((Date.now() - start) / 1000);
-
-        updateHistoryEntry(entryId, {
-            completedAt: new Date().toISOString(),
-            status: 'success',
-            durationSec,
-            itemCount: result.salesMap.size,
-            invoiceCount: result.invoiceCount,
-        });
+        await updateLogEntry(logId, 'SUCCESS', `Items: ${result.salesMap.size}, Invoices: ${result.invoiceCount}`);
 
         console.log(`[Scheduler] Sync completed in ${durationSec}s — ${result.salesMap.size} items, ${result.invoiceCount} invoices`);
     } catch (err: any) {
         const durationSec = Math.round((Date.now() - start) / 1000);
-        updateHistoryEntry(entryId, {
-            completedAt: new Date().toISOString(),
-            status: 'error',
-            durationSec,
-            error: err.message,
-        });
+        await updateLogEntry(logId, 'FAILED', err.message);
         console.error(`[Scheduler] Sync failed after ${durationSec}s:`, err.message);
     }
 }
@@ -192,8 +178,8 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
 let isRunning = false;
 
-export function startScheduler(): void {
-    const config = loadConfig();
+export async function startScheduler(): Promise<void> {
+    const config = await loadConfig();
 
     if (!config.enabled) {
         console.log('[Scheduler] Disabled — not starting cron');
@@ -236,18 +222,18 @@ export function stopScheduler(): void {
     }
 }
 
-export function restartScheduler(): void {
+export async function restartScheduler(): Promise<void> {
     stopScheduler();
-    startScheduler();
+    await startScheduler();
 }
 
-export function getSchedulerStatus(): {
+export async function getSchedulerStatus(): Promise<{
     config: SchedulerConfig;
     isRunning: boolean;
     isSyncing: boolean;
     cronActive: boolean;
-} {
-    const config = loadConfig();
+}> {
+    const config = await loadConfig();
     return {
         config,
         isRunning: cronTask !== null,
@@ -256,10 +242,10 @@ export function getSchedulerStatus(): {
     };
 }
 
-export function updateConfig(updates: Partial<SchedulerConfig>): SchedulerConfig {
-    const config = loadConfig();
+export async function updateConfig(updates: Partial<SchedulerConfig>): Promise<SchedulerConfig> {
+    const config = await loadConfig();
     const newConfig = { ...config, ...updates };
-    saveConfig(newConfig);
-    restartScheduler();
+    await saveConfig(newConfig);
+    await restartScheduler();
     return newConfig;
 }

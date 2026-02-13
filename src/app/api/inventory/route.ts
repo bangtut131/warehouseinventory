@@ -164,7 +164,7 @@ export async function GET(request: NextRequest) {
         const itemSalesMap = new Map<string, ItemSalesData>();
 
         try {
-            const cachedSales = loadSalesCache(analysisStart, branchId);
+            const cachedSales = await loadSalesCache(analysisStart, branchId);
             if (cachedSales && cachedSales.size > 0) {
                 dataSource = 'API';
                 cachedSales.forEach((val: ItemSalesData, key: string) => {
@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 3b. Load warehouse stock cache if warehouse filter is selected
-        const warehouseStockMap = warehouseId ? loadWarehouseStockCache() : null;
+        const warehouseStockMap = warehouseId ? await loadWarehouseStockCache() : null;
         if (warehouseId && warehouseStockMap) {
             console.log(`[API] Using warehouse stock for warehouse ${warehouseId}`);
         } else if (warehouseId) {

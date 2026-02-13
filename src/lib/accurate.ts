@@ -1,45 +1,42 @@
 import axios from 'axios';
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import path from 'path'; // still needed for date logic? No, but maybe specific utility
+import { prisma } from './prisma';
 
 const API_HOST = process.env.ACCURATE_API_HOST || 'https://zeus.accurate.id/accurate/api';
 const API_TOKEN = process.env.ACCURATE_API_TOKEN || '';
 const SIGNATURE_SECRET = process.env.ACCURATE_SIGNATURE_SECRET || '';
 const DB_ID = process.env.ACCURATE_DB_ID || '453772';
 
-// Cache config (server-side)
-const CACHE_DIR = path.resolve(process.cwd(), 'data');
+
+
+
+// Cache keys
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-function getCacheFile(fromDate: Date, branchId?: number): string {
+function getCacheKey(fromDate: Date, branchId?: number): string {
   const dateKey = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, '0')}-${String(fromDate.getDate()).padStart(2, '0')}`;
   const branchKey = branchId ? `-branch${branchId}` : '';
-  return path.join(CACHE_DIR, `sales-cache-${dateKey}${branchKey}.json`);
+  return `sales-cache-${dateKey}${branchKey}`;
 }
 
 /** Delete cache for a specific date or all caches */
-export function clearSalesCache(fromDate?: Date, branchId?: number): void {
+export async function clearSalesCache(fromDate?: Date, branchId?: number): Promise<void> {
   try {
     if (fromDate) {
-      const file = getCacheFile(fromDate, branchId);
-      if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
-        console.log(`[Cache] Deleted cache: ${file}`);
-      }
+      const key = getCacheKey(fromDate, branchId);
+      await prisma.dataCache.delete({ where: { key } }).catch(() => { });
+      console.log(`[Cache] Deleted cache key: ${key}`);
     } else {
       // Delete all sales caches
-      const files = fs.readdirSync(CACHE_DIR).filter(f => f.startsWith('sales-cache-') && f.endsWith('.json'));
-      files.forEach(f => {
-        fs.unlinkSync(path.join(CACHE_DIR, f));
-        console.log(`[Cache] Deleted: ${f}`);
+      // Prisma deleteMany with startsWith?
+      // SQLite/Postgres supports 'contains' or 'startsWith' in where
+      await prisma.dataCache.deleteMany({
+        where: {
+          key: { startsWith: 'sales-cache-' }
+        }
       });
-      // Also delete legacy cache
-      const legacy = path.join(CACHE_DIR, 'sales-cache.json');
-      if (fs.existsSync(legacy)) {
-        fs.unlinkSync(legacy);
-        console.log(`[Cache] Deleted legacy cache`);
-      }
+      console.log(`[Cache] Deleted all sales cache keys`);
     }
   } catch (err: any) {
     console.warn(`[Cache] Error clearing cache:`, err.message);
@@ -146,6 +143,7 @@ export interface AccurateInvoiceItem {
   };
   quantity: number;          // qty in sales unit (box/karung/etc)
   quantityInBase: number;    // qty in base unit (pcs)
+  unitRatio: number;         // conversion ratio to base unit
   unitPrice: number;
   totalPrice?: number;
   itemUnitName?: string;     // sales unit name (e.g. "Box", "Karung")
@@ -254,7 +252,8 @@ async function fetchInvoiceDetail(invoiceId: number): Promise<AccurateInvoice | 
         detailItem: d.detailItem?.map((di: any) => ({
           item: di.item ? { id: di.item.id, no: di.item.no, name: di.item.name } : { id: 0, no: '', name: '' },
           quantity: di.quantity || 0,
-          quantityInBase: di.quantityInBase || di.quantity || 0,
+          quantityInBase: di.quantityInBase || (di.quantity * (di.unitRatio || 1)) || 0,
+          unitRatio: di.unitRatio || 1,
           unitPrice: di.unitPrice || 0,
           totalPrice: di.totalPrice || 0,
           itemUnitName: di.itemUnitName || di.unitName || '',
@@ -324,32 +323,34 @@ function getMonthKey(date: Date): string {
  * Try to load cached sales data. Returns null if cache is stale or missing.
  * Exported so /api/inventory can read cache-only without triggering a full fetch.
  */
-export function loadSalesCache(fromDate: Date, branchId?: number): Map<string, ItemSalesData> | null {
+export async function loadSalesCache(fromDate: Date, branchId?: number): Promise<Map<string, ItemSalesData> | null> {
   try {
-    // Try branch-keyed cache first
-    let cacheFile = getCacheFile(fromDate, branchId);
-    if (!fs.existsSync(cacheFile)) {
-      if (branchId) {
-        // Branch-specific cache not found — do NOT fallback to all-branch cache
-        // This prevents showing incorrect "all branches" data for a specific branch
-        console.log(`[Cache] No cache for branch ${branchId} — need Force Sync for this branch`);
-        return null;
-      } else {
-        // No branch: try legacy cache file
-        cacheFile = path.join(CACHE_DIR, 'sales-cache.json');
-        if (!fs.existsSync(cacheFile)) return null;
-      }
-    }
-    const raw = fs.readFileSync(cacheFile, 'utf-8');
-    const cached: CachedSalesData = JSON.parse(raw);
+    const key = getCacheKey(fromDate, branchId);
 
-    const age = Date.now() - cached.timestamp;
-    if (age > CACHE_TTL_MS) {
-      console.log(`[Cache] Sales cache is ${Math.round(age / 60000)} min old — stale, will re-fetch`);
+    // DB Fetch
+    const cacheEntry = await prisma.dataCache.findUnique({
+      where: { key }
+    });
+
+    if (!cacheEntry || !cacheEntry.data) {
+      // Check for legacy logic if needed? No, strict DB now.
+      if (branchId) {
+        console.log(`[Cache] No cache for branch ${branchId}`);
+        return null;
+      }
+      // Fallback to check generic cache key if needed? No.
       return null;
     }
 
-    console.log(`[Cache] Using cached sales data (${Math.round(age / 60000)} min old, ${path.basename(cacheFile)})`);
+    const cached = cacheEntry.data as unknown as CachedSalesData; // Prisma Json -> cast
+    const age = Date.now() - cached.timestamp;
+
+    if (age > CACHE_TTL_MS) {
+      console.log(`[Cache] Sales cache is ${Math.round(age / 60000)} min old — stale`);
+      return null;
+    }
+
+    console.log(`[Cache] Using cached sales data (${Math.round(age / 60000)} min old)`);
     const map = new Map<string, ItemSalesData>();
     for (const [itemNo, data] of Object.entries(cached.data)) {
       map.set(itemNo, {
@@ -362,15 +363,16 @@ export function loadSalesCache(fromDate: Date, branchId?: number): Map<string, I
       });
     }
     return map;
-  } catch {
+  } catch (err: any) {
+    console.warn('[Cache] Load error:', err.message);
     return null;
   }
 }
 
 /**
- * Save sales data to cache file.
+ * Save sales data to cache DB.
  */
-function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesData>, branchId?: number): void {
+async function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesData>, branchId?: number): Promise<void> {
   try {
     const data: CachedSalesData['data'] = {};
     salesMap.forEach((val, key) => {
@@ -383,11 +385,17 @@ function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesData>, br
         salesUnitName: val.salesUnitName || '',
       };
     });
+
     const cached: CachedSalesData = { timestamp: Date.now(), data };
-    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
-    const cacheFile = getCacheFile(fromDate, branchId);
-    fs.writeFileSync(cacheFile, JSON.stringify(cached), 'utf-8');
-    console.log(`[Cache] Sales data cached to ${path.basename(cacheFile)}`);
+    const key = getCacheKey(fromDate, branchId);
+
+    await prisma.dataCache.upsert({
+      where: { key },
+      update: { data: cached as any }, // Cast to any to avoid Prisma JSON type issues
+      create: { key, data: cached as any },
+    });
+
+    console.log(`[Cache] Sales data saved to DB key: ${key}`);
   } catch (err: any) {
     console.warn(`[Cache] Failed to save cache:`, err.message);
   }
@@ -400,13 +408,13 @@ function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesData>, br
 export async function fetchAllSalesData(fromDate: Date, force: boolean = false, branchId?: number): Promise<{ salesMap: Map<string, ItemSalesData>; invoiceCount: number }> {
   // 1. Try cache first (unless force sync)
   if (!force) {
-    const cached = loadSalesCache(fromDate, branchId);
+    const cached = await loadSalesCache(fromDate, branchId);
     if (cached) {
       return { salesMap: cached, invoiceCount: -1 }; // -1 indicates cached
     }
   } else {
     console.log(`[Accurate] Force sync requested — skipping cache${branchId ? ` (branch ${branchId})` : ''}`);
-    clearSalesCache(fromDate, branchId);
+    await clearSalesCache(fromDate, branchId);
   }
 
   // 2. Phase 1: Get invoice IDs (API-level date + branch filter)
@@ -520,15 +528,16 @@ export async function fetchAllSalesData(fromDate: Date, force: boolean = false, 
   console.log(`[Accurate] Aggregated sales data for ${salesMap.size} items from ${invoices.length} invoices`);
 
   // 6. Cache results — main cache
-  saveSalesCache(fromDate, salesMap, branchId);
+  await saveSalesCache(fromDate, salesMap, branchId);
 
   // 6b. Auto-save per-branch caches (only when syncing all branches)
   if (!branchId && branchSalesMaps.size > 0) {
     console.log(`[Accurate] Auto-splitting cache for ${branchSalesMaps.size} branches...`);
-    branchSalesMaps.forEach((brMap, brId) => {
-      saveSalesCache(fromDate, brMap, brId);
+    // Ideally use Promise.all to parallelize
+    for (const [brId, brMap] of branchSalesMaps) {
+      await saveSalesCache(fromDate, brMap, brId); // Using await in loop to avoid overwhelming DB connection
       console.log(`[Accurate]   Branch ${brId}: ${brMap.size} items cached`);
-    });
+    }
   }
 
   return { salesMap, invoiceCount: invoices.length };
@@ -547,7 +556,7 @@ interface CachedWarehouseStock {
   data: Record<string, Record<string, number>>;
 }
 
-const WH_STOCK_CACHE_FILE = path.join(CACHE_DIR, 'warehouse-stock-cache.json');
+const WH_STOCK_CACHE_KEY = 'warehouse-stock-cache';
 const WH_STOCK_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
 /**
@@ -618,7 +627,7 @@ export async function fetchWarehouseStock(
 /**
  * Save warehouse stock cache.
  */
-export function saveWarehouseStockCache(stockMap: WarehouseStockMap): void {
+export async function saveWarehouseStockCache(stockMap: WarehouseStockMap): Promise<void> {
   try {
     const data: CachedWarehouseStock['data'] = {};
     stockMap.forEach((whMap, itemNo) => {
@@ -628,10 +637,16 @@ export function saveWarehouseStockCache(stockMap: WarehouseStockMap): void {
       });
       data[itemNo] = whObj;
     });
+
     const cached: CachedWarehouseStock = { timestamp: Date.now(), data };
-    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(WH_STOCK_CACHE_FILE, JSON.stringify(cached), 'utf-8');
-    console.log(`[Cache] Warehouse stock cached (${stockMap.size} items)`);
+
+    await prisma.dataCache.upsert({
+      where: { key: WH_STOCK_CACHE_KEY },
+      update: { data: cached as any },
+      create: { key: WH_STOCK_CACHE_KEY, data: cached as any },
+    });
+
+    console.log(`[Cache] Warehouse stock cached (${stockMap.size} items) to DB`);
   } catch (err: any) {
     console.warn(`[Cache] Failed to save warehouse stock cache:`, err.message);
   }
@@ -641,13 +656,17 @@ export function saveWarehouseStockCache(stockMap: WarehouseStockMap): void {
  * Load warehouse stock from cache.
  * Returns null if cache is stale or missing.
  */
-export function loadWarehouseStockCache(): WarehouseStockMap | null {
+export async function loadWarehouseStockCache(): Promise<WarehouseStockMap | null> {
   try {
-    if (!fs.existsSync(WH_STOCK_CACHE_FILE)) return null;
-    const raw = fs.readFileSync(WH_STOCK_CACHE_FILE, 'utf-8');
-    const cached: CachedWarehouseStock = JSON.parse(raw);
+    const cacheEntry = await prisma.dataCache.findUnique({
+      where: { key: WH_STOCK_CACHE_KEY }
+    });
 
+    if (!cacheEntry || !cacheEntry.data) return null;
+
+    const cached = cacheEntry.data as unknown as CachedWarehouseStock;
     const age = Date.now() - cached.timestamp;
+
     if (age > WH_STOCK_CACHE_TTL) {
       console.log(`[Cache] Warehouse stock cache is ${Math.round(age / 60000)} min old — stale`);
       return null;
@@ -666,12 +685,4 @@ export function loadWarehouseStockCache(): WarehouseStockMap | null {
   } catch {
     return null;
   }
-}
-
-// ─── LEGACY (kept for compatibility) ─────────────────────────
-
-/** @deprecated Use fetchAllSalesData instead */
-export async function fetchSalesInvoices(fromDate: string, toDate: string): Promise<AccurateInvoice[]> {
-  console.warn('[Accurate] fetchSalesInvoices is deprecated — use fetchAllSalesData instead');
-  return [];
 }

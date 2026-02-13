@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
             });
 
             // Save warehouse stock cache
-            saveWarehouseStockCache(warehouseStockMap);
+            await saveWarehouseStockCache(warehouseStockMap);
 
             syncProgress.phase = 'done';
             syncProgress.message = 'Selesai!';
