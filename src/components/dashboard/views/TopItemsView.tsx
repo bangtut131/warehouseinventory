@@ -76,7 +76,8 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
                                     <SortableHead label="Nama Barang" sortKey="name" sort={sort} onSort={toggleSort} className="text-white" />
                                     <SortableHead label="ABC" sortKey="abcClass" sort={sort} onSort={toggleSort} className="text-white text-center" />
                                     <SortableHead label="Revenue" sortKey="annualRevenue" sort={sort} onSort={toggleSort} className="text-white text-right" />
-                                    <SortableHead label="Terjual" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Terjual (Pcs)" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Terjual (Box)" sortKey="totalSalesQtyBox" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Stock" sortKey="stock" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Turnover" sortKey="turnoverRate" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Demand" sortKey="demandCategory" sort={sort} onSort={toggleSort} className="text-white text-center" />
@@ -96,6 +97,16 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
                                             </TableCell>
                                             <TableCell className="text-right font-bold">{formatIDR(item.annualRevenue)}</TableCell>
                                             <TableCell className="text-right">{item.totalSalesQty.toLocaleString()}</TableCell>
+                                            <TableCell className="text-right">
+                                                {item.totalSalesQtyBox > 0 ? (
+                                                    <div className="flex flex-col items-end">
+                                                        <span>{item.totalSalesQtyBox.toLocaleString()} {item.salesUnitName}</span>
+                                                        {item.unitConversion > 0 && (
+                                                            <span className="text-[10px] opacity-70">(@ {item.unitConversion})</span>
+                                                        )}
+                                                    </div>
+                                                ) : '-'}
+                                            </TableCell>
                                             <TableCell className="text-right">{item.stock} {item.unit}</TableCell>
                                             <TableCell className="text-right">{item.turnoverRate}×</TableCell>
                                             <TableCell className="text-center">

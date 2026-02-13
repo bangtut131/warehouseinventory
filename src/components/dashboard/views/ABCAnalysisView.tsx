@@ -129,6 +129,9 @@ export const ABCAnalysisView: React.FC<ABCAnalysisViewProps> = ({ items }) => {
                                     <SortableHead label="ABC" sortKey="abcClass" sort={sort} onSort={toggleSort} className="text-white text-center" />
                                     <SortableHead label="XYZ" sortKey="xyzClass" sort={sort} onSort={toggleSort} className="text-white text-center" />
                                     <SortableHead label="Revenue" sortKey="annualRevenue" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Terjual (Pcs)" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Terjual (Box)" sortKey="totalSalesQtyBox" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Rev %" sortKey="revPct" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Rev %" sortKey="revPct" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Cum %" sortKey="cumPct" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Turnover" sortKey="turnoverRate" sort={sort} onSort={toggleSort} className="text-white text-right" />
@@ -152,6 +155,17 @@ export const ABCAnalysisView: React.FC<ABCAnalysisViewProps> = ({ items }) => {
                                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.xyzClass === 'X' ? 'bg-green-100 text-green-800' : item.xyzClass === 'Y' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{item.xyzClass}</span>
                                         </TableCell>
                                         <TableCell className="text-right">{formatIDR(item.annualRevenue)}</TableCell>
+                                        <TableCell className="text-right">{item.totalSalesQty.toLocaleString()}</TableCell>
+                                        <TableCell className="text-right">
+                                            {item.totalSalesQtyBox > 0 ? (
+                                                <div className="flex flex-col items-end">
+                                                    <span>{item.totalSalesQtyBox.toLocaleString()} {item.salesUnitName}</span>
+                                                    {item.unitConversion > 0 && (
+                                                        <span className="text-[10px] opacity-70">(@ {item.unitConversion})</span>
+                                                    )}
+                                                </div>
+                                            ) : '-'}
+                                        </TableCell>
                                         <TableCell className="text-right">{item.revPct.toFixed(2)}%</TableCell>
                                         <TableCell className="text-right font-medium">{item.cumPct.toFixed(1)}%</TableCell>
                                         <TableCell className="text-right">{item.turnoverRate}×</TableCell>

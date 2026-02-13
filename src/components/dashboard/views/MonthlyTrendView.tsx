@@ -54,7 +54,8 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                     <SortableHead label="No" sortKey="_index" sort={sort} onSort={toggleSort} className="text-white w-[40px]" />
                                     <SortableHead label="Kode" sortKey="itemNo" sort={sort} onSort={toggleSort} className="text-white" />
                                     <SortableHead label="Nama" sortKey="name" sort={sort} onSort={toggleSort} className="text-white" />
-                                    <SortableHead label="Total" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Total (Pcs)" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Total (Box)" sortKey="totalSalesQtyBox" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <th className="h-12 px-2 text-white font-bold text-center">Trend</th>
                                     {dateHeaders.map((h, idx) => (
                                         <th key={idx} className="h-12 px-2 text-white font-bold text-center text-xs min-w-[60px]">
@@ -77,6 +78,13 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                             <TableCell className="font-medium text-blue-600 text-xs">{item.itemNo}</TableCell>
                                             <TableCell className="max-w-[150px] truncate text-xs">{item.name}</TableCell>
                                             <TableCell className="text-right font-bold">{item.totalSalesQty}</TableCell>
+                                            <TableCell className="text-right text-xs">
+                                                {item.totalSalesQtyBox > 0 ? (
+                                                    <div className="flex flex-col items-end">
+                                                        <span>{item.totalSalesQtyBox} {item.salesUnitName}</span>
+                                                    </div>
+                                                ) : '-'}
+                                            </TableCell>
                                             <TableCell className="text-center">{trend}</TableCell>
                                             {item.monthlySales.map((m, idx) => {
                                                 const intensity = maxQty > 0 ? m.qty / maxQty : 0;
