@@ -31,7 +31,11 @@ export async function GET() {
             history: history.slice(0, 20),
         });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({
+            error: err.message,
+            stack: err.stack,
+            details: JSON.stringify(err, Object.getOwnPropertyNames(err))
+        }, { status: 500 });
     }
 }
 
@@ -59,6 +63,11 @@ export async function POST(request: NextRequest) {
             config: newConfig,
         });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        console.error('[Scheduler API] GET Error:', err);
+        return NextResponse.json({
+            error: err.message,
+            stack: err.stack,
+            details: JSON.stringify(err, Object.getOwnPropertyNames(err))
+        }, { status: 500 });
     }
 }
