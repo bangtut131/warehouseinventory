@@ -10,6 +10,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@prisma/client": "^5.10.0",
     "@radix-ui/react-slot": "^1.2.4",
     "@tanstack/react-table": "^8.21.3",
     "axios": "^1.13.5",
@@ -28,7 +29,6 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@prisma/client": "^5.10.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",

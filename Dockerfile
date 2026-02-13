@@ -2,7 +2,8 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+COPY prisma ./prisma
+RUN npm ci
 
 # ─── Stage 2: Build the app ──────────────────────────────────
 FROM node:20-alpine AS builder
@@ -28,7 +29,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Create data directory for cache files (scheduler config, sync history, sales cache)
+# Copy Prisma engine + generated client (CRITICAL for database access)
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=builder /app/prisma ./prisma
+
+# Create data directory
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
 USER nextjs
