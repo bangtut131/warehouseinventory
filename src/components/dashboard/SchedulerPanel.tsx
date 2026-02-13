@@ -162,8 +162,10 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
         try {
             await axios.post('/api/scheduler', updates);
             await fetchStatus();
-        } catch (err) {
+            // Optional: alert('Pengaturan tersimpan');
+        } catch (err: any) {
             console.error('Failed to update scheduler config', err);
+            alert('Gagal update config: ' + (err.response?.data?.error || err.message));
         } finally {
             setUpdating(false);
         }
@@ -296,8 +298,8 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                             <button
                                 onClick={() => setScheduleMode('preset')}
                                 className={`px-2.5 py-1 text-xs rounded-md transition-colors ${scheduleMode === 'preset'
-                                        ? 'bg-white shadow-sm font-medium text-gray-800'
-                                        : 'text-gray-500 hover:text-gray-700'
+                                    ? 'bg-white shadow-sm font-medium text-gray-800'
+                                    : 'text-gray-500 hover:text-gray-700'
                                     }`}
                             >
                                 ⏱ Preset
@@ -305,8 +307,8 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                             <button
                                 onClick={() => setScheduleMode('custom')}
                                 className={`px-2.5 py-1 text-xs rounded-md transition-colors ${scheduleMode === 'custom'
-                                        ? 'bg-white shadow-sm font-medium text-gray-800'
-                                        : 'text-gray-500 hover:text-gray-700'
+                                    ? 'bg-white shadow-sm font-medium text-gray-800'
+                                    : 'text-gray-500 hover:text-gray-700'
                                     }`}
                             >
                                 🎯 Custom
@@ -383,8 +385,8 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                                             key={day.value}
                                             onClick={() => toggleDay(day.value)}
                                             className={`w-9 h-7 text-[11px] rounded-md border transition-all font-medium ${selectedDays.includes(day.value)
-                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                                                    : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                                : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
                                                 }`}
                                         >
                                             {day.label}
@@ -407,8 +409,8 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                                             key={hour}
                                             onClick={() => toggleHour(hour)}
                                             className={`h-7 text-[10px] rounded-md border transition-all font-medium ${selectedHours.includes(hour)
-                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                                                    : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                                : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
                                                 }`}
                                         >
                                             {String(hour).padStart(2, '0')}
@@ -474,8 +476,8 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                                                 <td className="py-1.5 pr-2 text-gray-500">{entry.invoiceCount ?? '-'}</td>
                                                 <td className="py-1.5">
                                                     <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${entry.trigger === 'scheduled'
-                                                            ? 'bg-purple-50 text-purple-600 border-purple-200'
-                                                            : 'bg-blue-50 text-blue-600 border-blue-200'
+                                                        ? 'bg-purple-50 text-purple-600 border-purple-200'
+                                                        : 'bg-blue-50 text-blue-600 border-blue-200'
                                                         }`}>
                                                         {entry.trigger === 'scheduled' ? '⏰ Auto' : '👤 Manual'}
                                                     </Badge>
