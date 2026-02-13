@@ -344,11 +344,7 @@ export async function loadSalesCache(fromDate: Date, branchId?: number): Promise
 
     const cached = cacheEntry.data as unknown as CachedSalesData; // Prisma Json -> cast
     const age = Date.now() - cached.timestamp;
-
-    if (age > CACHE_TTL_MS) {
-      console.log(`[Cache] Sales cache is ${Math.round(age / 60000)} min old — stale`);
-      return null;
-    }
+    console.log(`[Cache] Sales cache is ${Math.round(age / 60000)} min old`);
 
     console.log(`[Cache] Using cached sales data (${Math.round(age / 60000)} min old)`);
     const map = new Map<string, ItemSalesData>();
@@ -666,11 +662,7 @@ export async function loadWarehouseStockCache(): Promise<WarehouseStockMap | nul
 
     const cached = cacheEntry.data as unknown as CachedWarehouseStock;
     const age = Date.now() - cached.timestamp;
-
-    if (age > WH_STOCK_CACHE_TTL) {
-      console.log(`[Cache] Warehouse stock cache is ${Math.round(age / 60000)} min old — stale`);
-      return null;
-    }
+    console.log(`[Cache] Warehouse stock cache is ${Math.round(age / 60000)} min old`);
 
     console.log(`[Cache] Using cached warehouse stock (${Math.round(age / 60000)} min old)`);
     const map: WarehouseStockMap = new Map();
