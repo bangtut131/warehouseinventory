@@ -126,12 +126,15 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
     const [updating, setUpdating] = useState(false);
     const [expanded, setExpanded] = useState(false);
 
+    const [error, setError] = useState<string | null>(null);
+
     // Custom schedule local state
     const [scheduleMode, setScheduleMode] = useState<'preset' | 'custom'>('preset');
     const [selectedHours, setSelectedHours] = useState<number[]>([8]);
     const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
     const fetchStatus = useCallback(async () => {
+        setError(null);
         try {
             const res = await axios.get('/api/scheduler');
             setStatus(res.data);
@@ -144,8 +147,9 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                 setSelectedHours(parsed.hours);
                 setSelectedDays(parsed.days);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to fetch scheduler status', err);
+            setError(err.response?.data?.error || err.message || 'Gagal memuat status scheduler');
         } finally {
             setLoading(false);
         }
@@ -234,7 +238,23 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
         return min > 0 ? `${min}m ${s}s` : `${s}s`;
     };
 
-    if (loading) return null;
+    if (loading && !status && !error) return <div className="p-4 text-center text-xs text-gray-500">Memuat status Auto-Sync...</div>;
+
+    if (error && !status) {
+        return (
+            <div className="border rounded-lg p-4 bg-red-50 border-red-200">
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-red-600">⚠️</span>
+                    <span className="text-sm font-semibold text-red-700">Gagal Memuat Scheduler</span>
+                </div>
+                <p className="text-xs text-red-600 mb-3">{error}</p>
+                <Button size="sm" variant="outline" onClick={fetchStatus} className="text-xs border-red-300 text-red-700 hover:bg-red-100">
+                    Coba Lagi
+                </Button>
+            </div>
+        );
+    }
+
     if (!status) return null;
 
     const { config, cronActive, isSyncing, history } = status;
