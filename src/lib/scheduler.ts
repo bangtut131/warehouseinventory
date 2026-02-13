@@ -41,54 +41,41 @@ const DEFAULT_CONFIG: SchedulerConfig = {
 // ─── Helpers ─────────────────────────────────────────────────
 
 export async function loadConfig(): Promise<SchedulerConfig> {
-    try {
-        const setting = await prisma.systemSetting.findUnique({
-            where: { key: 'scheduler_config' },
-        });
-        if (setting && setting.value) {
-            return { ...DEFAULT_CONFIG, ...(setting.value as any) };
-        }
-    } catch (err: any) {
-        console.warn('[Scheduler] Failed to load config from DB:', err.message);
+    const setting = await prisma.systemSetting.findUnique({
+        where: { key: 'scheduler_config' },
+    });
+    if (setting && setting.value) {
+        return { ...DEFAULT_CONFIG, ...(setting.value as any) };
     }
     return { ...DEFAULT_CONFIG };
 }
 
 export async function saveConfig(config: SchedulerConfig): Promise<void> {
-    try {
-        await prisma.systemSetting.upsert({
-            where: { key: 'scheduler_config' },
-            update: { value: config as any },
-            create: { key: 'scheduler_config', value: config as any },
-        });
-        console.log('[Scheduler] Config saved to DB');
-    } catch (err: any) {
-        console.warn('[Scheduler] Failed to save config to DB:', err.message);
-    }
+    await prisma.systemSetting.upsert({
+        where: { key: 'scheduler_config' },
+        update: { value: config as any },
+        create: { key: 'scheduler_config', value: config as any },
+    });
+    console.log('[Scheduler] Config saved to DB');
 }
 
 export async function loadHistory(): Promise<SyncHistoryEntry[]> {
-    try {
-        const logs = await prisma.syncLog.findMany({
-            orderBy: { startedAt: 'desc' },
-            take: 50,
-        });
+    const logs = await prisma.syncLog.findMany({
+        orderBy: { startedAt: 'desc' },
+        take: 50,
+    });
 
-        return logs.map(log => ({
-            id: log.id,
-            startedAt: log.startedAt.toISOString(),
-            completedAt: log.completedAt ? log.completedAt.toISOString() : null,
-            status: log.status as any,
-            durationSec: log.completedAt ? Math.round((log.completedAt.getTime() - log.startedAt.getTime()) / 1000) : null,
-            itemCount: null, // We might want to add these columns to SyncLog if needed, for now simplified
-            invoiceCount: null,
-            error: log.status === 'FAILED' ? log.message : null,
-            trigger: log.trigger as any,
-        }));
-    } catch (err: any) {
-        console.warn('[Scheduler] Failed to load history:', err.message);
-    }
-    return [];
+    return logs.map(log => ({
+        id: log.id,
+        startedAt: log.startedAt.toISOString(),
+        completedAt: log.completedAt ? log.completedAt.toISOString() : null,
+        status: log.status as any,
+        durationSec: log.completedAt ? Math.round((log.completedAt.getTime() - log.startedAt.getTime()) / 1000) : null,
+        itemCount: null, // We might want to add these columns to SyncLog if needed, for now simplified
+        invoiceCount: null,
+        error: log.status === 'FAILED' ? log.message : null,
+        trigger: log.trigger as any,
+    }));
 }
 
 // Internal helper for adding logs
