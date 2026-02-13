@@ -235,39 +235,51 @@ async function fetchInvoiceList(fromDate: Date, branchId?: number): Promise<{ id
 
 /**
  * Phase 2: Fetch detail for a single invoice (to get detailItem).
+ * Retries up to maxRetries times with exponential backoff.
  */
-async function fetchInvoiceDetail(invoiceId: number): Promise<AccurateInvoice | null> {
-  try {
-    const response = await accurateClient.get('/sales-invoice/detail.do', {
-      params: { id: invoiceId }
-    });
+async function fetchInvoiceDetail(invoiceId: number, maxRetries: number = 3): Promise<AccurateInvoice | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await accurateClient.get('/sales-invoice/detail.do', {
+        params: { id: invoiceId }
+      });
 
-    if (response.data?.s && response.data.d) {
-      const d = response.data.d;
-      return {
-        id: d.id,
-        number: d.number,
-        transDate: d.transDate,
-        branchId: d.branchId || undefined,
-        detailItem: d.detailItem?.map((di: any) => ({
-          item: di.item ? { id: di.item.id, no: di.item.no, name: di.item.name } : { id: 0, no: '', name: '' },
-          quantity: di.quantity || 0,
-          quantityInBase: di.quantityInBase || (di.quantity * (di.unitRatio || 1)) || 0,
-          unitRatio: di.unitRatio || 1,
-          unitPrice: di.unitPrice || 0,
-          totalPrice: di.totalPrice || 0,
-          itemUnitName: di.itemUnitName || di.unitName || '',
-        })) || []
-      };
+      if (response.data?.s && response.data.d) {
+        const d = response.data.d;
+        return {
+          id: d.id,
+          number: d.number,
+          transDate: d.transDate,
+          branchId: d.branchId || undefined,
+          detailItem: d.detailItem?.map((di: any) => ({
+            item: di.item ? { id: di.item.id, no: di.item.no, name: di.item.name } : { id: 0, no: '', name: '' },
+            quantity: di.quantity || 0,
+            quantityInBase: di.quantityInBase || (di.quantity * (di.unitRatio || 1)) || 0,
+            unitRatio: di.unitRatio || 1,
+            unitPrice: di.unitPrice || 0,
+            totalPrice: di.totalPrice || 0,
+            itemUnitName: di.itemUnitName || di.unitName || '',
+          })) || []
+        };
+      }
+      // API returned s=false, no point retrying
+      return null;
+    } catch (err: any) {
+      if (attempt < maxRetries) {
+        const delay = 1000 * attempt; // 1s, 2s, 3s
+        console.warn(`[Accurate] Invoice ${invoiceId} fetch failed (attempt ${attempt}/${maxRetries}): ${err.message}. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error(`[Accurate] Invoice ${invoiceId} FAILED after ${maxRetries} attempts: ${err.message}`);
+        return null;
+      }
     }
-    return null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 /**
- * Process invoices in parallel batches.
+ * Process invoices in parallel batches with retry for failures.
  */
 async function fetchDetailsInBatch(
   invoiceIds: number[],
@@ -275,17 +287,43 @@ async function fetchDetailsInBatch(
   onProgress?: (done: number, total: number) => void
 ): Promise<AccurateInvoice[]> {
   const results: AccurateInvoice[] = [];
+  const failedIds: number[] = [];
   const total = invoiceIds.length;
 
+  // Main pass
   for (let i = 0; i < total; i += batchSize) {
     const batch = invoiceIds.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(id => fetchInvoiceDetail(id))
     );
-    batchResults.forEach(r => {
-      if (r) results.push(r);
+    batch.forEach((id, idx) => {
+      if (batchResults[idx]) {
+        results.push(batchResults[idx]!);
+      } else {
+        failedIds.push(id);
+      }
     });
     if (onProgress) onProgress(Math.min(i + batchSize, total), total);
+  }
+
+  // Retry pass for failed invoices (smaller batch, more patience)
+  if (failedIds.length > 0) {
+    console.warn(`[Accurate] ${failedIds.length} invoices failed in main pass. Retrying individually...`);
+    let recovered = 0;
+    for (const id of failedIds) {
+      // Wait a bit between retries to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const result = await fetchInvoiceDetail(id, 3);
+      if (result) {
+        results.push(result);
+        recovered++;
+      }
+    }
+    const stillFailed = failedIds.length - recovered;
+    console.log(`[Accurate] Retry pass done: recovered ${recovered}/${failedIds.length}. Still failed: ${stillFailed}`);
+    if (stillFailed > 0) {
+      console.warn(`[Accurate] ⚠️ ${stillFailed} invoices could NOT be fetched. Sales data may be incomplete.`);
+    }
   }
 
   return results;
