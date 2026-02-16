@@ -74,7 +74,7 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                         {critical.filtered.map((item, index) => (
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-red-50' : 'bg-white'}>
                                                 <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                                <TableCell className="max-w-[250px] truncate">{item.name}</TableCell>
+                                                <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
                                                 <TableCell className="text-right font-bold text-red-600">{item.stock} {item.unit}</TableCell>
                                                 <TableCell className="text-right">{item.safetyStock}</TableCell>
                                                 <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
@@ -137,7 +137,7 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                         {reord.filtered.map((item, index) => (
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-orange-50' : 'bg-white'}>
                                                 <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                                <TableCell className="max-w-[250px] truncate">{item.name}</TableCell>
+                                                <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
                                                 <TableCell className="text-right font-bold text-orange-600">{item.stock} {item.unit}</TableCell>
                                                 <TableCell className="text-right">{item.reorderPoint}</TableCell>
                                                 <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
@@ -201,7 +201,7 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                         {dead.filtered.map((item, index) => (
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
                                                 <TableCell className="font-medium">{item.itemNo}</TableCell>
-                                                <TableCell className="max-w-[250px] truncate">{item.name}</TableCell>
+                                                <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
                                                 <TableCell className="text-right font-bold">{item.stock}</TableCell>
                                                 <TableCell>{item.unit}</TableCell>
                                                 <TableCell className="text-right text-red-600 font-bold">{formatIDR(item.stockValue)}</TableCell>

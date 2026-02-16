@@ -76,7 +76,7 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                         <TableRow key={item.id} className={index % 2 === 0 ? 'bg-white' : 'bg-emerald-50'}>
                                             <TableCell>{index + 1}</TableCell>
                                             <TableCell className="font-medium text-blue-600 text-xs">{item.itemNo}</TableCell>
-                                            <TableCell className="max-w-[150px] truncate text-xs">{item.name}</TableCell>
+                                            <TableCell className="max-w-[150px] truncate text-xs" title={item.name}>{item.name}</TableCell>
                                             <TableCell className="text-right font-bold">{item.totalSalesQty}</TableCell>
                                             <TableCell className="text-right text-xs">
                                                 {item.totalSalesQtyBox > 0 ? (

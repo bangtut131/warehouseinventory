@@ -97,7 +97,7 @@ export const OverstockView: React.FC<OverstockViewProps> = ({ items }) => {
                                         <TableRow key={item.id} className={index % 2 === 0 ? 'bg-white' : 'bg-blue-50'}>
                                             <TableCell>{index + 1}</TableCell>
                                             <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                            <TableCell className="max-w-[200px] truncate">{item.name}</TableCell>
+                                            <TableCell className="max-w-[200px] truncate" title={item.name}>{item.name}</TableCell>
                                             <TableCell className="text-right font-bold">{item.stock}</TableCell>
                                             <TableCell className="text-right">{item.maxStock}</TableCell>
                                             <TableCell className="text-right text-red-600 font-bold">{excess > 0 ? `+${excess}` : '-'}</TableCell>

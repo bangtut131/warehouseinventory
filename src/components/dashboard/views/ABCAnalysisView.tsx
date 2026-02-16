@@ -147,7 +147,7 @@ export const ABCAnalysisView: React.FC<ABCAnalysisViewProps> = ({ items }) => {
                                     }>
                                         <TableCell>{item.rank}</TableCell>
                                         <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                        <TableCell className="max-w-[200px] truncate">{item.name}</TableCell>
+                                        <TableCell className="max-w-[200px] truncate" title={item.name}>{item.name}</TableCell>
                                         <TableCell className="text-center">
                                             <span className={`px-2 py-1 rounded text-white font-bold text-xs ${item.abcClass === 'A' ? 'bg-red-600' : item.abcClass === 'B' ? 'bg-orange-500' : 'bg-slate-500'}`}>{item.abcClass}</span>
                                         </TableCell>

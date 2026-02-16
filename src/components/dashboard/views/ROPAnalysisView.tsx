@@ -108,7 +108,7 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
                                         <TableRow key={item.id} className={rowColor}>
                                             <TableCell>{index + 1}</TableCell>
                                             <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                            <TableCell className="max-w-[200px] truncate">{item.name}</TableCell>
+                                            <TableCell className="max-w-[200px] truncate" title={item.name}>{item.name}</TableCell>
                                             <TableCell className={`text-right font-bold ${item.stock <= item.safetyStock ? 'text-red-600' : ''}`}>
                                                 {item.stock} {item.unit}
                                             </TableCell>
