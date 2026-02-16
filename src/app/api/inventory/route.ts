@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllInventory, loadSalesCache, loadWarehouseStockCache, AccurateItem, ItemSalesData } from '@/lib/accurate';
+import { fetchAllInventory, loadSalesCache, loadWarehouseStockCache, loadPOCache, AccurateItem, ItemSalesData } from '@/lib/accurate';
 import { InventoryItem, MonthlySales } from '@/lib/types';
 
 // ─── CONSTANTS ────────────────────────────────────────────────
@@ -199,6 +199,19 @@ export async function GET(request: NextRequest) {
             console.log(`[API] Warehouse ${warehouseId} selected but no warehouse stock cache — showing total stock. Run Force Sync to get per-warehouse stock.`);
         }
 
+        // 3c. Load PO Outstanding cache
+        let poOutstandingMap: Map<string, number> | null = null;
+        try {
+            poOutstandingMap = await loadPOCache(branchId);
+            if (poOutstandingMap && poOutstandingMap.size > 0) {
+                console.log(`[API] Got PO outstanding data for ${poOutstandingMap.size} items`);
+            } else {
+                console.log('[API] No PO outstanding cache — PO data not available. Run Force Sync to populate.');
+            }
+        } catch (err: any) {
+            console.log('[API] PO cache read failed:', err.message);
+        }
+
         // 4. Transform to InventoryItem with full analysis
         const inventoryItems: InventoryItem[] = accurateItems.map(item => {
             const salesData = itemSalesMap.get(item.no) || {
@@ -237,15 +250,22 @@ export async function GET(request: NextRequest) {
             const reorderPoint = Math.ceil((avgDailyUsage * LEAD_TIME_DAYS) + safetyStock);
             const maxStock = Math.ceil(reorderPoint * 2.5);
 
+            // ── PO Outstanding ──────────────────
+            const poQty = poOutstandingMap?.get(item.no) || 0;
+            const effectiveStock = quantity + poQty; // Stock on hand + PO on the way
+
             // ── Days of Supply ──────────────────
-            const rawDoS = avgDailyUsage > 0 ? quantity / avgDailyUsage : 99999;
+            const rawDoS = avgDailyUsage > 0 ? effectiveStock / avgDailyUsage : 99999;
             const daysOfSupply = parseFloat(Math.min(rawDoS, 99999).toFixed(1));
 
-            // ── Status ──────────────────────────
+            // ── Status (uses effectiveStock = stock + PO) ──
             let status: InventoryItem['status'] = 'OK';
-            if (quantity <= safetyStock && avgDailyUsage > 0) status = 'CRITICAL';
-            else if (quantity <= reorderPoint && avgDailyUsage > 0) status = 'REORDER';
+            if (effectiveStock <= safetyStock && avgDailyUsage > 0) status = 'CRITICAL';
+            else if (effectiveStock <= reorderPoint && avgDailyUsage > 0) status = 'REORDER';
             else if (daysOfSupply > 90 || (avgDailyUsage === 0 && quantity > 0)) status = 'OVERSTOCK';
+
+            // ── Net Shortage & Suggested Order ──
+            const netShortage = Math.max(0, reorderPoint - effectiveStock);
 
             // ── EOQ ─────────────────────────────
             // EOQ = sqrt((2 × D × S) / H)
@@ -255,6 +275,9 @@ export async function GET(request: NextRequest) {
             const eoq = holdingCostPerUnit > 0
                 ? Math.ceil(Math.sqrt((2 * annualDemand * ORDER_COST) / holdingCostPerUnit))
                 : 0;
+
+            // Suggested order: if there's a net shortage, order at least EOQ
+            const suggestedOrder = netShortage > 0 ? Math.max(netShortage, eoq) : 0;
 
             // ── Turnover Rate ───────────────────
             // Turnover = Annual COGS / Average Inventory Value
@@ -329,6 +352,9 @@ export async function GET(request: NextRequest) {
                 totalSalesRevenue: salesData.totalRevenue,
                 unitConversion: salesData.unitConversion || 0,
                 salesUnitName: salesData.salesUnitName || '',
+                poOutstanding: poQty,
+                netShortage,
+                suggestedOrder,
                 daysOfSupply,
                 stockValue,
                 status,

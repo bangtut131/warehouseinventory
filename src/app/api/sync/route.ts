@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, clearSalesCache, syncProgress } from '@/lib/accurate';
+import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, fetchAllPOOutstanding, clearSalesCache, syncProgress } from '@/lib/accurate';
 
 // ─── In-memory sync state ────────────────────────────────────
 interface SyncState {
@@ -36,6 +36,9 @@ export async function GET() {
         } else if (syncProgress.phase === 'warehouseStock' && syncProgress.total > 0) {
             // 65-95% = warehouse stock fetching
             progress = 65 + Math.round((syncProgress.done / syncProgress.total) * 30);
+        } else if (syncProgress.phase === 'poOutstanding' && syncProgress.total > 0) {
+            // 68-93% = PO outstanding fetching
+            progress = 68 + Math.round((syncProgress.done / syncProgress.total) * 25);
         } else if (syncProgress.phase === 'done') {
             progress = 100;
         }
@@ -104,6 +107,18 @@ export async function POST(request: NextRequest) {
             // Save warehouse stock cache
             await saveWarehouseStockCache(warehouseStockMap);
 
+            // Phase 4: Fetch PO Outstanding
+            syncProgress.phase = 'poOutstanding';
+            syncProgress.done = 0;
+            syncProgress.total = 0;
+            syncProgress.message = 'Mengambil PO Outstanding...';
+
+            const poResult = await fetchAllPOOutstanding(true, branchId, (done, total) => {
+                syncProgress.done = done;
+                syncProgress.total = total;
+                syncProgress.message = `PO Outstanding: ${done}/${total} PO`;
+            });
+
             syncProgress.phase = 'done';
             syncProgress.message = 'Selesai!';
 
@@ -111,7 +126,7 @@ export async function POST(request: NextRequest) {
                 status: 'done',
                 progress: 100,
                 phase: 'done',
-                message: `Selesai! ${result.salesMap.size} item, ${result.invoiceCount} invoice, stock ${warehouseStockMap.size} gudang`,
+                message: `Selesai! ${result.salesMap.size} item, ${result.invoiceCount} invoice, stock ${warehouseStockMap.size} gudang, ${poResult.poMap.size} PO outstanding`,
                 startedAt: syncState.startedAt,
                 completedAt: Date.now(),
                 elapsedSec: syncState.startedAt ? Math.round((Date.now() - syncState.startedAt) / 1000) : 0,

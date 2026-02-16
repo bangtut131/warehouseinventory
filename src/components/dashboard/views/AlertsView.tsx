@@ -64,7 +64,8 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                             <SortableHead label="Nama Barang" sortKey="name" sort={critical.sort} onSort={critical.toggleSort} className="text-white" />
                                             <SortableHead label="Stock" sortKey="stock" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right" />
                                             <SortableHead label="Safety" sortKey="safetyStock" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right" />
-                                            <th className="h-12 px-4 text-white font-bold text-right">Shortage</th>
+                                            <SortableHead label="PO Outst." sortKey="poOutstanding" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right" />
+                                            <th className="h-12 px-4 text-white font-bold text-right">Net Shortage</th>
                                             <SortableHead label="DoS" sortKey="daysOfSupply" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right" />
                                             <SortableHead label="Demand" sortKey="demandCategory" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-center" />
                                         </tr>
@@ -76,7 +77,16 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                                 <TableCell className="max-w-[250px] truncate">{item.name}</TableCell>
                                                 <TableCell className="text-right font-bold text-red-600">{item.stock} {item.unit}</TableCell>
                                                 <TableCell className="text-right">{item.safetyStock}</TableCell>
-                                                <TableCell className="text-right font-bold text-red-700">-{Math.max(0, item.reorderPoint - item.stock)}</TableCell>
+                                                <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
+                                                    {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                                </TableCell>
+                                                <TableCell className="text-right font-bold">
+                                                    {item.netShortage > 0 ? (
+                                                        <span className="text-red-700">-{item.netShortage}</span>
+                                                    ) : (
+                                                        <span className="text-green-600">✅ Covered</span>
+                                                    )}
+                                                </TableCell>
                                                 <TableCell className="text-right">{isFinite(item.daysOfSupply) ? `${Math.min(Math.round(item.daysOfSupply), 99999)} d` : '0 d'}</TableCell>
                                                 <TableCell className="text-center">
                                                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.demandCategory === 'FAST' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{item.demandCategory}</span>
@@ -117,7 +127,8 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                             <SortableHead label="Nama Barang" sortKey="name" sort={reord.sort} onSort={reord.toggleSort} className="text-white" />
                                             <SortableHead label="Stock" sortKey="stock" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
                                             <SortableHead label="ROP" sortKey="reorderPoint" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
-                                            <SortableHead label="EOQ" sortKey="eoq" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
+                                            <SortableHead label="PO Outst." sortKey="poOutstanding" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
+                                            <SortableHead label="Saran Order" sortKey="suggestedOrder" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
                                             <SortableHead label="ABC" sortKey="abcClass" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-center" />
                                             <SortableHead label="DoS" sortKey="daysOfSupply" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
                                         </tr>
@@ -129,7 +140,16 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                                 <TableCell className="max-w-[250px] truncate">{item.name}</TableCell>
                                                 <TableCell className="text-right font-bold text-orange-600">{item.stock} {item.unit}</TableCell>
                                                 <TableCell className="text-right">{item.reorderPoint}</TableCell>
-                                                <TableCell className="text-right font-bold text-indigo-600">{item.eoq}</TableCell>
+                                                <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
+                                                    {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                                </TableCell>
+                                                <TableCell className="text-right font-bold">
+                                                    {item.suggestedOrder > 0 ? (
+                                                        <span className="text-indigo-700">{item.suggestedOrder}</span>
+                                                    ) : (
+                                                        <span className="text-green-600">✅ Covered</span>
+                                                    )}
+                                                </TableCell>
                                                 <TableCell className="text-center">
                                                     <span className={`px-2 py-1 rounded text-white font-bold text-xs ${item.abcClass === 'A' ? 'bg-red-600' : item.abcClass === 'B' ? 'bg-orange-500' : 'bg-slate-500'}`}>{item.abcClass}</span>
                                                 </TableCell>

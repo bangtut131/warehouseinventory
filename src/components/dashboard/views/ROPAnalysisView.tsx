@@ -89,12 +89,12 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
                                     <th className="h-12 px-4 text-white font-bold">Unit</th>
                                     <SortableHead label="ROP" sortKey="reorderPoint" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Safety" sortKey="safetyStock" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="PO Outst." sortKey="poOutstanding" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Net Shortage" sortKey="netShortage" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Min" sortKey="minStock" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Max" sortKey="maxStock" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Avg/Hari" sortKey="averageDailyUsage" sort={sort} onSort={toggleSort} className="text-white text-right" />
-                                    <SortableHead label="StdDev" sortKey="standardDeviation" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="DoS" sortKey="daysOfSupply" sort={sort} onSort={toggleSort} className="text-white text-right" />
-                                    <SortableHead label="Nilai Stock" sortKey="stockValue" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="text-white text-center" />
                                 </tr>
                             </thead>
@@ -115,12 +115,20 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
                                             <TableCell>{item.unit}</TableCell>
                                             <TableCell className="text-right font-bold text-blue-700">{item.reorderPoint}</TableCell>
                                             <TableCell className="text-right">{item.safetyStock}</TableCell>
+                                            <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
+                                                {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold">
+                                                {item.netShortage > 0 ? (
+                                                    <span className="text-red-600">-{item.netShortage}</span>
+                                                ) : (
+                                                    <span className="text-green-600">0</span>
+                                                )}
+                                            </TableCell>
                                             <TableCell className="text-right">{item.minStock}</TableCell>
                                             <TableCell className="text-right">{item.maxStock}</TableCell>
                                             <TableCell className="text-right">{item.averageDailyUsage}</TableCell>
-                                            <TableCell className="text-right">{item.standardDeviation}</TableCell>
                                             <TableCell className="text-right">{isFinite(item.daysOfSupply) ? `${Math.min(Math.round(item.daysOfSupply), 99999)} d` : '∞'}</TableCell>
-                                            <TableCell className="text-right">{formatIDR(item.stockValue)}</TableCell>
                                             <TableCell className="text-center">
                                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${item.status === 'CRITICAL' ? 'bg-red-600 text-white' :
                                                     item.status === 'REORDER' ? 'bg-orange-500 text-white' :

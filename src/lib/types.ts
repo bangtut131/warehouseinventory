@@ -49,6 +49,11 @@ export interface InventoryItem {
     unitConversion: number;        // Pcs per box (0 = same unit)
     salesUnitName: string;         // Sales unit name (e.g. "Box", "Karung")
 
+    // PO Outstanding
+    poOutstanding: number;       // Qty masih dalam PO (belum diterima)
+    netShortage: number;         // Max(0, ROP - Stock - PO Outstanding)
+    suggestedOrder: number;      // Qty yang perlu di-order tambahan
+
     // Computed
     daysOfSupply: number;
     stockValue: number;

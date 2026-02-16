@@ -45,7 +45,7 @@ export async function clearSalesCache(fromDate?: Date, branchId?: number): Promi
 
 // ─── Sync progress tracker (read by /api/sync) ──────────────
 export const syncProgress = {
-  phase: '' as '' | 'listing' | 'details' | 'aggregating' | 'warehouseStock' | 'done',
+  phase: '' as '' | 'listing' | 'details' | 'aggregating' | 'warehouseStock' | 'poOutstanding' | 'done',
   done: 0,
   total: 0,
   message: '',
@@ -715,4 +715,321 @@ export async function loadWarehouseStockCache(): Promise<WarehouseStockMap | nul
   } catch {
     return null;
   }
+}
+
+// ─── PO OUTSTANDING (Phase 4) ────────────────────────────────
+
+/**
+ * PO Outstanding = qty in Purchase Orders that have NOT been fully received.
+ * We fetch POs with status Open/Partial, then aggregate outstanding qty per itemNo.
+ */
+
+export interface AccuratePOItem {
+  item: {
+    id: number;
+    no: string;
+    name: string;
+  };
+  quantity: number;          // ordered qty
+  quantityReceived: number;  // already received
+  quantityInBase: number;    // ordered qty in base unit
+  quantityReceivedInBase: number; // received qty in base unit
+  unitRatio: number;
+  itemUnitName?: string;
+}
+
+export interface AccuratePO {
+  id: number;
+  number: string;
+  transDate: string;
+  branchId?: number;
+  statusName?: string;       // "Open", "Partial", "Closed", etc.
+  detailItem?: AccuratePOItem[];
+}
+
+/** Outstanding qty per itemNo (in base unit / pcs) */
+export type POOutstandingMap = Map<string, number>;
+
+interface CachedPOOutstanding {
+  timestamp: number;
+  /** itemNo → outstanding qty */
+  data: Record<string, number>;
+}
+
+const PO_CACHE_KEY_PREFIX = 'po-outstanding-cache';
+
+function getPOCacheKey(branchId?: number): string {
+  return branchId ? `${PO_CACHE_KEY_PREFIX}-branch${branchId}` : PO_CACHE_KEY_PREFIX;
+}
+
+/**
+ * Phase 4a: Fetch PO list with status filter (Open / Partial only).
+ * These are POs that have outstanding items not yet fully received.
+ */
+async function fetchPOList(branchId?: number): Promise<{ id: number; transDate: string; branchId?: number }[]> {
+  const allPOs: { id: number; transDate: string; branchId?: number }[] = [];
+  let page = 1;
+  const pageSize = 100;
+  let hasMore = true;
+
+  console.log(`[Accurate] PO Phase 1: Fetching PO list (Open/Partial)${branchId ? ` branch=${branchId}` : ''}...`);
+
+  while (hasMore) {
+    try {
+      const params: Record<string, any> = {
+        fields: 'id,transDate,branchId,statusName',
+        'filter.statusName.op': 'IN',
+        'filter.statusName.val[0]': 'Open',
+        'filter.statusName.val[1]': 'Partial',
+        'sp.page': page,
+        'sp.pageSize': pageSize,
+      };
+      if (branchId) {
+        params['filter.branchId.op'] = 'EQUAL';
+        params['filter.branchId.val'] = branchId;
+      }
+
+      const response = await accurateClient.get('/purchase-order/list.do', { params });
+
+      if (response.data?.s) {
+        const list = response.data.d || [];
+        if (list.length === 0) {
+          hasMore = false;
+        } else {
+          list.forEach((po: any) => {
+            allPOs.push({ id: po.id, transDate: po.transDate, branchId: po.branchId });
+          });
+          if (page % 20 === 0) {
+            console.log(`[Accurate]   PO page ${page}, collected ${allPOs.length} POs so far`);
+          }
+          page++;
+          if (page > 200) {
+            console.log(`[Accurate]   PO: Hit 200 pages, stopping at ${allPOs.length} POs`);
+            hasMore = false;
+          }
+        }
+      } else {
+        console.warn('[Accurate] PO list API returned s=false:', response.data?.d);
+        hasMore = false;
+      }
+    } catch (error: any) {
+      console.error(`[Accurate] PO list page ${page} error:`, error.message);
+      hasMore = false;
+    }
+  }
+
+  console.log(`[Accurate] PO Phase 1 done: ${allPOs.length} outstanding POs`);
+  return allPOs;
+}
+
+/**
+ * Phase 4b: Fetch detail for a single PO.
+ */
+async function fetchPODetail(poId: number, maxRetries: number = 3): Promise<AccuratePO | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await accurateClient.get('/purchase-order/detail.do', {
+        params: { id: poId }
+      });
+
+      if (response.data?.s && response.data.d) {
+        const d = response.data.d;
+        return {
+          id: d.id,
+          number: d.number,
+          transDate: d.transDate,
+          branchId: d.branchId || undefined,
+          statusName: d.statusName || '',
+          detailItem: d.detailItem?.map((di: any) => ({
+            item: di.item ? { id: di.item.id, no: di.item.no, name: di.item.name } : { id: 0, no: '', name: '' },
+            quantity: di.quantity || 0,
+            quantityReceived: di.quantityReceived || 0,
+            quantityInBase: di.quantityInBase || (di.quantity * (di.unitRatio || 1)) || 0,
+            quantityReceivedInBase: di.quantityReceivedInBase || (di.quantityReceived * (di.unitRatio || 1)) || 0,
+            unitRatio: di.unitRatio || 1,
+            itemUnitName: di.itemUnitName || di.unitName || '',
+          })) || []
+        };
+      }
+      return null;
+    } catch (err: any) {
+      if (attempt < maxRetries) {
+        const delay = 1000 * attempt;
+        console.warn(`[Accurate] PO ${poId} fetch failed (attempt ${attempt}/${maxRetries}): ${err.message}. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error(`[Accurate] PO ${poId} FAILED after ${maxRetries} attempts: ${err.message}`);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Process POs in parallel batches.
+ */
+async function fetchPODetailsInBatch(
+  poIds: number[],
+  batchSize: number = 15,
+  onProgress?: (done: number, total: number) => void
+): Promise<AccuratePO[]> {
+  const results: AccuratePO[] = [];
+  const failedIds: number[] = [];
+  const total = poIds.length;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = poIds.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map(id => fetchPODetail(id))
+    );
+    batch.forEach((id, idx) => {
+      if (batchResults[idx]) {
+        results.push(batchResults[idx]!);
+      } else {
+        failedIds.push(id);
+      }
+    });
+    if (onProgress) onProgress(Math.min(i + batchSize, total), total);
+  }
+
+  // Retry failed
+  if (failedIds.length > 0) {
+    console.warn(`[Accurate] ${failedIds.length} POs failed. Retrying...`);
+    for (const id of failedIds) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const result = await fetchPODetail(id, 3);
+      if (result) results.push(result);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Aggregate outstanding qty per itemNo from PO details.
+ * Outstanding = ordered qty - received qty (in base unit / pcs).
+ */
+function aggregatePOOutstanding(pos: AccuratePO[]): POOutstandingMap {
+  const map: POOutstandingMap = new Map();
+
+  pos.forEach(po => {
+    if (po.detailItem) {
+      po.detailItem.forEach(d => {
+        const itemNo = d.item?.no;
+        if (!itemNo) return;
+
+        const orderedPcs = d.quantityInBase || d.quantity;
+        const receivedPcs = d.quantityReceivedInBase || d.quantityReceived || 0;
+        const outstanding = Math.max(0, orderedPcs - receivedPcs);
+
+        if (outstanding > 0) {
+          map.set(itemNo, (map.get(itemNo) || 0) + outstanding);
+        }
+      });
+    }
+  });
+
+  return map;
+}
+
+/**
+ * Save PO outstanding cache to DB.
+ */
+export async function savePOCache(poMap: POOutstandingMap, branchId?: number): Promise<void> {
+  try {
+    const data: Record<string, number> = {};
+    poMap.forEach((qty, itemNo) => {
+      data[itemNo] = qty;
+    });
+
+    const cached: CachedPOOutstanding = { timestamp: Date.now(), data };
+    const key = getPOCacheKey(branchId);
+
+    await prisma.dataCache.upsert({
+      where: { key },
+      update: { data: cached as any },
+      create: { key, data: cached as any },
+    });
+
+    console.log(`[Cache] PO outstanding saved (${poMap.size} items) key: ${key}`);
+  } catch (err: any) {
+    console.warn(`[Cache] Failed to save PO cache:`, err.message);
+  }
+}
+
+/**
+ * Load PO outstanding cache from DB.
+ */
+export async function loadPOCache(branchId?: number): Promise<POOutstandingMap | null> {
+  try {
+    const key = getPOCacheKey(branchId);
+    const cacheEntry = await prisma.dataCache.findUnique({ where: { key } });
+
+    if (!cacheEntry || !cacheEntry.data) {
+      console.log(`[Cache] No PO outstanding cache found${branchId ? ` (branch ${branchId})` : ''}`);
+      return null;
+    }
+
+    const cached = cacheEntry.data as unknown as CachedPOOutstanding;
+    const age = Date.now() - cached.timestamp;
+    console.log(`[Cache] PO outstanding cache is ${Math.round(age / 60000)} min old`);
+
+    const map: POOutstandingMap = new Map();
+    for (const [itemNo, qty] of Object.entries(cached.data)) {
+      map.set(itemNo, qty);
+    }
+    return map;
+  } catch (err: any) {
+    console.warn(`[Cache] PO cache load error:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Main entry: Fetch all PO outstanding data with caching.
+ * Returns a Map of itemNo → outstanding qty (pcs).
+ */
+export async function fetchAllPOOutstanding(
+  force: boolean = false,
+  branchId?: number,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ poMap: POOutstandingMap; poCount: number }> {
+  // Try cache first
+  if (!force) {
+    const cached = await loadPOCache(branchId);
+    if (cached) {
+      return { poMap: cached, poCount: -1 };
+    }
+  }
+
+  // Phase 1: List POs (Open/Partial)
+  const poList = await fetchPOList(branchId);
+
+  if (poList.length === 0) {
+    console.log('[Accurate] No outstanding POs found');
+    const emptyMap: POOutstandingMap = new Map();
+    await savePOCache(emptyMap, branchId);
+    return { poMap: emptyMap, poCount: 0 };
+  }
+
+  // Phase 2: Fetch details
+  const poIds = poList.map(po => po.id);
+  console.log(`[Accurate] PO Phase 2: Fetching detail for ${poIds.length} POs...`);
+
+  const pos = await fetchPODetailsInBatch(poIds, 15, (done, total) => {
+    if (onProgress) onProgress(done, total);
+    syncProgress.done = done;
+    syncProgress.total = total;
+    syncProgress.message = `PO Outstanding: ${done}/${total} PO`;
+  });
+
+  // Phase 3: Aggregate
+  const poMap = aggregatePOOutstanding(pos);
+  console.log(`[Accurate] PO done: ${poMap.size} items with outstanding qty from ${pos.length} POs`);
+
+  // Cache
+  await savePOCache(poMap, branchId);
+
+  return { poMap, poCount: pos.length };
 }

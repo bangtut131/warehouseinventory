@@ -108,7 +108,9 @@ export const EOQView: React.FC<EOQViewProps> = ({ items }) => {
                                     <SortableHead label="EOQ" sortKey="eoq" sort={sort} onSort={toggleSort} className="text-white text-right bg-indigo-800" />
                                     <SortableHead label="Orders/Thn" sortKey="_orders" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Stock" sortKey="stock" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="PO Outst." sortKey="poOutstanding" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="ROP" sortKey="reorderPoint" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Saran Order" sortKey="suggestedOrder" sort={sort} onSort={toggleSort} className="text-white text-right bg-indigo-800" />
                                     <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="text-white text-center" />
                                 </tr>
                             </thead>
@@ -130,7 +132,17 @@ export const EOQView: React.FC<EOQViewProps> = ({ items }) => {
                                             <TableCell className="text-right font-bold text-indigo-700 bg-indigo-50">{item.eoq.toLocaleString()}</TableCell>
                                             <TableCell className="text-right">{ordersPerYear}</TableCell>
                                             <TableCell className="text-right">{item.stock}</TableCell>
+                                            <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
+                                                {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                            </TableCell>
                                             <TableCell className="text-right">{item.reorderPoint}</TableCell>
+                                            <TableCell className="text-right font-bold bg-indigo-50">
+                                                {item.suggestedOrder > 0 ? (
+                                                    <span className="text-indigo-700">{item.suggestedOrder.toLocaleString()}</span>
+                                                ) : (
+                                                    <span className="text-green-600">✅</span>
+                                                )}
+                                            </TableCell>
                                             <TableCell className="text-center">
                                                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.status === 'CRITICAL' ? 'bg-red-100 text-red-800' : item.status === 'REORDER' ? 'bg-orange-100 text-orange-800' : item.status === 'OVERSTOCK' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{item.status}</span>
                                             </TableCell>

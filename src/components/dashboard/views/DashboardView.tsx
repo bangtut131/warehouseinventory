@@ -104,6 +104,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ items }) => {
                     </CardContent>
                 </Card>
 
+                <Card className="bg-purple-600 text-white shadow-lg">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-medium opacity-90">📋 PO Outstanding</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-3xl font-bold">{items.filter(i => i.poOutstanding > 0).length}</div>
+                        <p className="text-xs opacity-75">Item dengan PO aktif</p>
+                    </CardContent>
+                </Card>
+
                 <Card className="bg-blue-500 text-white shadow-lg">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium opacity-90">📦 Overstock</CardTitle>
@@ -121,16 +131,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ items }) => {
                     <CardContent>
                         <div className="text-3xl font-bold">{deadStockItems.length}</div>
                         <p className="text-xs opacity-75">{formatIDR(deadStockValue)} terikat</p>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-green-600 text-white shadow-lg">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium opacity-90">⚡ Fast Moving</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{fastMoving.length}</div>
-                        <p className="text-xs opacity-75">Avg &gt;5 unit/hari</p>
                     </CardContent>
                 </Card>
             </div>
