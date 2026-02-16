@@ -255,17 +255,17 @@ export async function GET(request: NextRequest) {
             const effectiveStock = quantity + poQty; // Stock on hand + PO on the way
 
             // ── Days of Supply ──────────────────
-            const rawDoS = avgDailyUsage > 0 ? effectiveStock / avgDailyUsage : 99999;
+            const rawDoS = avgDailyUsage > 0 ? quantity / avgDailyUsage : 99999;
             const daysOfSupply = parseFloat(Math.min(rawDoS, 99999).toFixed(1));
 
-            // ── Status (uses effectiveStock = stock + PO) ──
+            // ── Status ──────────────────────────
             let status: InventoryItem['status'] = 'OK';
-            if (effectiveStock <= safetyStock && avgDailyUsage > 0) status = 'CRITICAL';
-            else if (effectiveStock <= reorderPoint && avgDailyUsage > 0) status = 'REORDER';
+            if (quantity <= safetyStock && avgDailyUsage > 0) status = 'CRITICAL';
+            else if (quantity <= reorderPoint && avgDailyUsage > 0) status = 'REORDER';
             else if (daysOfSupply > 90 || (avgDailyUsage === 0 && quantity > 0)) status = 'OVERSTOCK';
 
-            // ── Net Shortage & Suggested Order ──
-            const netShortage = Math.max(0, reorderPoint - effectiveStock);
+            // ── Net Shortage & Suggested Order (PO-aware, display only) ──
+            const netShortage = Math.max(0, reorderPoint - quantity - poQty);
 
             // ── EOQ ─────────────────────────────
             // EOQ = sqrt((2 × D × S) / H)

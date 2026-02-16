@@ -107,17 +107,23 @@ export async function POST(request: NextRequest) {
             // Save warehouse stock cache
             await saveWarehouseStockCache(warehouseStockMap);
 
-            // Phase 4: Fetch PO Outstanding
-            syncProgress.phase = 'poOutstanding';
-            syncProgress.done = 0;
-            syncProgress.total = 0;
-            syncProgress.message = 'Mengambil PO Outstanding...';
+            // Phase 4: Fetch PO Outstanding (non-critical — if it fails, sync still completes)
+            let poItemCount = 0;
+            try {
+                syncProgress.phase = 'poOutstanding';
+                syncProgress.done = 0;
+                syncProgress.total = 0;
+                syncProgress.message = 'Mengambil PO Outstanding...';
 
-            const poResult = await fetchAllPOOutstanding(true, branchId, (done, total) => {
-                syncProgress.done = done;
-                syncProgress.total = total;
-                syncProgress.message = `PO Outstanding: ${done}/${total} PO`;
-            });
+                const poResult = await fetchAllPOOutstanding(true, branchId, (done, total) => {
+                    syncProgress.done = done;
+                    syncProgress.total = total;
+                    syncProgress.message = `PO Outstanding: ${done}/${total} PO`;
+                });
+                poItemCount = poResult.poMap.size;
+            } catch (poErr: any) {
+                console.warn('[Sync] PO Outstanding fetch failed (non-critical):', poErr.message);
+            }
 
             syncProgress.phase = 'done';
             syncProgress.message = 'Selesai!';
@@ -126,7 +132,7 @@ export async function POST(request: NextRequest) {
                 status: 'done',
                 progress: 100,
                 phase: 'done',
-                message: `Selesai! ${result.salesMap.size} item, ${result.invoiceCount} invoice, stock ${warehouseStockMap.size} gudang, ${poResult.poMap.size} PO outstanding`,
+                message: `Selesai! ${result.salesMap.size} item, ${result.invoiceCount} invoice, stock ${warehouseStockMap.size} gudang${poItemCount > 0 ? `, ${poItemCount} PO outstanding` : ''}`,
                 startedAt: syncState.startedAt,
                 completedAt: Date.now(),
                 elapsedSec: syncState.startedAt ? Math.round((Date.now() - syncState.startedAt) / 1000) : 0,
