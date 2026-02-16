@@ -730,10 +730,8 @@ export interface AccuratePOItem {
     no: string;
     name: string;
   };
-  quantity: number;          // ordered qty
-  quantityReceived: number;  // already received
-  quantityInBase: number;    // ordered qty in base unit
-  quantityReceivedInBase: number; // received qty in base unit
+  quantity: number;          // ordered qty (Kts Pesanan)
+  shipQuantity: number;      // received/processed qty (Kts Terproses)
   unitRatio: number;
   itemUnitName?: string;
 }
@@ -743,7 +741,7 @@ export interface AccuratePO {
   number: string;
   transDate: string;
   branchId?: number;
-  statusName?: string;       // "Open", "Partial", "Closed", etc.
+  statusName?: string;       // "Open"/"Buka", "Partial"/"Sebagian", "Closed"/"Ditutup"
   detailItem?: AccuratePOItem[];
 }
 
@@ -763,24 +761,25 @@ function getPOCacheKey(branchId?: number): string {
 }
 
 /**
- * Phase 4a: Fetch PO list with status filter (Open / Partial only).
- * These are POs that have outstanding items not yet fully received.
+ * Phase 4a: Fetch PO list — exclude "Ditutup"/"Closed" POs.
+ * We fetch all POs and filter out closed ones, since Accurate may use
+ * Indonesian (Buka/Sebagian/Ditutup) or English (Open/Partial/Closed) status names.
  */
-async function fetchPOList(branchId?: number): Promise<{ id: number; transDate: string; branchId?: number }[]> {
-  const allPOs: { id: number; transDate: string; branchId?: number }[] = [];
+async function fetchPOList(branchId?: number): Promise<{ id: number; transDate: string; branchId?: number; statusName?: string }[]> {
+  const allPOs: { id: number; transDate: string; branchId?: number; statusName?: string }[] = [];
   let page = 1;
   const pageSize = 100;
   let hasMore = true;
 
-  console.log(`[Accurate] PO Phase 1: Fetching PO list (Open/Partial)${branchId ? ` branch=${branchId}` : ''}...`);
+  // Status names to EXCLUDE (closed POs have no outstanding)
+  const CLOSED_STATUSES = ['ditutup', 'closed', 'selesai', 'void', 'cancel', 'batal'];
+
+  console.log(`[Accurate] PO Phase 1: Fetching PO list${branchId ? ` branch=${branchId}` : ''}...`);
 
   while (hasMore) {
     try {
       const params: Record<string, any> = {
         fields: 'id,transDate,branchId,statusName',
-        'filter.statusName.op': 'IN',
-        'filter.statusName.val[0]': 'Open',
-        'filter.statusName.val[1]': 'Partial',
         'sp.page': page,
         'sp.pageSize': pageSize,
       };
@@ -796,8 +795,18 @@ async function fetchPOList(branchId?: number): Promise<{ id: number; transDate: 
         if (list.length === 0) {
           hasMore = false;
         } else {
+          // Log first page to debug status names
+          if (page === 1 && list.length > 0) {
+            const statusSample = list.slice(0, 5).map((po: any) => `${po.number}:${po.statusName}`);
+            console.log(`[Accurate]   PO status samples: ${statusSample.join(', ')}`);
+          }
+
           list.forEach((po: any) => {
-            allPOs.push({ id: po.id, transDate: po.transDate, branchId: po.branchId });
+            const status = (po.statusName || '').toLowerCase().trim();
+            // Only include POs that are NOT closed
+            if (!CLOSED_STATUSES.includes(status)) {
+              allPOs.push({ id: po.id, transDate: po.transDate, branchId: po.branchId, statusName: po.statusName });
+            }
           });
           if (page % 20 === 0) {
             console.log(`[Accurate]   PO page ${page}, collected ${allPOs.length} POs so far`);
@@ -818,7 +827,7 @@ async function fetchPOList(branchId?: number): Promise<{ id: number; transDate: 
     }
   }
 
-  console.log(`[Accurate] PO Phase 1 done: ${allPOs.length} outstanding POs`);
+  console.log(`[Accurate] PO Phase 1 done: ${allPOs.length} outstanding POs (excluded closed)`);
   return allPOs;
 }
 
@@ -843,9 +852,8 @@ async function fetchPODetail(poId: number, maxRetries: number = 3): Promise<Accu
           detailItem: d.detailItem?.map((di: any) => ({
             item: di.item ? { id: di.item.id, no: di.item.no, name: di.item.name } : { id: 0, no: '', name: '' },
             quantity: di.quantity || 0,
-            quantityReceived: di.quantityReceived || 0,
-            quantityInBase: di.quantityInBase || (di.quantity * (di.unitRatio || 1)) || 0,
-            quantityReceivedInBase: di.quantityReceivedInBase || (di.quantityReceived * (di.unitRatio || 1)) || 0,
+            // Accurate uses "shipQuantity" for received/processed qty (Kts Terproses)
+            shipQuantity: di.shipQuantity ?? di.quantityReceived ?? 0,
             unitRatio: di.unitRatio || 1,
             itemUnitName: di.itemUnitName || di.unitName || '',
           })) || []
@@ -908,20 +916,25 @@ async function fetchPODetailsInBatch(
 
 /**
  * Aggregate outstanding qty per itemNo from PO details.
- * Outstanding = ordered qty - received qty (in base unit / pcs).
+ * Formula from Accurate: Outstanding = quantity - shipQuantity
+ * If PO status is "Ditutup" (Closed), outstanding = 0
  */
 function aggregatePOOutstanding(pos: AccuratePO[]): POOutstandingMap {
   const map: POOutstandingMap = new Map();
+  const CLOSED_STATUSES = ['ditutup', 'closed', 'selesai', 'void', 'cancel', 'batal'];
 
   pos.forEach(po => {
+    // Skip closed POs entirely (double check)
+    const poStatus = (po.statusName || '').toLowerCase().trim();
+    if (CLOSED_STATUSES.includes(poStatus)) return;
+
     if (po.detailItem) {
       po.detailItem.forEach(d => {
         const itemNo = d.item?.no;
         if (!itemNo) return;
 
-        const orderedPcs = d.quantityInBase || d.quantity;
-        const receivedPcs = d.quantityReceivedInBase || d.quantityReceived || 0;
-        const outstanding = Math.max(0, orderedPcs - receivedPcs);
+        // Outstanding = Kts Pesanan - Kts Terproses (quantity - shipQuantity)
+        const outstanding = Math.max(0, d.quantity - d.shipQuantity);
 
         if (outstanding > 0) {
           map.set(itemNo, (map.get(itemNo) || 0) + outstanding);
