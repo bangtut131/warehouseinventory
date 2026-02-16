@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { exportAllAnalysis } from '@/lib/exportExcel';
 import { SchedulerPanel } from './SchedulerPanel';
+import { BroadcastPanel } from './BroadcastPanel';
 
 function formatDateParam(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -408,6 +409,9 @@ export default function InventoryDashboard() {
 
             {/* Auto-Sync Scheduler Panel */}
             <SchedulerPanel branches={branches} />
+
+            {/* WA Broadcast Panel */}
+            <BroadcastPanel branches={branches} warehouses={warehouses} />
 
             {/* Tabs */}
             <div className="flex flex-wrap gap-1.5">

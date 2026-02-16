@@ -27,3 +27,15 @@ model DataCache {
   data      Json
   updatedAt DateTime @updatedAt
 }
+
+model BroadcastLog {
+  id          Int       @id @default(autoincrement())
+  type        String    // "reorder" | "alert-pdf"
+  sentAt      DateTime  @default(now())
+  status      String    // "SUCCESS" | "FAILED"
+  target      String    // WA number/group
+  branchId    Int?
+  warehouseId Int?
+  message     String?
+  itemCount   Int?
+}
