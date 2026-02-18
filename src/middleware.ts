@@ -24,6 +24,14 @@ export function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
+    // Allow internal server-to-server calls (broadcast scheduler → /api/inventory)
+    // These come from localhost without session cookies
+    const host = request.headers.get('host') || '';
+    const isInternalCall = host.startsWith('localhost') || host.startsWith('127.0.0.1');
+    if (isInternalCall && pathname.startsWith('/api/')) {
+        return NextResponse.next();
+    }
+
     // Check session cookie
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
 
