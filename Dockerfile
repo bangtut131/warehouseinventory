@@ -37,6 +37,12 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=builder /app/prisma ./prisma
 
+# Copy pdfkit and its dependencies for server-side PDF generation
+COPY --from=builder /app/node_modules/pdfkit ./node_modules/pdfkit
+COPY --from=builder /app/node_modules/fontkit ./node_modules/fontkit
+COPY --from=builder /app/node_modules/png-js ./node_modules/png-js
+COPY --from=builder /app/node_modules/crypto-js ./node_modules/crypto-js
+
 # Create data directory
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
