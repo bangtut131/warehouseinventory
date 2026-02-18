@@ -23,6 +23,7 @@ function pdfToBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
         doc.on('data', (chunk: Buffer) => chunks.push(chunk));
         doc.on('end', () => resolve(Buffer.concat(chunks)));
         doc.on('error', reject);
+        doc.flushPages();
         doc.end();
     });
 }
