@@ -105,7 +105,10 @@ export async function executeBroadcast(
     // 2. Fetch inventory data from our own API
     let items: InventoryItem[];
     try {
-        const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        // Use explicit env URL if set, otherwise use internal localhost with correct port
+        const baseUrl = process.env.NEXTAUTH_URL
+            || process.env.NEXT_PUBLIC_BASE_URL
+            || `http://localhost:${process.env.PORT || 3000}`;
         const params: Record<string, string> = {};
         if (config.branchId) params.branch = config.branchId.toString();
         if (config.warehouseId) params.warehouse = config.warehouseId.toString();
@@ -113,7 +116,7 @@ export async function executeBroadcast(
         const url = `${baseUrl}/api/inventory${qs ? '?' + qs : ''}`;
 
         console.log(`[Broadcast] Fetching inventory data from ${url}`);
-        const res = await axios.get(url, { timeout: 60000 });
+        const res = await axios.get(url, { timeout: 120000 });
         items = res.data;
         console.log(`[Broadcast] Got ${items.length} inventory items`);
     } catch (err: any) {
