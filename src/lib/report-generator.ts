@@ -1,14 +1,5 @@
-import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import PDFDocument from 'pdfkit';
 import { InventoryItem } from './types';
-
-// Extend jsPDF type for autotable
-declare module 'jspdf' {
-    interface jsPDF {
-        autoTable: (options: any) => jsPDF;
-        lastAutoTable: { finalY: number };
-    }
-}
 
 // ─── HELPERS ─────────────────────────────────────────────────
 
@@ -26,43 +17,147 @@ function formatNumber(n: number): string {
     return n.toLocaleString('id-ID');
 }
 
+function pdfToBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+        doc.end();
+    });
+}
+
+// Table drawing helper
+function drawTable(
+    doc: PDFKit.PDFDocument,
+    headers: string[],
+    rows: string[][],
+    colWidths: number[],
+    startX: number,
+    startY: number,
+    options?: {
+        headerBg?: [number, number, number];
+        rowBg?: [number, number, number];
+        criticalRowTest?: (row: string[]) => boolean;
+        criticalBg?: [number, number, number];
+    }
+): number {
+    const opts = options || {};
+    const headerBg = opts.headerBg || [30, 64, 175];
+    const rowBg = opts.rowBg || [255, 255, 255];
+    const criticalBg = opts.criticalBg || [254, 226, 226];
+    const rowHeight = 18;
+    const headerHeight = 22;
+    const fontSize = 7;
+    const headerFontSize = 8;
+    const padding = 4;
+    const pageBottom = 560; // landscape A4 usable height
+
+    let y = startY;
+
+    // Draw header
+    doc.save();
+    doc.rect(startX, y, colWidths.reduce((a, b) => a + b, 0), headerHeight)
+        .fill(`rgb(${headerBg.join(',')})`);
+    doc.fillColor('white').fontSize(headerFontSize).font('Helvetica-Bold');
+    let x = startX;
+    headers.forEach((h, i) => {
+        doc.text(h, x + padding, y + 5, { width: colWidths[i] - padding * 2, height: headerHeight, align: 'center' });
+        x += colWidths[i];
+    });
+    doc.restore();
+    y += headerHeight;
+
+    // Draw rows
+    rows.forEach((row) => {
+        // Check if we need a new page
+        if (y + rowHeight > pageBottom) {
+            doc.addPage();
+            y = 40;
+            // Re-draw header on new page
+            doc.save();
+            doc.rect(startX, y, colWidths.reduce((a, b) => a + b, 0), headerHeight)
+                .fill(`rgb(${headerBg.join(',')})`);
+            doc.fillColor('white').fontSize(headerFontSize).font('Helvetica-Bold');
+            let hx = startX;
+            headers.forEach((h, i) => {
+                doc.text(h, hx + padding, y + 5, { width: colWidths[i] - padding * 2, height: headerHeight, align: 'center' });
+                hx += colWidths[i];
+            });
+            doc.restore();
+            y += headerHeight;
+        }
+
+        const isCritical = opts.criticalRowTest ? opts.criticalRowTest(row) : false;
+        const bg = isCritical ? criticalBg : rowBg;
+
+        doc.save();
+        doc.rect(startX, y, colWidths.reduce((a, b) => a + b, 0), rowHeight)
+            .fill(`rgb(${bg.join(',')})`);
+
+        // Draw cell borders
+        doc.strokeColor('#cccccc').lineWidth(0.5);
+        let bx = startX;
+        colWidths.forEach((w) => {
+            doc.rect(bx, y, w, rowHeight).stroke();
+            bx += w;
+        });
+
+        // Draw cell text
+        doc.fillColor('#333333').fontSize(fontSize).font('Helvetica');
+        let cx = startX;
+        row.forEach((cell, i) => {
+            const align = i === 0 ? 'center' : (i >= 3 ? 'right' : 'left');
+            doc.text(cell, cx + padding, y + 5, {
+                width: colWidths[i] - padding * 2,
+                height: rowHeight - 4,
+                align,
+                lineBreak: false,
+            });
+            cx += colWidths[i];
+        });
+        doc.restore();
+        y += rowHeight;
+    });
+
+    return y;
+}
+
 // ─── REORDER REPORT ──────────────────────────────────────────
 
-/**
- * Generate a PDF report for items needing reorder (CRITICAL + REORDER status).
- */
-export function generateReorderReport(
+export async function generateReorderReport(
     items: InventoryItem[],
     branchName?: string,
     warehouseName?: string
-): Buffer {
+): Promise<Buffer> {
     const reorderItems = items.filter(i => i.status === 'CRITICAL' || i.status === 'REORDER');
 
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40 });
 
     // Header
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('LAPORAN REORDER INVENTORY', 148, 15, { align: 'center' });
+    doc.fontSize(16).font('Helvetica-Bold')
+        .text('LAPORAN REORDER INVENTORY', { align: 'center' });
 
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
     const subtitle = [
         `Tanggal: ${formatDate()}`,
         branchName ? `Cabang: ${branchName}` : '',
         warehouseName ? `Gudang: ${warehouseName}` : '',
     ].filter(Boolean).join('  |  ');
-    doc.text(subtitle, 148, 22, { align: 'center' });
+    doc.fontSize(10).font('Helvetica').text(subtitle, { align: 'center' });
+    doc.moveDown(0.5);
 
     // Summary
     const criticalCount = reorderItems.filter(i => i.status === 'CRITICAL').length;
     const reorderCount = reorderItems.filter(i => i.status === 'REORDER').length;
-    doc.setFontSize(9);
-    doc.text(`Total: ${reorderItems.length} item  |  Critical: ${criticalCount}  |  Reorder: ${reorderCount}`, 14, 30);
+    doc.fontSize(9).text(`Total: ${reorderItems.length} item  |  Critical: ${criticalCount}  |  Reorder: ${reorderCount}`);
+    doc.moveDown(0.3);
 
     // Table
+    const headers = ['No', 'Kode Item', 'Nama Barang', 'Satuan', 'Stock', 'ROP', 'Safety', 'PO Outst.', 'Shortage', 'Saran Order', 'Status'];
+    const colWidths = [25, 60, 140, 40, 50, 50, 50, 55, 55, 60, 50];
+
     const tableData = reorderItems.map((item, idx) => [
-        idx + 1,
+        (idx + 1).toString(),
         item.itemNo,
         item.name.length > 35 ? item.name.substring(0, 35) + '...' : item.name,
         item.unit,
@@ -75,192 +170,151 @@ export function generateReorderReport(
         item.status,
     ]);
 
-    doc.autoTable({
-        startY: 34,
-        head: [['No', 'Kode Item', 'Nama Barang', 'Satuan', 'Stock', 'ROP', 'Safety', 'PO Outst.', 'Shortage', 'Saran Order', 'Status']],
-        body: tableData,
-        theme: 'grid',
-        headStyles: { fillColor: [30, 64, 175], fontSize: 8, halign: 'center' },
-        bodyStyles: { fontSize: 7 },
-        columnStyles: {
-            0: { halign: 'center', cellWidth: 10 },
-            1: { cellWidth: 25 },
-            2: { cellWidth: 55 },
-            3: { halign: 'center', cellWidth: 15 },
-            4: { halign: 'right', cellWidth: 18 },
-            5: { halign: 'right', cellWidth: 18 },
-            6: { halign: 'right', cellWidth: 18 },
-            7: { halign: 'right', cellWidth: 20 },
-            8: { halign: 'right', cellWidth: 20 },
-            9: { halign: 'right', cellWidth: 22 },
-            10: { halign: 'center', cellWidth: 18 },
-        },
-        didParseCell: (data: any) => {
-            // Color CRITICAL rows red
-            if (data.section === 'body' && data.row.raw) {
-                const status = data.row.raw[10];
-                if (status === 'CRITICAL') {
-                    data.cell.styles.fillColor = [254, 226, 226]; // red-100
-                } else if (status === 'REORDER') {
-                    data.cell.styles.fillColor = [255, 237, 213]; // orange-100
-                }
-            }
-        },
-        margin: { left: 14, right: 14 },
+    const currentY = doc.y;
+    drawTable(doc, headers, tableData, colWidths, 40, currentY, {
+        headerBg: [30, 64, 175],
+        criticalRowTest: (row) => row[10] === 'CRITICAL',
+        criticalBg: [254, 226, 226],
+        rowBg: [255, 255, 255],
     });
 
-    // Footer
-    const pageCount = doc.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'italic');
-        doc.text(`Halaman ${i} dari ${pageCount}  —  Generated by Inventory Analysis System`, 148, 200, { align: 'center' });
+    // Footer on all pages
+    const pageCount = doc.bufferedPageRange();
+    for (let i = 0; i < pageCount.count; i++) {
+        doc.switchToPage(i);
+        doc.fontSize(8).font('Helvetica-Oblique').fillColor('#888888')
+            .text(
+                `Halaman ${i + 1} dari ${pageCount.count}  —  Generated by Inventory Analysis System`,
+                40, 560, { align: 'center', width: 760 }
+            );
     }
 
-    return Buffer.from(doc.output('arraybuffer'));
+    return pdfToBuffer(doc);
 }
 
 // ─── ALERT REPORT ────────────────────────────────────────────
 
-/**
- * Generate a PDF report mirroring the Alert page (Critical + Reorder + Dead Stock).
- */
-export function generateAlertReport(
+export async function generateAlertReport(
     items: InventoryItem[],
     branchName?: string,
     warehouseName?: string
-): Buffer {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+): Promise<Buffer> {
+    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40 });
 
     // Header
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('LAPORAN ALERT INVENTORY', 148, 15, { align: 'center' });
+    doc.fontSize(16).font('Helvetica-Bold')
+        .text('LAPORAN ALERT INVENTORY', { align: 'center' });
 
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
     const subtitle = [
         `Tanggal: ${formatDate()}`,
         branchName ? `Cabang: ${branchName}` : '',
         warehouseName ? `Gudang: ${warehouseName}` : '',
     ].filter(Boolean).join('  |  ');
-    doc.text(subtitle, 148, 22, { align: 'center' });
+    doc.fontSize(10).font('Helvetica').text(subtitle, { align: 'center' });
+    doc.moveDown(0.5);
 
     const criticalItems = items.filter(i => i.status === 'CRITICAL');
     const reorderItems = items.filter(i => i.status === 'REORDER');
     const deadStockItems = items.filter(i => i.demandCategory === 'DEAD' && i.stock > 0);
 
-    let currentY = 30;
-
     // ── Section 1: Critical ──
     if (criticalItems.length > 0) {
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(220, 38, 38);
-        doc.text(`⚠ CRITICAL (${criticalItems.length} item) — Di bawah Safety Stock`, 14, currentY);
-        doc.setTextColor(0, 0, 0);
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#DC2626')
+            .text(`CRITICAL (${criticalItems.length} item) — Di bawah Safety Stock`);
+        doc.fillColor('#333333');
+        doc.moveDown(0.2);
 
-        doc.autoTable({
-            startY: currentY + 3,
-            head: [['No', 'Kode Item', 'Nama Barang', 'Stock', 'Safety Stock', 'PO Outst.', 'Shortage', 'Status']],
-            body: criticalItems.map((item, idx) => [
-                idx + 1,
-                item.itemNo,
-                item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
-                `${formatNumber(item.stock)} ${item.unit}`,
-                formatNumber(item.safetyStock),
-                item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
-                formatNumber(item.netShortage),
-                'CRITICAL',
-            ]),
-            theme: 'grid',
-            headStyles: { fillColor: [220, 38, 38], fontSize: 8 },
-            bodyStyles: { fontSize: 7, fillColor: [254, 226, 226] },
-            margin: { left: 14, right: 14 },
+        const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'Safety Stock', 'PO Outst.', 'Shortage', 'Status'];
+        const colWidths = [25, 65, 180, 70, 70, 70, 70, 60];
+        const rows = criticalItems.map((item, idx) => [
+            (idx + 1).toString(),
+            item.itemNo,
+            item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
+            `${formatNumber(item.stock)} ${item.unit}`,
+            formatNumber(item.safetyStock),
+            item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
+            formatNumber(item.netShortage),
+            'CRITICAL',
+        ]);
+
+        const endY = drawTable(doc, headers, rows, colWidths, 40, doc.y, {
+            headerBg: [220, 38, 38],
+            rowBg: [254, 226, 226],
         });
-
-        currentY = doc.lastAutoTable.finalY + 8;
+        doc.y = endY + 15;
     }
 
     // ── Section 2: Reorder ──
     if (reorderItems.length > 0) {
-        if (currentY > 170) { doc.addPage(); currentY = 15; }
+        if (doc.y > 480) { doc.addPage(); doc.y = 40; }
 
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(234, 88, 12);
-        doc.text(`🔔 REORDER (${reorderItems.length} item) — Di bawah Reorder Point`, 14, currentY);
-        doc.setTextColor(0, 0, 0);
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#EA580C')
+            .text(`REORDER (${reorderItems.length} item) — Di bawah Reorder Point`);
+        doc.fillColor('#333333');
+        doc.moveDown(0.2);
 
-        doc.autoTable({
-            startY: currentY + 3,
-            head: [['No', 'Kode Item', 'Nama Barang', 'Stock', 'ROP', 'PO Outst.', 'Shortage', 'Saran Order']],
-            body: reorderItems.map((item, idx) => [
-                idx + 1,
-                item.itemNo,
-                item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
-                `${formatNumber(item.stock)} ${item.unit}`,
-                formatNumber(item.reorderPoint),
-                item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
-                formatNumber(item.netShortage),
-                item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '✓',
-            ]),
-            theme: 'grid',
-            headStyles: { fillColor: [234, 88, 12], fontSize: 8 },
-            bodyStyles: { fontSize: 7, fillColor: [255, 237, 213] },
-            margin: { left: 14, right: 14 },
+        const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'ROP', 'PO Outst.', 'Shortage', 'Saran Order'];
+        const colWidths = [25, 65, 180, 70, 60, 70, 70, 70];
+        const rows = reorderItems.map((item, idx) => [
+            (idx + 1).toString(),
+            item.itemNo,
+            item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
+            `${formatNumber(item.stock)} ${item.unit}`,
+            formatNumber(item.reorderPoint),
+            item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
+            formatNumber(item.netShortage),
+            item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
+        ]);
+
+        const endY = drawTable(doc, headers, rows, colWidths, 40, doc.y, {
+            headerBg: [234, 88, 12],
+            rowBg: [255, 237, 213],
         });
-
-        currentY = doc.lastAutoTable.finalY + 8;
+        doc.y = endY + 15;
     }
 
     // ── Section 3: Dead Stock ──
     if (deadStockItems.length > 0) {
-        if (currentY > 170) { doc.addPage(); currentY = 15; }
+        if (doc.y > 480) { doc.addPage(); doc.y = 40; }
 
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(100, 116, 139);
-        doc.text(`💀 DEAD STOCK (${deadStockItems.length} item) — Tidak ada penjualan`, 14, currentY);
-        doc.setTextColor(0, 0, 0);
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#64748B')
+            .text(`DEAD STOCK (${deadStockItems.length} item) — Tidak ada penjualan`);
+        doc.fillColor('#333333');
+        doc.moveDown(0.2);
 
-        const deadStockValue = deadStockItems.reduce((sum, i) => sum + i.stockValue, 0);
+        const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'Satuan', 'Nilai Stock', 'Stock Age'];
+        const colWidths = [25, 65, 190, 60, 50, 100, 60];
+        const rows = deadStockItems.slice(0, 50).map((item, idx) => [
+            (idx + 1).toString(),
+            item.itemNo,
+            item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
+            formatNumber(item.stock),
+            item.unit,
+            `Rp ${formatNumber(item.stockValue)}`,
+            `${formatNumber(item.stockAgeDays)} hr`,
+        ]);
 
-        doc.autoTable({
-            startY: currentY + 3,
-            head: [['No', 'Kode Item', 'Nama Barang', 'Stock', 'Satuan', 'Nilai Stock', 'Stock Age (hari)']],
-            body: deadStockItems.slice(0, 50).map((item, idx) => [
-                idx + 1,
-                item.itemNo,
-                item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
-                formatNumber(item.stock),
-                item.unit,
-                `Rp ${formatNumber(item.stockValue)}`,
-                formatNumber(item.stockAgeDays),
-            ]),
-            theme: 'grid',
-            headStyles: { fillColor: [100, 116, 139], fontSize: 8 },
-            bodyStyles: { fontSize: 7, fillColor: [241, 245, 249] },
-            margin: { left: 14, right: 14 },
+        const endY = drawTable(doc, headers, rows, colWidths, 40, doc.y, {
+            headerBg: [100, 116, 139],
+            rowBg: [241, 245, 249],
         });
 
-        // Total dead stock value
-        const afterY = doc.lastAutoTable.finalY + 4;
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Total Nilai Dead Stock: Rp ${formatNumber(deadStockValue)}`, 14, afterY);
+        const deadStockValue = deadStockItems.reduce((sum, i) => sum + i.stockValue, 0);
+        doc.y = endY + 5;
+        doc.fontSize(9).font('Helvetica-Bold').fillColor('#333333')
+            .text(`Total Nilai Dead Stock: Rp ${formatNumber(deadStockValue)}`);
     }
 
     // Footer on all pages
-    const pageCount = doc.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'italic');
-        doc.setTextColor(128, 128, 128);
-        doc.text(`Halaman ${i} dari ${pageCount}  —  Generated by Inventory Analysis System`, 148, 200, { align: 'center' });
+    const pageCount = doc.bufferedPageRange();
+    for (let i = 0; i < pageCount.count; i++) {
+        doc.switchToPage(i);
+        doc.fontSize(8).font('Helvetica-Oblique').fillColor('#888888')
+            .text(
+                `Halaman ${i + 1} dari ${pageCount.count}  —  Generated by Inventory Analysis System`,
+                40, 560, { align: 'center', width: 760 }
+            );
     }
 
-    return Buffer.from(doc.output('arraybuffer'));
+    return pdfToBuffer(doc);
 }

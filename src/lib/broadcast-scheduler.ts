@@ -195,7 +195,7 @@ export async function executeBroadcast(
 
                         // Generate and send PDF
                         try {
-                            const pdfBuffer = generateReorderReport(items, config.branchName, config.warehouseName);
+                            const pdfBuffer = await generateReorderReport(items, config.branchName, config.warehouseName);
                             console.log(`[Broadcast] PDF generated: ${pdfBuffer.length} bytes`);
                             const filename = `Reorder_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
                             const r2 = await sendFileMessage(target, pdfBuffer, filename, 'Laporan Reorder Inventory', 'application/pdf', wahaConfig);
@@ -217,7 +217,7 @@ export async function executeBroadcast(
             if (reportType === 'alert-pdf') {
                 // Full alert PDF report
                 try {
-                    const pdfBuffer = generateAlertReport(items, config.branchName, config.warehouseName);
+                    const pdfBuffer = await generateAlertReport(items, config.branchName, config.warehouseName);
                     console.log(`[Broadcast] Alert PDF generated: ${pdfBuffer.length} bytes`);
                     const filename = `Alert_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
                     const caption = `📊 *LAPORAN ALERT INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}`;
