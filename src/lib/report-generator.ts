@@ -17,6 +17,11 @@ function formatNumber(n: number): string {
     return n.toLocaleString('id-ID');
 }
 
+/** Convert [R,G,B] array (0-255) to hex color string for PDFKit */
+function rgbHex(r: number, g: number, b: number): string {
+    return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+
 function pdfToBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -28,7 +33,15 @@ function pdfToBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
     });
 }
 
-// Table drawing helper
+// ─── TABLE DRAWING ───────────────────────────────────────────
+
+interface TableOptions {
+    headerBg: string;     // hex color
+    headerColor: string;  // hex color for header text
+    rowBg?: string;       // hex color for alternating rows
+    rowBgAlt?: string;    // hex color for alternate rows
+}
+
 function drawTable(
     doc: PDFKit.PDFDocument,
     headers: string[],
@@ -36,84 +49,78 @@ function drawTable(
     colWidths: number[],
     startX: number,
     startY: number,
-    options?: {
-        headerBg?: [number, number, number];
-        rowBg?: [number, number, number];
-        criticalRowTest?: (row: string[]) => boolean;
-        criticalBg?: [number, number, number];
-    }
+    options: TableOptions
 ): number {
-    const opts = options || {};
-    const headerBg = opts.headerBg || [30, 64, 175];
-    const rowBg = opts.rowBg || [255, 255, 255];
-    const criticalBg = opts.criticalBg || [254, 226, 226];
-    const rowHeight = 18;
-    const headerHeight = 22;
+    const rowHeight = 16;
+    const headerHeight = 20;
     const fontSize = 7;
-    const headerFontSize = 8;
-    const padding = 4;
-    const pageBottom = 560; // landscape A4 usable height
+    const headerFontSize = 7.5;
+    const padding = 3;
+    const pageBottom = 550;
+    const totalWidth = colWidths.reduce((a, b) => a + b, 0);
 
     let y = startY;
 
-    // Draw header
-    doc.save();
-    doc.rect(startX, y, colWidths.reduce((a, b) => a + b, 0), headerHeight)
-        .fill(`rgb(${headerBg.join(',')})`);
-    doc.fillColor('white').fontSize(headerFontSize).font('Helvetica-Bold');
-    let x = startX;
-    headers.forEach((h, i) => {
-        doc.text(h, x + padding, y + 5, { width: colWidths[i] - padding * 2, height: headerHeight, align: 'center' });
-        x += colWidths[i];
-    });
-    doc.restore();
-    y += headerHeight;
+    // ── Draw header ──
+    function drawHeader(atY: number): number {
+        doc.save();
+        doc.fillColor(options.headerBg);
+        doc.rect(startX, atY, totalWidth, headerHeight).fill();
 
-    // Draw rows
-    rows.forEach((row) => {
-        // Check if we need a new page
+        doc.fillColor(options.headerColor).fontSize(headerFontSize).font('Helvetica-Bold');
+        let x = startX;
+        headers.forEach((h, i) => {
+            doc.text(h, x + padding, atY + 5, {
+                width: colWidths[i] - padding * 2,
+                lineBreak: false,
+                align: 'center',
+            });
+            x += colWidths[i];
+        });
+        doc.restore();
+        return atY + headerHeight;
+    }
+
+    y = drawHeader(y);
+
+    // ── Draw data rows ──
+    rows.forEach((row, rowIdx) => {
         if (y + rowHeight > pageBottom) {
             doc.addPage();
             y = 40;
-            // Re-draw header on new page
-            doc.save();
-            doc.rect(startX, y, colWidths.reduce((a, b) => a + b, 0), headerHeight)
-                .fill(`rgb(${headerBg.join(',')})`);
-            doc.fillColor('white').fontSize(headerFontSize).font('Helvetica-Bold');
-            let hx = startX;
-            headers.forEach((h, i) => {
-                doc.text(h, hx + padding, y + 5, { width: colWidths[i] - padding * 2, height: headerHeight, align: 'center' });
-                hx += colWidths[i];
-            });
-            doc.restore();
-            y += headerHeight;
+            y = drawHeader(y);
         }
 
-        const isCritical = opts.criticalRowTest ? opts.criticalRowTest(row) : false;
-        const bg = isCritical ? criticalBg : rowBg;
+        // Alternating row background
+        const bgColor = rowIdx % 2 === 0
+            ? (options.rowBg || '#FFFFFF')
+            : (options.rowBgAlt || options.rowBg || '#F8F8F8');
 
         doc.save();
-        doc.rect(startX, y, colWidths.reduce((a, b) => a + b, 0), rowHeight)
-            .fill(`rgb(${bg.join(',')})`);
+        doc.fillColor(bgColor);
+        doc.rect(startX, y, totalWidth, rowHeight).fill();
 
-        // Draw cell borders
-        doc.strokeColor('#cccccc').lineWidth(0.5);
+        // Cell borders
+        doc.strokeColor('#DDDDDD').lineWidth(0.3);
         let bx = startX;
         colWidths.forEach((w) => {
             doc.rect(bx, y, w, rowHeight).stroke();
             bx += w;
         });
 
-        // Draw cell text
+        // Cell text
         doc.fillColor('#333333').fontSize(fontSize).font('Helvetica');
         let cx = startX;
         row.forEach((cell, i) => {
-            const align = i === 0 ? 'center' : (i >= 3 ? 'right' : 'left');
-            doc.text(cell, cx + padding, y + 5, {
+            // First col center, number cols right, text cols left
+            let align: 'left' | 'center' | 'right' = 'left';
+            if (i === 0) align = 'center';
+            else if (i >= 3) align = 'right';
+
+            doc.text(cell, cx + padding, y + 4, {
                 width: colWidths[i] - padding * 2,
-                height: rowHeight - 4,
-                align,
                 lineBreak: false,
+                align,
             });
             cx += colWidths[i];
         });
@@ -131,64 +138,92 @@ export async function generateReorderReport(
     branchName?: string,
     warehouseName?: string
 ): Promise<Buffer> {
-    const reorderItems = items.filter(i => i.status === 'CRITICAL' || i.status === 'REORDER');
+    const criticalItems = items.filter(i => i.status === 'CRITICAL');
+    const reorderItems = items.filter(i => i.status === 'REORDER');
 
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40, bufferPages: true });
 
     // Header
-    doc.fontSize(16).font('Helvetica-Bold')
-        .text('LAPORAN REORDER INVENTORY', { align: 'center' });
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#1E40AF')
+        .text('LAPORAN REORDER INVENTORY', 40, 30, { width: 760, align: 'center' });
 
+    doc.fontSize(9).font('Helvetica').fillColor('#555555');
     const subtitle = [
         `Tanggal: ${formatDate()}`,
         branchName ? `Cabang: ${branchName}` : '',
         warehouseName ? `Gudang: ${warehouseName}` : '',
     ].filter(Boolean).join('  |  ');
-    doc.fontSize(10).font('Helvetica').text(subtitle, { align: 'center' });
-    doc.moveDown(0.5);
+    doc.text(subtitle, 40, 48, { width: 760, align: 'center' });
 
     // Summary
-    const criticalCount = reorderItems.filter(i => i.status === 'CRITICAL').length;
-    const reorderCount = reorderItems.filter(i => i.status === 'REORDER').length;
-    doc.fontSize(9).text(`Total: ${reorderItems.length} item  |  Critical: ${criticalCount}  |  Reorder: ${reorderCount}`);
-    doc.moveDown(0.3);
+    doc.fontSize(9).fillColor('#333333')
+        .text(`Total: ${criticalItems.length + reorderItems.length} item  |  Critical: ${criticalItems.length}  |  Reorder: ${reorderItems.length}`, 40, 62, { width: 760, align: 'center' });
 
-    // Table
-    const headers = ['No', 'Kode Item', 'Nama Barang', 'Satuan', 'Stock', 'ROP', 'Safety', 'PO Outst.', 'Shortage', 'Saran Order', 'Status'];
-    const colWidths = [25, 60, 140, 40, 50, 50, 50, 55, 55, 60, 50];
+    let currentY = 80;
+    const headers = ['No', 'Kode Item', 'Nama Barang', 'Satuan', 'Stock', 'ROP', 'Safety', 'PO Out.', 'Shortage', 'Order', 'Status'];
+    const colWidths = [24, 58, 140, 38, 48, 48, 48, 50, 50, 55, 48];
 
-    const tableData = reorderItems.map((item, idx) => [
-        (idx + 1).toString(),
-        item.itemNo,
-        item.name.length > 35 ? item.name.substring(0, 35) + '...' : item.name,
-        item.unit,
-        formatNumber(item.stock),
-        formatNumber(item.reorderPoint),
-        formatNumber(item.safetyStock),
-        item.poOutstanding > 0 ? formatNumber(item.poOutstanding) : '-',
-        formatNumber(item.netShortage),
-        item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
-        item.status,
-    ]);
+    // ── Section 1: Critical Items ──
+    if (criticalItems.length > 0) {
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#DC2626')
+            .text(`CRITICAL (${criticalItems.length} item) — Di bawah Safety Stock`, 40, currentY, { width: 760 });
+        currentY += 16;
 
-    const currentY = doc.y;
-    drawTable(doc, headers, tableData, colWidths, 40, currentY, {
-        headerBg: [30, 64, 175],
-        criticalRowTest: (row) => row[10] === 'CRITICAL',
-        criticalBg: [254, 226, 226],
-        rowBg: [255, 255, 255],
-    });
+        const tableData = criticalItems.map((item, idx) => [
+            (idx + 1).toString(),
+            item.itemNo,
+            item.name.length > 35 ? item.name.substring(0, 35) + '...' : item.name,
+            item.unit,
+            formatNumber(item.stock),
+            formatNumber(item.reorderPoint),
+            formatNumber(item.safetyStock),
+            item.poOutstanding > 0 ? formatNumber(item.poOutstanding) : '-',
+            formatNumber(item.netShortage),
+            item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
+            'CRITICAL',
+        ]);
+
+        currentY = drawTable(doc, headers, tableData, colWidths, 40, currentY, {
+            headerBg: '#DC2626',
+            headerColor: '#FFFFFF',
+            rowBg: '#FEE2E2',
+            rowBgAlt: '#FECACA',
+        });
+        currentY += 12;
+    }
+
+    // ── Section 2: Reorder Items ──
+    if (reorderItems.length > 0) {
+        if (currentY > 480) { doc.addPage(); currentY = 40; }
+
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#EA580C')
+            .text(`REORDER (${reorderItems.length} item) — Di bawah Reorder Point`, 40, currentY, { width: 760 });
+        currentY += 16;
+
+        const tableData = reorderItems.map((item, idx) => [
+            (idx + 1).toString(),
+            item.itemNo,
+            item.name.length > 35 ? item.name.substring(0, 35) + '...' : item.name,
+            item.unit,
+            formatNumber(item.stock),
+            formatNumber(item.reorderPoint),
+            formatNumber(item.safetyStock),
+            item.poOutstanding > 0 ? formatNumber(item.poOutstanding) : '-',
+            formatNumber(item.netShortage),
+            item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
+            'REORDER',
+        ]);
+
+        currentY = drawTable(doc, headers, tableData, colWidths, 40, currentY, {
+            headerBg: '#EA580C',
+            headerColor: '#FFFFFF',
+            rowBg: '#FFF7ED',
+            rowBgAlt: '#FFEDD5',
+        });
+    }
 
     // Footer on all pages
-    const pageCount = doc.bufferedPageRange();
-    for (let i = 0; i < pageCount.count; i++) {
-        doc.switchToPage(i);
-        doc.fontSize(8).font('Helvetica-Oblique').fillColor('#888888')
-            .text(
-                `Halaman ${i + 1} dari ${pageCount.count}  —  Generated by Inventory Analysis System`,
-                40, 560, { align: 'center', width: 760 }
-            );
-    }
+    addFooters(doc);
 
     return pdfToBuffer(doc);
 }
@@ -202,35 +237,36 @@ export async function generateAlertReport(
 ): Promise<Buffer> {
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40, bufferPages: true });
 
-    // Header
-    doc.fontSize(16).font('Helvetica-Bold')
-        .text('LAPORAN ALERT INVENTORY', { align: 'center' });
+    // Header — use explicit x, width, align to ensure center
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#1E40AF')
+        .text('LAPORAN ALERT INVENTORY', 40, 30, { width: 760, align: 'center' });
 
+    doc.fontSize(9).font('Helvetica').fillColor('#555555');
     const subtitle = [
         `Tanggal: ${formatDate()}`,
         branchName ? `Cabang: ${branchName}` : '',
         warehouseName ? `Gudang: ${warehouseName}` : '',
     ].filter(Boolean).join('  |  ');
-    doc.fontSize(10).font('Helvetica').text(subtitle, { align: 'center' });
-    doc.moveDown(0.5);
+    doc.text(subtitle, 40, 48, { width: 760, align: 'center' });
 
     const criticalItems = items.filter(i => i.status === 'CRITICAL');
     const reorderItems = items.filter(i => i.status === 'REORDER');
     const deadStockItems = items.filter(i => i.demandCategory === 'DEAD' && i.stock > 0);
 
+    let currentY = 70;
+
     // ── Section 1: Critical ──
     if (criticalItems.length > 0) {
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#DC2626')
-            .text(`CRITICAL (${criticalItems.length} item) — Di bawah Safety Stock`);
-        doc.fillColor('#333333');
-        doc.moveDown(0.2);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#DC2626')
+            .text(`CRITICAL (${criticalItems.length} item) — Di bawah Safety Stock`, 40, currentY, { width: 760 });
+        currentY += 16;
 
-        const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'Safety Stock', 'PO Outst.', 'Shortage', 'Status'];
-        const colWidths = [25, 65, 180, 70, 70, 70, 70, 60];
+        const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'Safety Stock', 'PO Out.', 'Shortage', 'Status'];
+        const colWidths = [25, 65, 200, 75, 75, 70, 75, 55];
         const rows = criticalItems.map((item, idx) => [
             (idx + 1).toString(),
             item.itemNo,
-            item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
+            item.name.length > 45 ? item.name.substring(0, 45) + '...' : item.name,
             `${formatNumber(item.stock)} ${item.unit}`,
             formatNumber(item.safetyStock),
             item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
@@ -238,28 +274,29 @@ export async function generateAlertReport(
             'CRITICAL',
         ]);
 
-        const endY = drawTable(doc, headers, rows, colWidths, 40, doc.y, {
-            headerBg: [220, 38, 38],
-            rowBg: [254, 226, 226],
+        currentY = drawTable(doc, headers, rows, colWidths, 40, currentY, {
+            headerBg: '#DC2626',
+            headerColor: '#FFFFFF',
+            rowBg: '#FEE2E2',
+            rowBgAlt: '#FECACA',
         });
-        doc.y = endY + 15;
+        currentY += 15;
     }
 
     // ── Section 2: Reorder ──
     if (reorderItems.length > 0) {
-        if (doc.y > 480) { doc.addPage(); doc.y = 40; }
+        if (currentY > 480) { doc.addPage(); currentY = 40; }
 
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#EA580C')
-            .text(`REORDER (${reorderItems.length} item) — Di bawah Reorder Point`);
-        doc.fillColor('#333333');
-        doc.moveDown(0.2);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#EA580C')
+            .text(`REORDER (${reorderItems.length} item) — Di bawah Reorder Point`, 40, currentY, { width: 760 });
+        currentY += 16;
 
-        const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'ROP', 'PO Outst.', 'Shortage', 'Saran Order'];
-        const colWidths = [25, 65, 180, 70, 60, 70, 70, 70];
+        const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'ROP', 'PO Out.', 'Shortage', 'Saran Order'];
+        const colWidths = [25, 65, 200, 75, 65, 70, 70, 70];
         const rows = reorderItems.map((item, idx) => [
             (idx + 1).toString(),
             item.itemNo,
-            item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
+            item.name.length > 45 ? item.name.substring(0, 45) + '...' : item.name,
             `${formatNumber(item.stock)} ${item.unit}`,
             formatNumber(item.reorderPoint),
             item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
@@ -267,55 +304,67 @@ export async function generateAlertReport(
             item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
         ]);
 
-        const endY = drawTable(doc, headers, rows, colWidths, 40, doc.y, {
-            headerBg: [234, 88, 12],
-            rowBg: [255, 237, 213],
+        currentY = drawTable(doc, headers, rows, colWidths, 40, currentY, {
+            headerBg: '#EA580C',
+            headerColor: '#FFFFFF',
+            rowBg: '#FFF7ED',
+            rowBgAlt: '#FFEDD5',
         });
-        doc.y = endY + 15;
+        currentY += 15;
     }
 
-    // ── Section 3: Dead Stock ──
+    // ── Section 3: Dead Stock (ALL items, no limit) ──
     if (deadStockItems.length > 0) {
-        if (doc.y > 480) { doc.addPage(); doc.y = 40; }
+        if (currentY > 480) { doc.addPage(); currentY = 40; }
 
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#64748B')
-            .text(`DEAD STOCK (${deadStockItems.length} item) — Tidak ada penjualan`);
-        doc.fillColor('#333333');
-        doc.moveDown(0.2);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#64748B')
+            .text(`DEAD STOCK (${deadStockItems.length} item) — Tidak ada penjualan`, 40, currentY, { width: 760 });
+        currentY += 16;
 
         const headers = ['No', 'Kode Item', 'Nama Barang', 'Stock', 'Satuan', 'Nilai Stock', 'Stock Age'];
-        const colWidths = [25, 65, 190, 60, 50, 100, 60];
-        const rows = deadStockItems.slice(0, 50).map((item, idx) => [
+        const colWidths = [25, 65, 210, 65, 50, 110, 60];
+        const rows = deadStockItems.map((item, idx) => [
             (idx + 1).toString(),
             item.itemNo,
-            item.name.length > 40 ? item.name.substring(0, 40) + '...' : item.name,
+            item.name.length > 45 ? item.name.substring(0, 45) + '...' : item.name,
             formatNumber(item.stock),
             item.unit,
             `Rp ${formatNumber(item.stockValue)}`,
             `${formatNumber(item.stockAgeDays)} hr`,
         ]);
 
-        const endY = drawTable(doc, headers, rows, colWidths, 40, doc.y, {
-            headerBg: [100, 116, 139],
-            rowBg: [241, 245, 249],
+        currentY = drawTable(doc, headers, rows, colWidths, 40, currentY, {
+            headerBg: '#64748B',
+            headerColor: '#FFFFFF',
+            rowBg: '#F8FAFC',
+            rowBgAlt: '#F1F5F9',
         });
 
         const deadStockValue = deadStockItems.reduce((sum, i) => sum + i.stockValue, 0);
-        doc.y = endY + 5;
+        currentY += 6;
         doc.fontSize(9).font('Helvetica-Bold').fillColor('#333333')
-            .text(`Total Nilai Dead Stock: Rp ${formatNumber(deadStockValue)}`);
+            .text(`Total Nilai Dead Stock: Rp ${formatNumber(deadStockValue)}`, 40, currentY, { width: 760 });
     }
 
     // Footer on all pages
-    const pageCount = doc.bufferedPageRange();
-    for (let i = 0; i < pageCount.count; i++) {
-        doc.switchToPage(i);
-        doc.fontSize(8).font('Helvetica-Oblique').fillColor('#888888')
-            .text(
-                `Halaman ${i + 1} dari ${pageCount.count}  —  Generated by Inventory Analysis System`,
-                40, 560, { align: 'center', width: 760 }
-            );
-    }
+    addFooters(doc);
 
     return pdfToBuffer(doc);
+}
+
+// ─── FOOTER HELPER ───────────────────────────────────────────
+
+function addFooters(doc: PDFKit.PDFDocument): void {
+    const range = doc.bufferedPageRange();
+    for (let i = range.start; i < range.start + range.count; i++) {
+        doc.switchToPage(i);
+        doc.save();
+        doc.fontSize(7).font('Helvetica-Oblique').fillColor('#999999');
+        doc.text(
+            `Halaman ${i + 1} dari ${range.count}  —  Generated by Inventory Analysis System`,
+            40, 565,
+            { width: 760, align: 'center', lineBreak: false }
+        );
+        doc.restore();
+    }
 }
