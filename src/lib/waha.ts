@@ -86,77 +86,54 @@ export async function sendFileMessage(
     const formattedChatId = formatChatId(chatId);
     const base64Data = fileBuffer.toString('base64');
 
-    console.log(`[WAHA] Sending file ${filename} (${fileBuffer.length} bytes) to ${formattedChatId}`);
+    console.log(`[WAHA] Sending file ${filename} (${fileBuffer.length} bytes, ${base64Data.length} base64 chars) to ${formattedChatId}`);
 
-    // Try multiple WAHA API formats for compatibility
-    const attempts = [
-        {
-            // Format 1: Session-scoped endpoint with file object
-            url: `/api/${cfg.session}/sendFile`,
-            body: {
-                chatId: formattedChatId,
-                file: {
-                    mimetype,
-                    filename,
-                    data: `data:${mimetype};base64,${base64Data}`,
-                },
-                caption,
-            },
-        },
-        {
-            // Format 2: Global endpoint with session in body
-            url: `/api/sendFile`,
-            body: {
-                chatId: formattedChatId,
-                file: {
-                    mimetype,
-                    filename,
-                    data: `data:${mimetype};base64,${base64Data}`,
-                },
-                caption,
-                session: cfg.session,
-            },
-        },
-        {
-            // Format 3: Using body/filename instead of file object
-            url: `/api/sendFile`,
-            body: {
-                chatId: formattedChatId,
-                body: `data:${mimetype};base64,${base64Data}`,
-                filename,
-                caption,
-                session: cfg.session,
-            },
-        },
+    // Try session-scoped first, then global endpoint — both with raw base64
+    const endpoints = [
+        `/api/${cfg.session}/sendFile`,
+        `/api/sendFile`,
     ];
 
-    for (let i = 0; i < attempts.length; i++) {
-        const attempt = attempts[i];
+    for (let i = 0; i < endpoints.length; i++) {
+        const url = endpoints[i];
         try {
             const client = createClient(cfg);
             client.defaults.timeout = 60000;
-            console.log(`[WAHA] sendFile attempt ${i + 1}: ${attempt.url}`);
-            await client.post(attempt.url, attempt.body);
+
+            const body: any = {
+                chatId: formattedChatId,
+                file: {
+                    mimetype,
+                    filename,
+                    data: base64Data,  // Raw base64, NO data URI prefix
+                },
+                caption,
+            };
+            // Add session for global endpoint
+            if (!url.includes(cfg.session)) {
+                body.session = cfg.session;
+            }
+
+            console.log(`[WAHA] sendFile attempt ${i + 1}: ${url}`);
+            await client.post(url, body);
             console.log(`[WAHA] sendFile attempt ${i + 1} succeeded`);
             return { ok: true };
         } catch (err: any) {
             const status = err.response?.status;
-            const errMsg = err.response?.data?.message || err.response?.data?.error || err.message;
+            const errData = err.response?.data;
+            const errMsg = errData?.message || errData?.error || err.message;
             console.error(`[WAHA] sendFile attempt ${i + 1} failed (${status}):`, errMsg);
-            // If it's not a 404/405 (wrong endpoint), don't try other formats
-            if (status && status !== 404 && status !== 405 && i < attempts.length - 1) {
-                // Try next format only if this was a server error that might be format-related
-                if (status !== 500) {
-                    return { ok: false, error: `HTTP ${status}: ${errMsg}` };
-                }
+            if (i === endpoints.length - 1) {
+                return { ok: false, error: `HTTP ${status}: ${errMsg}` };
             }
-            if (i === attempts.length - 1) {
-                return { ok: false, error: `All attempts failed. Last: HTTP ${status}: ${errMsg}` };
+            // Only continue to next endpoint if 404/405 (wrong endpoint)
+            if (status && status !== 404 && status !== 405) {
+                return { ok: false, error: `HTTP ${status}: ${errMsg}` };
             }
         }
     }
 
-    return { ok: false, error: 'Unknown error' };
+    return { ok: false, error: 'All endpoints failed' };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────
