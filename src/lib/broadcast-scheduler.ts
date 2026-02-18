@@ -134,60 +134,105 @@ export async function executeBroadcast(
         try {
             if (reportType === 'reorder') {
                 // Text report for reorder items
-                const reorderItems = items.filter(i => i.status === 'CRITICAL' || i.status === 'REORDER');
-                if (reorderItems.length === 0) {
+                const criticalItems = items.filter(i => i.status === 'CRITICAL');
+                const reorderItems = items.filter(i => i.status === 'REORDER');
+                const allReorderItems = [...criticalItems, ...reorderItems];
+
+                if (allReorderItems.length === 0) {
                     console.log('[Broadcast] No reorder items — sending OK message');
-                    const textMsg = `✅ *LAPORAN REORDER INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}\n\nSemua item stok dalam kondisi aman. Tidak ada item yang perlu di-reorder.`;
+                    const textMsg = `✅ *LAPORAN REORDER INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}${config.warehouseName ? `\nGudang: ${config.warehouseName}` : ''}\n\nSemua item stok dalam kondisi aman. Tidak ada item yang perlu di-reorder.`;
                     for (const target of config.targetNumbers) {
                         const r = await sendTextMessage(target, textMsg, wahaConfig);
                         if (r.ok) sentCount++;
                         else errors.push(`Text to ${target}: ${r.error}`);
                     }
                 } else {
-                    // Send reorder summary text + PDF
-                    const critical = reorderItems.filter(i => i.status === 'CRITICAL');
-                    const reorder = reorderItems.filter(i => i.status === 'REORDER');
+                    // Build comprehensive text report
+                    let textMsg = `⚠️ *LAPORAN REORDER INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}${config.warehouseName ? `\nGudang: ${config.warehouseName}` : ''}\n\n`;
+                    textMsg += `🔴 *Critical:* ${criticalItems.length} item\n`;
+                    textMsg += `🟠 *Reorder:* ${reorderItems.length} item\n`;
 
-                    let textMsg = `⚠️ *LAPORAN REORDER INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}\n\n`;
-                    textMsg += `🔴 *Critical:* ${critical.length} item\n`;
-                    textMsg += `🟠 *Reorder:* ${reorder.length} item\n\n`;
-
-                    if (critical.length > 0) {
-                        textMsg += `*Top Critical Items:*\n`;
-                        critical.slice(0, 10).forEach((item, i) => {
-                            textMsg += `${i + 1}. ${item.name} — Stock: ${item.stock}, ROP: ${item.reorderPoint}${item.suggestedOrder > 0 ? `, Order: ${item.suggestedOrder}` : ''}\n`;
+                    // Top 10 Critical Items
+                    if (criticalItems.length > 0) {
+                        textMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+                        textMsg += `🔴 *TOP ${Math.min(10, criticalItems.length)} CRITICAL ITEMS:*\n\n`;
+                        criticalItems.slice(0, 10).forEach((item, i) => {
+                            textMsg += `${i + 1}. *${item.name}*\n`;
+                            textMsg += `   📦 Stock: ${item.stock} ${item.unit} | ROP: ${item.reorderPoint}\n`;
+                            textMsg += `   🛡️ Safety: ${item.safetyStock}`;
+                            if (item.poOutstanding > 0) textMsg += ` | PO: +${item.poOutstanding}`;
+                            if (item.suggestedOrder > 0) textMsg += ` | 📋 Order: ${item.suggestedOrder}`;
+                            textMsg += `\n`;
                         });
-                        if (critical.length > 10) textMsg += `... dan ${critical.length - 10} item lainnya\n`;
+                        if (criticalItems.length > 10) {
+                            textMsg += `\n_... dan ${criticalItems.length - 10} item critical lainnya_\n`;
+                        }
                     }
 
-                    textMsg += `\n📄 PDF laporan lengkap terlampir.`;
+                    // Full Reorder Items List
+                    if (reorderItems.length > 0) {
+                        textMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+                        textMsg += `🟠 *DAFTAR REORDER (${reorderItems.length} item):*\n\n`;
+                        reorderItems.forEach((item, i) => {
+                            textMsg += `${i + 1}. *${item.name}*\n`;
+                            textMsg += `   📦 Stock: ${item.stock} ${item.unit} | ROP: ${item.reorderPoint}`;
+                            if (item.suggestedOrder > 0) textMsg += ` | Order: ${item.suggestedOrder}`;
+                            textMsg += `\n`;
+                        });
+                    }
+
+                    textMsg += `\n━━━━━━━━━━━━━━━━━━━━\n📄 _PDF laporan lengkap terlampir._`;
 
                     // Send text first, then PDF
                     for (const target of config.targetNumbers) {
+                        // Send text
                         const r1 = await sendTextMessage(target, textMsg, wahaConfig);
                         if (r1.ok) sentCount++;
                         else errors.push(`Text to ${target}: ${r1.error}`);
 
+                        // Small delay before sending PDF
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+
                         // Generate and send PDF
-                        const pdfBuffer = generateReorderReport(items, config.branchName, config.warehouseName);
-                        const filename = `Reorder_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
-                        const r2 = await sendFileMessage(target, pdfBuffer, filename, 'Laporan Reorder Inventory', 'application/pdf', wahaConfig);
-                        if (r2.ok) sentCount++;
-                        else errors.push(`PDF to ${target}: ${r2.error}`);
+                        try {
+                            const pdfBuffer = generateReorderReport(items, config.branchName, config.warehouseName);
+                            console.log(`[Broadcast] PDF generated: ${pdfBuffer.length} bytes`);
+                            const filename = `Reorder_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+                            const r2 = await sendFileMessage(target, pdfBuffer, filename, 'Laporan Reorder Inventory', 'application/pdf', wahaConfig);
+                            if (r2.ok) {
+                                sentCount++;
+                                console.log(`[Broadcast] PDF sent to ${target}`);
+                            } else {
+                                errors.push(`PDF to ${target}: ${r2.error}`);
+                                console.error(`[Broadcast] PDF send failed to ${target}: ${r2.error}`);
+                            }
+                        } catch (pdfErr: any) {
+                            errors.push(`PDF generation/send to ${target}: ${pdfErr.message}`);
+                            console.error(`[Broadcast] PDF error:`, pdfErr.message);
+                        }
                     }
                 }
             }
 
             if (reportType === 'alert-pdf') {
                 // Full alert PDF report
-                const pdfBuffer = generateAlertReport(items, config.branchName, config.warehouseName);
-                const filename = `Alert_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
-                const caption = `📊 *LAPORAN ALERT INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}`;
+                try {
+                    const pdfBuffer = generateAlertReport(items, config.branchName, config.warehouseName);
+                    console.log(`[Broadcast] Alert PDF generated: ${pdfBuffer.length} bytes`);
+                    const filename = `Alert_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+                    const caption = `📊 *LAPORAN ALERT INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}`;
 
-                for (const target of config.targetNumbers) {
-                    const r = await sendFileMessage(target, pdfBuffer, filename, caption, 'application/pdf', wahaConfig);
-                    if (r.ok) sentCount++;
-                    else errors.push(`Alert PDF to ${target}: ${r.error}`);
+                    for (const target of config.targetNumbers) {
+                        const r = await sendFileMessage(target, pdfBuffer, filename, caption, 'application/pdf', wahaConfig);
+                        if (r.ok) sentCount++;
+                        else {
+                            errors.push(`Alert PDF to ${target}: ${r.error}`);
+                            console.error(`[Broadcast] Alert PDF send failed to ${target}: ${r.error}`);
+                        }
+                    }
+                } catch (pdfErr: any) {
+                    errors.push(`Alert PDF generation: ${pdfErr.message}`);
+                    console.error(`[Broadcast] Alert PDF error:`, pdfErr.message);
                 }
             }
         } catch (err: any) {

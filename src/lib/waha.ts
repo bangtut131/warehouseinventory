@@ -85,22 +85,27 @@ export async function sendFileMessage(
     const cfg = config || DEFAULT_CONFIG;
     try {
         const client = createClient(cfg);
+        // Override timeout for file uploads
+        client.defaults.timeout = 60000;
         const formattedChatId = formatChatId(chatId);
         const base64 = fileBuffer.toString('base64');
+        const dataUri = `data:${mimetype};base64,${base64}`;
+
+        console.log(`[WAHA] Sending file ${filename} (${fileBuffer.length} bytes) to ${formattedChatId}`);
 
         await client.post(`/api/sendFile`, {
             chatId: formattedChatId,
             file: {
                 mimetype,
                 filename,
-                data: base64,
+                data: dataUri,
             },
             caption,
             session: cfg.session,
         });
         return { ok: true };
     } catch (err: any) {
-        console.error('[WAHA] sendFile error:', err.response?.data || err.message);
+        console.error('[WAHA] sendFile error:', err.response?.status, err.response?.data || err.message);
         return { ok: false, error: err.response?.data?.message || err.message };
     }
 }
