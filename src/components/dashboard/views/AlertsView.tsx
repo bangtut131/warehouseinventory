@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { InventoryItem } from '@/lib/types';
 import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
+import { UnitToggle, QtyUnit, formatQty, getUnitLabel } from '../UnitToggle';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
@@ -12,12 +13,16 @@ interface AlertsViewProps {
 }
 
 export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
+    const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
+
     const criticalItems = items.filter(i => i.status === 'CRITICAL').sort((a, b) => a.daysOfSupply - b.daysOfSupply);
     const reorderItems = items.filter(i => i.status === 'REORDER').sort((a, b) => a.daysOfSupply - b.daysOfSupply);
     const deadItems = items.filter(i => i.demandCategory === 'DEAD' && i.stock > 0).sort((a, b) => b.stockValue - a.stockValue);
 
     const formatIDR = (num: number) =>
         new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
+
+    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit);
 
     // Critical search/filter
     const critical = useTableControls(criticalItems, ['itemNo', 'name'], [
@@ -38,6 +43,11 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
 
     return (
         <div className="space-y-6">
+            {/* Unit Toggle — shared across all tables */}
+            <div className="flex justify-end">
+                <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
+            </div>
+
             {/* Critical Alerts */}
             <Card className="border-red-200">
                 <CardHeader className="pb-2">
@@ -75,14 +85,14 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-red-50' : 'bg-white'}>
                                                 <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
                                                 <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
-                                                <TableCell className="text-right font-bold text-red-600">{item.stock} {item.unit}</TableCell>
-                                                <TableCell className="text-right">{item.safetyStock}</TableCell>
+                                                <TableCell className="text-right font-bold text-red-600">{fq(item.stock, item)} {getUnitLabel(item, qtyUnit)}</TableCell>
+                                                <TableCell className="text-right">{fq(item.safetyStock, item)}</TableCell>
                                                 <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
-                                                    {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                                    {item.poOutstanding > 0 ? `+${fq(item.poOutstanding, item)}` : '-'}
                                                 </TableCell>
                                                 <TableCell className="text-right font-bold">
                                                     {item.netShortage > 0 ? (
-                                                        <span className="text-red-700">-{item.netShortage}</span>
+                                                        <span className="text-red-700">-{fq(item.netShortage, item)}</span>
                                                     ) : (
                                                         <span className="text-green-600">✅ Covered</span>
                                                     )}
@@ -138,14 +148,14 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-orange-50' : 'bg-white'}>
                                                 <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
                                                 <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
-                                                <TableCell className="text-right font-bold text-orange-600">{item.stock} {item.unit}</TableCell>
-                                                <TableCell className="text-right">{item.reorderPoint}</TableCell>
+                                                <TableCell className="text-right font-bold text-orange-600">{fq(item.stock, item)} {getUnitLabel(item, qtyUnit)}</TableCell>
+                                                <TableCell className="text-right">{fq(item.reorderPoint, item)}</TableCell>
                                                 <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
-                                                    {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                                    {item.poOutstanding > 0 ? `+${fq(item.poOutstanding, item)}` : '-'}
                                                 </TableCell>
                                                 <TableCell className="text-right font-bold">
                                                     {item.suggestedOrder > 0 ? (
-                                                        <span className="text-indigo-700">{item.suggestedOrder}</span>
+                                                        <span className="text-indigo-700">{fq(item.suggestedOrder, item)}</span>
                                                     ) : (
                                                         <span className="text-green-600">✅ Covered</span>
                                                     )}
@@ -202,8 +212,8 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
                                                 <TableCell className="font-medium">{item.itemNo}</TableCell>
                                                 <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
-                                                <TableCell className="text-right font-bold">{item.stock}</TableCell>
-                                                <TableCell>{item.unit}</TableCell>
+                                                <TableCell className="text-right font-bold">{fq(item.stock, item)}</TableCell>
+                                                <TableCell>{getUnitLabel(item, qtyUnit)}</TableCell>
                                                 <TableCell className="text-right text-red-600 font-bold">{formatIDR(item.stockValue)}</TableCell>
                                                 <TableCell className="text-right">{item.stockAgeDays} d</TableCell>
                                                 <TableCell className="text-center">
