@@ -19,8 +19,8 @@ export function UnitToggle({ unit, onChange }: UnitToggleProps) {
             <button
                 onClick={() => onChange('pcs')}
                 className={`px-3 py-1.5 font-medium transition-colors ${unit === 'pcs'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:bg-gray-100'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
                     }`}
             >
                 Pcs
@@ -28,8 +28,8 @@ export function UnitToggle({ unit, onChange }: UnitToggleProps) {
             <button
                 onClick={() => onChange('box')}
                 className={`px-3 py-1.5 font-medium transition-colors ${unit === 'box'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 hover:bg-gray-100'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
                     }`}
             >
                 Box
@@ -75,6 +75,7 @@ export function formatQty(qty: number, unitConversion: number, unit: QtyUnit): s
  */
 export function getUnitLabel(item: { unitConversion: number; salesUnitName: string; unit: string }, unit: QtyUnit): string {
     if (unit === 'pcs') return item.unit || 'Pcs';
-    if (item.unitConversion > 1 && item.salesUnitName) return item.salesUnitName;
-    return item.unit || 'Pcs'; // Fallback if no conversion
+    // Box mode — use specific sales unit name, or generic "Box"
+    if (item.salesUnitName) return item.salesUnitName;
+    return 'Box';
 }
