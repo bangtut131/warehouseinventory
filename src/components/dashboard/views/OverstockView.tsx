@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { InventoryItem } from '@/lib/types';
 import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
+import { UnitToggle, QtyUnit, formatQty } from '../UnitToggle';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
@@ -12,6 +13,7 @@ interface OverstockViewProps {
 }
 
 export const OverstockView: React.FC<OverstockViewProps> = ({ items }) => {
+    const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
     const overstockItems = items
         .filter(i => i.status === 'OVERSTOCK' || (i.daysOfSupply > 90 && i.stock > 0))
         .sort((a, b) => b.stockValue - a.stockValue);
@@ -27,6 +29,8 @@ export const OverstockView: React.FC<OverstockViewProps> = ({ items }) => {
 
     const formatIDR = (num: number) =>
         new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
+
+    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit);
 
     const totalExcessValue = filtered.reduce((s, i) => s + Math.max(0, i.stock - i.maxStock) * i.cost, 0);
 
@@ -55,7 +59,10 @@ export const OverstockView: React.FC<OverstockViewProps> = ({ items }) => {
 
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle>Overstock Items</CardTitle>
+                    <div className="flex items-center justify-between">
+                        <CardTitle>Overstock Items</CardTitle>
+                        <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <TableToolbar
@@ -98,11 +105,11 @@ export const OverstockView: React.FC<OverstockViewProps> = ({ items }) => {
                                             <TableCell>{index + 1}</TableCell>
                                             <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
                                             <TableCell className="max-w-[200px] truncate" title={item.name}>{item.name}</TableCell>
-                                            <TableCell className="text-right font-bold">{item.stock}</TableCell>
-                                            <TableCell className="text-right">{item.maxStock}</TableCell>
-                                            <TableCell className="text-right text-red-600 font-bold">{excess > 0 ? `+${excess}` : '-'}</TableCell>
+                                            <TableCell className="text-right font-bold">{fq(item.stock, item)}</TableCell>
+                                            <TableCell className="text-right">{fq(item.maxStock, item)}</TableCell>
+                                            <TableCell className="text-right text-red-600 font-bold">{excess > 0 ? `+${fq(excess, item)}` : '-'}</TableCell>
                                             <TableCell className="text-right">{isFinite(item.daysOfSupply) ? `${Math.min(Math.round(item.daysOfSupply), 99999)} d` : '∞'}</TableCell>
-                                            <TableCell className="text-right">{item.averageDailyUsage}</TableCell>
+                                            <TableCell className="text-right">{fq(item.averageDailyUsage, item)}</TableCell>
                                             <TableCell className="text-right">{formatIDR(item.stockValue)}</TableCell>
                                             <TableCell className="text-center">
                                                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.demandCategory === 'FAST' ? 'bg-green-100 text-green-800' : item.demandCategory === 'SLOW' ? 'bg-yellow-100 text-yellow-800' : item.demandCategory === 'DEAD' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>{item.demandCategory}</span>

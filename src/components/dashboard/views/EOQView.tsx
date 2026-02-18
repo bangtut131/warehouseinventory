@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { InventoryItem } from '@/lib/types';
 import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
+import { UnitToggle, QtyUnit, formatQty } from '../UnitToggle';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
@@ -12,6 +13,7 @@ interface EOQViewProps {
 }
 
 export const EOQView: React.FC<EOQViewProps> = ({ items }) => {
+    const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
     const activeItems = items.filter(i => i.eoq > 0 && i.averageDailyUsage > 0);
 
     const { search, setSearch, sort, toggleSort, filters, setFilter, clearAll, filtered, activeFilterCount } = useTableControls(
@@ -25,6 +27,8 @@ export const EOQView: React.FC<EOQViewProps> = ({ items }) => {
 
     const formatIDR = (num: number) =>
         new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
+
+    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit);
 
     const totalItems = filtered.length;
     const avgEOQ = totalItems > 0 ? filtered.reduce((s, i) => s + i.eoq, 0) / totalItems : 0;
@@ -81,7 +85,10 @@ export const EOQView: React.FC<EOQViewProps> = ({ items }) => {
 
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle>EOQ Analysis Table</CardTitle>
+                    <div className="flex items-center justify-between">
+                        <CardTitle>EOQ Analysis Table</CardTitle>
+                        <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <TableToolbar
@@ -126,19 +133,19 @@ export const EOQView: React.FC<EOQViewProps> = ({ items }) => {
                                             <TableCell className="text-center">
                                                 <span className={`px-2 py-1 rounded text-white font-bold text-xs ${item.abcClass === 'A' ? 'bg-red-600' : item.abcClass === 'B' ? 'bg-orange-500' : 'bg-slate-500'}`}>{item.abcClass}</span>
                                             </TableCell>
-                                            <TableCell className="text-right">{item.averageDailyUsage}</TableCell>
-                                            <TableCell className="text-right">{annualDemand.toLocaleString()}</TableCell>
+                                            <TableCell className="text-right">{fq(item.averageDailyUsage, item)}</TableCell>
+                                            <TableCell className="text-right">{fq(annualDemand, item)}</TableCell>
                                             <TableCell className="text-right">{formatIDR(item.cost)}</TableCell>
-                                            <TableCell className="text-right font-bold text-indigo-700 bg-indigo-50">{item.eoq.toLocaleString()}</TableCell>
+                                            <TableCell className="text-right font-bold text-indigo-700 bg-indigo-50">{fq(item.eoq, item)}</TableCell>
                                             <TableCell className="text-right">{ordersPerYear}</TableCell>
-                                            <TableCell className="text-right">{item.stock}</TableCell>
+                                            <TableCell className="text-right">{fq(item.stock, item)}</TableCell>
                                             <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
-                                                {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                                {item.poOutstanding > 0 ? `+${fq(item.poOutstanding, item)}` : '-'}
                                             </TableCell>
-                                            <TableCell className="text-right">{item.reorderPoint}</TableCell>
+                                            <TableCell className="text-right">{fq(item.reorderPoint, item)}</TableCell>
                                             <TableCell className="text-right font-bold bg-indigo-50">
                                                 {item.suggestedOrder > 0 ? (
-                                                    <span className="text-indigo-700">{item.suggestedOrder.toLocaleString()}</span>
+                                                    <span className="text-indigo-700">{fq(item.suggestedOrder, item)}</span>
                                                 ) : (
                                                     <span className="text-green-600">✅</span>
                                                 )}

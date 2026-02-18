@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { InventoryItem } from '@/lib/types';
 import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
+import { UnitToggle, QtyUnit, formatQty, getUnitLabel } from '../UnitToggle';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
@@ -12,6 +13,7 @@ interface ROPAnalysisViewProps {
 }
 
 export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
+    const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
     const ropItems = items.filter(i => i.averageDailyUsage > 0);
 
     const { search, setSearch, sort, toggleSort, filters, setFilter, clearAll, filtered, activeFilterCount } = useTableControls(
@@ -25,6 +27,9 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
 
     const formatIDR = (num: number) =>
         new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
+
+    // Shorthand for formatting qty
+    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit);
 
     // Summary cards
     const critical = filtered.filter(i => i.status === 'CRITICAL').length;
@@ -65,7 +70,10 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
             {/* Table */}
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle>ROP Analysis Table</CardTitle>
+                    <div className="flex items-center justify-between">
+                        <CardTitle>ROP Analysis Table</CardTitle>
+                        <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <TableToolbar
@@ -100,7 +108,6 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
                             </thead>
                             <TableBody>
                                 {filtered.map((item, index) => {
-                                    const stockRatio = item.reorderPoint > 0 ? item.stock / item.reorderPoint : 999;
                                     const rowColor = item.status === 'CRITICAL' ? 'bg-red-50' :
                                         item.status === 'REORDER' ? 'bg-orange-50' :
                                             item.status === 'OVERSTOCK' ? 'bg-blue-50' : index % 2 === 0 ? 'bg-white' : 'bg-slate-50';
@@ -110,24 +117,24 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
                                             <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
                                             <TableCell className="max-w-[200px] truncate" title={item.name}>{item.name}</TableCell>
                                             <TableCell className={`text-right font-bold ${item.stock <= item.safetyStock ? 'text-red-600' : ''}`}>
-                                                {item.stock} {item.unit}
+                                                {fq(item.stock, item)}
                                             </TableCell>
-                                            <TableCell>{item.unit}</TableCell>
-                                            <TableCell className="text-right font-bold text-blue-700">{item.reorderPoint}</TableCell>
-                                            <TableCell className="text-right">{item.safetyStock}</TableCell>
+                                            <TableCell>{getUnitLabel(item, qtyUnit)}</TableCell>
+                                            <TableCell className="text-right font-bold text-blue-700">{fq(item.reorderPoint, item)}</TableCell>
+                                            <TableCell className="text-right">{fq(item.safetyStock, item)}</TableCell>
                                             <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
-                                                {item.poOutstanding > 0 ? `+${item.poOutstanding}` : '-'}
+                                                {item.poOutstanding > 0 ? `+${fq(item.poOutstanding, item)}` : '-'}
                                             </TableCell>
                                             <TableCell className="text-right font-bold">
                                                 {item.netShortage > 0 ? (
-                                                    <span className="text-red-600">-{item.netShortage}</span>
+                                                    <span className="text-red-600">-{fq(item.netShortage, item)}</span>
                                                 ) : (
                                                     <span className="text-green-600">0</span>
                                                 )}
                                             </TableCell>
-                                            <TableCell className="text-right">{item.minStock}</TableCell>
-                                            <TableCell className="text-right">{item.maxStock}</TableCell>
-                                            <TableCell className="text-right">{item.averageDailyUsage}</TableCell>
+                                            <TableCell className="text-right">{fq(item.minStock, item)}</TableCell>
+                                            <TableCell className="text-right">{fq(item.maxStock, item)}</TableCell>
+                                            <TableCell className="text-right">{fq(item.averageDailyUsage, item)}</TableCell>
                                             <TableCell className="text-right">{isFinite(item.daysOfSupply) ? `${Math.min(Math.round(item.daysOfSupply), 99999)} d` : '∞'}</TableCell>
                                             <TableCell className="text-center">
                                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${item.status === 'CRITICAL' ? 'bg-red-600 text-white' :

@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { InventoryItem } from '@/lib/types';
 import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
+import { UnitToggle, QtyUnit, formatQty, getUnitLabel } from '../UnitToggle';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
@@ -12,10 +13,13 @@ interface TopItemsViewProps {
 }
 
 export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
+    const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
     const top30 = [...items].sort((a, b) => b.annualRevenue - a.annualRevenue).slice(0, 30);
 
     const formatIDR = (num: number) =>
         new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
+
+    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit);
 
     const { search, setSearch, sort, toggleSort, filters, setFilter, clearAll, filtered, activeFilterCount } = useTableControls(
         top30,
@@ -54,7 +58,10 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
 
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle>🏆 Top 30 Items by Revenue</CardTitle>
+                    <div className="flex items-center justify-between">
+                        <CardTitle>🏆 Top 30 Items by Revenue</CardTitle>
+                        <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <TableToolbar
@@ -76,8 +83,7 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
                                     <SortableHead label="Nama Barang" sortKey="name" sort={sort} onSort={toggleSort} className="text-white" />
                                     <SortableHead label="ABC" sortKey="abcClass" sort={sort} onSort={toggleSort} className="text-white text-center" />
                                     <SortableHead label="Revenue" sortKey="annualRevenue" sort={sort} onSort={toggleSort} className="text-white text-right" />
-                                    <SortableHead label="Terjual (Pcs)" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
-                                    <SortableHead label="Terjual (Box)" sortKey="totalSalesQtyBox" sort={sort} onSort={toggleSort} className="text-white text-right" />
+                                    <SortableHead label="Terjual" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Stock" sortKey="stock" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Turnover" sortKey="turnoverRate" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Demand" sortKey="demandCategory" sort={sort} onSort={toggleSort} className="text-white text-center" />
@@ -87,6 +93,14 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
                             <TableBody>
                                 {filtered.map((item, index) => {
                                     const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`;
+                                    // Show qty based on selected unit
+                                    const salesQty = qtyUnit === 'box' && item.totalSalesQtyBox > 0
+                                        ? item.totalSalesQtyBox
+                                        : item.totalSalesQty;
+                                    const salesLabel = qtyUnit === 'box' && item.totalSalesQtyBox > 0
+                                        ? (item.salesUnitName || 'Box')
+                                        : (item.unit || 'Pcs');
+
                                     return (
                                         <TableRow key={item.id} className={index < 3 ? 'bg-amber-50' : index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                                             <TableCell className="text-center font-bold">{medal}</TableCell>
@@ -96,18 +110,15 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
                                                 <span className={`px-2 py-1 rounded text-white font-bold text-xs ${item.abcClass === 'A' ? 'bg-red-600' : item.abcClass === 'B' ? 'bg-orange-500' : 'bg-slate-500'}`}>{item.abcClass}</span>
                                             </TableCell>
                                             <TableCell className="text-right font-bold">{formatIDR(item.annualRevenue)}</TableCell>
-                                            <TableCell className="text-right">{item.totalSalesQty.toLocaleString()}</TableCell>
                                             <TableCell className="text-right">
-                                                {item.totalSalesQtyBox > 0 ? (
-                                                    <div className="flex flex-col items-end">
-                                                        <span>{item.totalSalesQtyBox.toLocaleString()} {item.salesUnitName}</span>
-                                                        {item.unitConversion > 0 && (
-                                                            <span className="text-[10px] opacity-70">(@ {item.unitConversion})</span>
-                                                        )}
-                                                    </div>
-                                                ) : '-'}
+                                                <div className="flex flex-col items-end">
+                                                    <span>{salesQty.toLocaleString()} {salesLabel}</span>
+                                                    {qtyUnit === 'box' && item.unitConversion > 0 && (
+                                                        <span className="text-[10px] opacity-70">(@ {item.unitConversion})</span>
+                                                    )}
+                                                </div>
                                             </TableCell>
-                                            <TableCell className="text-right">{item.stock} {item.unit}</TableCell>
+                                            <TableCell className="text-right">{fq(item.stock, item)} {getUnitLabel(item, qtyUnit)}</TableCell>
                                             <TableCell className="text-right">{item.turnoverRate}×</TableCell>
                                             <TableCell className="text-center">
                                                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.demandCategory === 'FAST' ? 'bg-green-100 text-green-800' : item.demandCategory === 'SLOW' ? 'bg-yellow-100 text-yellow-800' : item.demandCategory === 'DEAD' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>{item.demandCategory}</span>
