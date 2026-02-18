@@ -132,7 +132,7 @@ export async function generateReorderReport(
 ): Promise<Buffer> {
     const reorderItems = items.filter(i => i.status === 'CRITICAL' || i.status === 'REORDER');
 
-    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40 });
+    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40, bufferPages: true });
 
     // Header
     doc.fontSize(16).font('Helvetica-Bold')
@@ -199,7 +199,7 @@ export async function generateAlertReport(
     branchName?: string,
     warehouseName?: string
 ): Promise<Buffer> {
-    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40 });
+    const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40, bufferPages: true });
 
     // Header
     doc.fontSize(16).font('Helvetica-Bold')
