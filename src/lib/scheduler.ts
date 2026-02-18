@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { prisma } from './prisma';
-import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, syncProgress } from './accurate';
+import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, fetchAllPOOutstanding, syncProgress } from './accurate';
 
 // ─── Config ──────────────────────────────────────────────────
 
@@ -160,13 +160,31 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
 
         await saveWarehouseStockCache(warehouseStockMap);
 
+        // Phase 4: Fetch PO Outstanding (non-critical)
+        let poItemCount = 0;
+        try {
+            syncProgress.phase = 'poOutstanding';
+            syncProgress.done = 0;
+            syncProgress.total = 0;
+            syncProgress.message = 'Auto-sync: Mengambil PO Outstanding...';
+
+            const poResult = await fetchAllPOOutstanding(true, branchId, (done, total) => {
+                syncProgress.done = done;
+                syncProgress.total = total;
+                syncProgress.message = `Auto-sync: PO Outstanding ${done}/${total}`;
+            });
+            poItemCount = poResult.poMap.size;
+        } catch (poErr: any) {
+            console.warn('[Scheduler] PO Outstanding fetch failed (non-critical):', poErr.message);
+        }
+
         syncProgress.phase = 'done';
         syncProgress.message = 'Auto-sync selesai!';
 
         const durationSec = Math.round((Date.now() - start) / 1000);
-        await updateLogEntry(logId, 'SUCCESS', `Items: ${result.salesMap.size}, Invoices: ${result.invoiceCount}`);
+        await updateLogEntry(logId, 'SUCCESS', `Items: ${result.salesMap.size}, Invoices: ${result.invoiceCount}${poItemCount > 0 ? `, PO: ${poItemCount}` : ''}`);
 
-        console.log(`[Scheduler] Sync completed in ${durationSec}s — ${result.salesMap.size} items, ${result.invoiceCount} invoices`);
+        console.log(`[Scheduler] Sync completed in ${durationSec}s — ${result.salesMap.size} items, ${result.invoiceCount} invoices${poItemCount > 0 ? `, ${poItemCount} PO outstanding` : ''}`);
     } catch (err: any) {
         const durationSec = Math.round((Date.now() - start) / 1000);
         await updateLogEntry(logId, 'FAILED', err.message);
@@ -178,8 +196,16 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
 let isRunning = false;
+let schedulerInitialized = false;
 
 export async function startScheduler(): Promise<void> {
+    // Guard: prevent duplicate cron registration from multiple call sites
+    if (schedulerInitialized && cronTask) {
+        console.log('[Scheduler] Already initialized — skipping duplicate start');
+        return;
+    }
+    schedulerInitialized = true;
+
     const config = await loadConfig();
 
     if (!config.enabled) {
@@ -225,6 +251,7 @@ export function stopScheduler(): void {
 
 export async function restartScheduler(): Promise<void> {
     stopScheduler();
+    schedulerInitialized = false; // Allow re-initialization on restart
     await startScheduler();
 }
 

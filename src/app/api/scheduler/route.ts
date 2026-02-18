@@ -6,23 +6,15 @@ import {
     updateConfig,
     loadHistory,
     executeSyncJob,
-    startScheduler,
     type SchedulerConfig,
 } from '@/lib/scheduler';
 
-// Lazy-init: start scheduler on first API access
-let initialized = false;
-async function ensureSchedulerStarted() {
-    if (!initialized) {
-        initialized = true;
-        await startScheduler();
-    }
-}
+// Scheduler is started via instrumentation.ts on app boot.
+// No need for lazy-init here — that was causing duplicate cron jobs.
 
 // ─── GET: Get scheduler status + history ─────────────────────
 export async function GET() {
     try {
-        await ensureSchedulerStarted();
         const status = await getSchedulerStatus();
         const history = await loadHistory();
 
@@ -42,7 +34,6 @@ export async function GET() {
 // ─── POST: Update config or trigger manual sync ──────────────
 export async function POST(request: NextRequest) {
     try {
-        await ensureSchedulerStarted();
         const url = new URL(request.url);
         const action = url.searchParams.get('action');
 
@@ -63,7 +54,7 @@ export async function POST(request: NextRequest) {
             config: newConfig,
         });
     } catch (err: any) {
-        console.error('[Scheduler API] GET Error:', err);
+        console.error('[Scheduler API] POST Error:', err);
         return NextResponse.json({
             error: err.message,
             stack: err.stack,
