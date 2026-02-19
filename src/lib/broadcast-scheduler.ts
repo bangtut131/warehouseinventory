@@ -5,6 +5,25 @@ import { generateReorderReport, generateAlertReport } from './report-generator';
 import { InventoryItem } from './types';
 import axios from 'axios';
 
+export type StockUnit = 'pcs' | 'box';
+
+/** Convert qty based on unit preference */
+function convertStock(qty: number, item: InventoryItem, unit: StockUnit): string {
+    if (unit === 'pcs' || !item.unitConversion || item.unitConversion <= 1) {
+        return Math.round(qty).toLocaleString('id-ID');
+    }
+    const converted = qty / item.unitConversion;
+    if (Number.isInteger(converted)) return converted.toLocaleString('id-ID');
+    return converted.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+/** Get unit label based on preference */
+function getUnit(item: InventoryItem, unit: StockUnit): string {
+    if (unit === 'pcs') return item.unit || 'Pcs';
+    if (item.salesUnitName) return item.salesUnitName;
+    return 'Box';
+}
+
 // ─── CONFIG ──────────────────────────────────────────────────
 
 export interface BroadcastConfig {
@@ -21,6 +40,7 @@ export interface BroadcastConfig {
     wahaUrl: string;
     wahaSession: string;
     wahaApiKey: string;
+    stockUnit: StockUnit;
 }
 
 const DEFAULT_CONFIG: BroadcastConfig = {
@@ -34,6 +54,7 @@ const DEFAULT_CONFIG: BroadcastConfig = {
     wahaUrl: process.env.WAHA_API_URL || 'http://localhost:3000',
     wahaSession: process.env.WAHA_SESSION || 'default',
     wahaApiKey: process.env.WAHA_API_KEY || '',
+    stockUnit: 'pcs',
 };
 
 // ─── CONFIG PERSISTENCE ──────────────────────────────────────
@@ -152,16 +173,18 @@ export async function executeBroadcast(
                     textMsg += `🔴 *Critical:* ${criticalItems.length} item\n`;
                     textMsg += `🟠 *Reorder:* ${reorderItems.length} item\n`;
 
+                    const su = config.stockUnit || 'pcs';
+
                     // Top 10 Critical Items
                     if (criticalItems.length > 0) {
                         textMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
                         textMsg += `🔴 *TOP ${Math.min(10, criticalItems.length)} CRITICAL ITEMS:*\n\n`;
                         criticalItems.slice(0, 10).forEach((item, i) => {
                             textMsg += `${i + 1}. *${item.name}*\n`;
-                            textMsg += `   📦 Stock: ${item.stock} ${item.unit} | ROP: ${item.reorderPoint}\n`;
-                            textMsg += `   🛡️ Safety: ${item.safetyStock}`;
-                            if (item.poOutstanding > 0) textMsg += ` | PO: +${item.poOutstanding}`;
-                            if (item.suggestedOrder > 0) textMsg += ` | 📋 Order: ${item.suggestedOrder}`;
+                            textMsg += `   📦 Stock: ${convertStock(item.stock, item, su)} ${getUnit(item, su)} | ROP: ${convertStock(item.reorderPoint, item, su)}\n`;
+                            textMsg += `   🛡️ Safety: ${convertStock(item.safetyStock, item, su)}`;
+                            if (item.poOutstanding > 0) textMsg += ` | PO: +${convertStock(item.poOutstanding, item, su)}`;
+                            if (item.suggestedOrder > 0) textMsg += ` | 📋 Order: ${convertStock(item.suggestedOrder, item, su)}`;
                             textMsg += `\n`;
                         });
                         if (criticalItems.length > 10) {
@@ -175,8 +198,8 @@ export async function executeBroadcast(
                         textMsg += `🟠 *DAFTAR REORDER (${reorderItems.length} item):*\n\n`;
                         reorderItems.forEach((item, i) => {
                             textMsg += `${i + 1}. *${item.name}*\n`;
-                            textMsg += `   📦 Stock: ${item.stock} ${item.unit} | ROP: ${item.reorderPoint}`;
-                            if (item.suggestedOrder > 0) textMsg += ` | Order: ${item.suggestedOrder}`;
+                            textMsg += `   📦 Stock: ${convertStock(item.stock, item, su)} ${getUnit(item, su)} | ROP: ${convertStock(item.reorderPoint, item, su)}`;
+                            if (item.suggestedOrder > 0) textMsg += ` | Order: ${convertStock(item.suggestedOrder, item, su)}`;
                             textMsg += `\n`;
                         });
                     }
@@ -195,7 +218,7 @@ export async function executeBroadcast(
 
                         // Generate and send PDF
                         try {
-                            const pdfBuffer = await generateReorderReport(items, config.branchName, config.warehouseName);
+                            const pdfBuffer = await generateReorderReport(items, config.branchName, config.warehouseName, config.stockUnit);
                             console.log(`[Broadcast] PDF generated: ${pdfBuffer.length} bytes`);
                             const filename = `Reorder_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
                             const r2 = await sendFileMessage(target, pdfBuffer, filename, 'Laporan Reorder Inventory', 'application/pdf', wahaConfig);
@@ -217,7 +240,7 @@ export async function executeBroadcast(
             if (reportType === 'alert-pdf') {
                 // Full alert PDF report
                 try {
-                    const pdfBuffer = await generateAlertReport(items, config.branchName, config.warehouseName);
+                    const pdfBuffer = await generateAlertReport(items, config.branchName, config.warehouseName, config.stockUnit);
                     console.log(`[Broadcast] Alert PDF generated: ${pdfBuffer.length} bytes`);
                     const filename = `Alert_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
                     const caption = `📊 *LAPORAN ALERT INVENTORY*\n${formatDate()}\n${config.branchName ? `Cabang: ${config.branchName}` : 'Semua Cabang'}`;

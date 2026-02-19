@@ -1,6 +1,23 @@
 import PDFDocument from 'pdfkit';
 import { InventoryItem } from './types';
+import { StockUnit } from './broadcast-scheduler';
 
+type SU = StockUnit;
+
+function fmtQty(qty: number, item: InventoryItem, su: SU): string {
+    if (su === 'pcs' || !item.unitConversion || item.unitConversion <= 1) {
+        return formatNumber(Math.round(qty));
+    }
+    const c = qty / item.unitConversion;
+    if (Number.isInteger(c)) return formatNumber(c);
+    return c.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function unitLabel(item: InventoryItem, su: SU): string {
+    if (su === 'pcs') return item.unit || 'Pcs';
+    if (item.salesUnitName) return item.salesUnitName;
+    return 'Box';
+}
 // ─── HELPERS ─────────────────────────────────────────────────
 
 function formatDate(): string {
@@ -135,7 +152,8 @@ function drawTable(
 export async function generateReorderReport(
     items: InventoryItem[],
     branchName?: string,
-    warehouseName?: string
+    warehouseName?: string,
+    stockUnit: SU = 'pcs'
 ): Promise<Buffer> {
     const criticalItems = items.filter(i => i.status === 'CRITICAL');
     const reorderItems = items.filter(i => i.status === 'REORDER');
@@ -172,13 +190,13 @@ export async function generateReorderReport(
             (idx + 1).toString(),
             item.itemNo,
             item.name.length > 35 ? item.name.substring(0, 35) + '...' : item.name,
-            item.unit,
-            formatNumber(item.stock),
-            formatNumber(item.reorderPoint),
-            formatNumber(item.safetyStock),
-            item.poOutstanding > 0 ? formatNumber(item.poOutstanding) : '-',
-            formatNumber(item.netShortage),
-            item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
+            unitLabel(item, stockUnit),
+            fmtQty(item.stock, item, stockUnit),
+            fmtQty(item.reorderPoint, item, stockUnit),
+            fmtQty(item.safetyStock, item, stockUnit),
+            item.poOutstanding > 0 ? fmtQty(item.poOutstanding, item, stockUnit) : '-',
+            fmtQty(item.netShortage, item, stockUnit),
+            item.suggestedOrder > 0 ? fmtQty(item.suggestedOrder, item, stockUnit) : '-',
             'CRITICAL',
         ]);
 
@@ -203,13 +221,13 @@ export async function generateReorderReport(
             (idx + 1).toString(),
             item.itemNo,
             item.name.length > 35 ? item.name.substring(0, 35) + '...' : item.name,
-            item.unit,
-            formatNumber(item.stock),
-            formatNumber(item.reorderPoint),
-            formatNumber(item.safetyStock),
-            item.poOutstanding > 0 ? formatNumber(item.poOutstanding) : '-',
-            formatNumber(item.netShortage),
-            item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
+            unitLabel(item, stockUnit),
+            fmtQty(item.stock, item, stockUnit),
+            fmtQty(item.reorderPoint, item, stockUnit),
+            fmtQty(item.safetyStock, item, stockUnit),
+            item.poOutstanding > 0 ? fmtQty(item.poOutstanding, item, stockUnit) : '-',
+            fmtQty(item.netShortage, item, stockUnit),
+            item.suggestedOrder > 0 ? fmtQty(item.suggestedOrder, item, stockUnit) : '-',
             'REORDER',
         ]);
 
@@ -229,7 +247,8 @@ export async function generateReorderReport(
 export async function generateAlertReport(
     items: InventoryItem[],
     branchName?: string,
-    warehouseName?: string
+    warehouseName?: string,
+    stockUnit: SU = 'pcs'
 ): Promise<Buffer> {
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 40, bufferPages: true });
 
@@ -263,10 +282,10 @@ export async function generateAlertReport(
             (idx + 1).toString(),
             item.itemNo,
             item.name.length > 45 ? item.name.substring(0, 45) + '...' : item.name,
-            `${formatNumber(item.stock)} ${item.unit}`,
-            formatNumber(item.safetyStock),
-            item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
-            formatNumber(item.netShortage),
+            `${fmtQty(item.stock, item, stockUnit)} ${unitLabel(item, stockUnit)}`,
+            fmtQty(item.safetyStock, item, stockUnit),
+            item.poOutstanding > 0 ? `+${fmtQty(item.poOutstanding, item, stockUnit)}` : '-',
+            fmtQty(item.netShortage, item, stockUnit),
             'CRITICAL',
         ]);
 
@@ -293,11 +312,11 @@ export async function generateAlertReport(
             (idx + 1).toString(),
             item.itemNo,
             item.name.length > 45 ? item.name.substring(0, 45) + '...' : item.name,
-            `${formatNumber(item.stock)} ${item.unit}`,
-            formatNumber(item.reorderPoint),
-            item.poOutstanding > 0 ? `+${formatNumber(item.poOutstanding)}` : '-',
-            formatNumber(item.netShortage),
-            item.suggestedOrder > 0 ? formatNumber(item.suggestedOrder) : '-',
+            `${fmtQty(item.stock, item, stockUnit)} ${unitLabel(item, stockUnit)}`,
+            fmtQty(item.reorderPoint, item, stockUnit),
+            item.poOutstanding > 0 ? `+${fmtQty(item.poOutstanding, item, stockUnit)}` : '-',
+            fmtQty(item.netShortage, item, stockUnit),
+            item.suggestedOrder > 0 ? fmtQty(item.suggestedOrder, item, stockUnit) : '-',
         ]);
 
         currentY = drawTable(doc, headers, rows, colWidths, 40, currentY, {
@@ -323,8 +342,8 @@ export async function generateAlertReport(
             (idx + 1).toString(),
             item.itemNo,
             item.name.length > 45 ? item.name.substring(0, 45) + '...' : item.name,
-            formatNumber(item.stock),
-            item.unit,
+            fmtQty(item.stock, item, stockUnit),
+            unitLabel(item, stockUnit),
             `Rp ${formatNumber(item.stockValue)}`,
             `${formatNumber(item.stockAgeDays)} hr`,
         ]);

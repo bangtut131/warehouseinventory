@@ -31,6 +31,7 @@ interface BroadcastConfig {
     wahaUrl: string;
     wahaSession: string;
     wahaApiKey: string;
+    stockUnit: 'pcs' | 'box';
 }
 
 interface BroadcastLogEntry {
@@ -81,6 +82,7 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
     const [reportAlert, setReportAlert] = useState(false);
     const [branchId, setBranchId] = useState<string>('');
     const [warehouseId, setWarehouseId] = useState<string>('');
+    const [stockUnit, setStockUnit] = useState<'pcs' | 'box'>('pcs');
 
     const loadConfig = useCallback(async () => {
         setLoading(true);
@@ -104,6 +106,7 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
             setReportAlert((c.reportTypes || []).includes('alert-pdf'));
             setBranchId(c.branchId ? c.branchId.toString() : '');
             setWarehouseId(c.warehouseId ? c.warehouseId.toString() : '');
+            setStockUnit(c.stockUnit || 'pcs');
         } catch (err) {
             console.error('Failed to load broadcast config', err);
         } finally {
@@ -144,6 +147,7 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
                 wahaUrl,
                 wahaSession,
                 wahaApiKey,
+                stockUnit,
             };
 
             await axios.post('/api/broadcast', update);
@@ -333,6 +337,31 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
                                         className="rounded"
                                     />
                                     <span className="text-sm">🚨 Alert PDF</span>
+                                </label>
+                            </div>
+
+                            {/* Stock Unit */}
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-medium text-gray-600">Satuan Stock:</span>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="stockUnit"
+                                        value="pcs"
+                                        checked={stockUnit === 'pcs'}
+                                        onChange={() => setStockUnit('pcs')}
+                                    />
+                                    <span className="text-sm">📦 Pcs</span>
+                                </label>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="stockUnit"
+                                        value="box"
+                                        checked={stockUnit === 'box'}
+                                        onChange={() => setStockUnit('box')}
+                                    />
+                                    <span className="text-sm">📦 Box</span>
                                 </label>
                             </div>
 
