@@ -9,5 +9,13 @@ export async function register() {
         } catch (err) {
             console.error('[Instrumentation] Failed to start scheduler:', err);
         }
+
+        // Keep-alive: ping Supabase every 3 days to prevent free tier pause
+        try {
+            const { startKeepAlive } = await import('@/lib/keepalive');
+            startKeepAlive();
+        } catch (err) {
+            console.error('[Instrumentation] Failed to start keep-alive:', err);
+        }
     }
 }
