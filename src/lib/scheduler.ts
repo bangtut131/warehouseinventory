@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { prisma } from './prisma';
-import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, fetchAllPOOutstanding, syncProgress } from './accurate';
+import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, saveSalesCache, fetchAllPOOutstanding, syncProgress } from './accurate';
 
 // ─── Config ──────────────────────────────────────────────────
 
@@ -140,10 +140,10 @@ async function executeSyncPhases(config: SchedulerConfig) {
     const fromDate = new Date(config.fromDate);
     const branchId = config.branchId ?? undefined;
 
-    // Phase 1+2: Fetch sales data (listing + details)
+    // Phase 1+2: Fetch sales data (listing + details) — skipCacheOps=true for atomicity
     syncProgress.phase = 'listing';
     syncProgress.message = 'Auto-sync: Mengambil daftar invoice...';
-    const result = await fetchAllSalesData(fromDate, true, branchId);
+    const result = await fetchAllSalesData(fromDate, true, branchId, true); // skipCacheOps=true!
 
     // Phase 3: Fetch warehouse stock
     syncProgress.phase = 'warehouseStock';
@@ -179,7 +179,7 @@ async function executeSyncPhases(config: SchedulerConfig) {
     }
 
     // Return everything — caller decides when to write cache
-    return { result, warehouseStockMap, poItemCount };
+    return { result, warehouseStockMap, poItemCount, fromDate, branchId };
 }
 
 /**
@@ -222,15 +222,16 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
             }
 
             // ── Run all phases (data stays in memory) ──
-            const { result, warehouseStockMap, poItemCount } = await attemptSync(config);
+            const { result, warehouseStockMap, poItemCount, fromDate, branchId } = await attemptSync(config);
 
-            // ── ALL phases succeeded → NOW write cache (atomic) ──
+            // ── ALL phases succeeded → NOW write ALL caches (truly atomic) ──
             syncProgress.phase = 'done';
             syncProgress.message = 'Auto-sync: Menyimpan cache...';
 
+            // Save sales cache (was skipped during fetch due to skipCacheOps=true)
+            await saveSalesCache(fromDate, result.salesMap, branchId);
+            // Save warehouse stock cache
             await saveWarehouseStockCache(warehouseStockMap);
-            // Sales cache is already saved inside fetchAllSalesData (force=true)
-            // But since we used force=true, it won't read stale cache next time
 
             const durationSec = Math.round((Date.now() - start) / 1000);
             const msg = `Items: ${result.salesMap.size}, Invoices: ${result.invoiceCount}${poItemCount > 0 ? `, PO: ${poItemCount}` : ''}${attempt > 1 ? ` (after ${attempt} attempts)` : ''}`;

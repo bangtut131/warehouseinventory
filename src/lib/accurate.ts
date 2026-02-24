@@ -407,7 +407,7 @@ export async function loadSalesCache(fromDate: Date, branchId?: number): Promise
 /**
  * Save sales data to cache DB.
  */
-async function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesData>, branchId?: number): Promise<void> {
+export async function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesData>, branchId?: number): Promise<void> {
   try {
     const data: CachedSalesData['data'] = {};
     salesMap.forEach((val, key) => {
@@ -440,16 +440,23 @@ async function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemSalesDat
  * Main entry point: Fetch all sales data from Accurate with caching.
  * Returns a Map of itemNo → { totalQty, totalRevenue, monthlyData }
  */
-export async function fetchAllSalesData(fromDate: Date, force: boolean = false, branchId?: number): Promise<{ salesMap: Map<string, ItemSalesData>; invoiceCount: number }> {
-  // 1. Try cache first (unless force sync)
-  if (!force) {
+export async function fetchAllSalesData(
+  fromDate: Date,
+  force: boolean = false,
+  branchId?: number,
+  skipCacheOps: boolean = false  // When true: don't clear or write cache (caller manages atomicity)
+): Promise<{ salesMap: Map<string, ItemSalesData>; invoiceCount: number }> {
+  // 1. Try cache first (unless force sync or skipCacheOps)
+  if (!force && !skipCacheOps) {
     const cached = await loadSalesCache(fromDate, branchId);
     if (cached) {
       return { salesMap: cached, invoiceCount: -1 }; // -1 indicates cached
     }
-  } else {
-    console.log(`[Accurate] Force sync requested — skipping cache${branchId ? ` (branch ${branchId})` : ''}`);
+  } else if (force && !skipCacheOps) {
+    console.log(`[Accurate] Force sync requested — clearing cache${branchId ? ` (branch ${branchId})` : ''}`);
     await clearSalesCache(fromDate, branchId);
+  } else {
+    console.log(`[Accurate] Atomic sync mode — cache ops skipped (caller manages)`);
   }
 
   // 2. Phase 1: Get invoice IDs (API-level date + branch filter)
@@ -562,17 +569,20 @@ export async function fetchAllSalesData(fromDate: Date, force: boolean = false, 
 
   console.log(`[Accurate] Aggregated sales data for ${salesMap.size} items from ${invoices.length} invoices`);
 
-  // 6. Cache results — main cache
-  await saveSalesCache(fromDate, salesMap, branchId);
+  // 6. Cache results — ONLY if not in atomic mode
+  if (!skipCacheOps) {
+    await saveSalesCache(fromDate, salesMap, branchId);
 
-  // 6b. Auto-save per-branch caches (only when syncing all branches)
-  if (!branchId && branchSalesMaps.size > 0) {
-    console.log(`[Accurate] Auto-splitting cache for ${branchSalesMaps.size} branches...`);
-    // Ideally use Promise.all to parallelize
-    for (const [brId, brMap] of branchSalesMaps) {
-      await saveSalesCache(fromDate, brMap, brId); // Using await in loop to avoid overwhelming DB connection
-      console.log(`[Accurate]   Branch ${brId}: ${brMap.size} items cached`);
+    // 6b. Auto-save per-branch caches (only when syncing all branches)
+    if (!branchId && branchSalesMaps.size > 0) {
+      console.log(`[Accurate] Auto-splitting cache for ${branchSalesMaps.size} branches...`);
+      for (const [brId, brMap] of branchSalesMaps) {
+        await saveSalesCache(fromDate, brMap, brId);
+        console.log(`[Accurate]   Branch ${brId}: ${brMap.size} items cached`);
+      }
     }
+  } else {
+    console.log(`[Accurate] Atomic mode: skipping cache write (caller will handle)`);
   }
 
   return { salesMap, invoiceCount: invoices.length };
