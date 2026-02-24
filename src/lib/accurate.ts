@@ -929,15 +929,23 @@ async function fetchPODetailsInBatch(
  * Aggregate outstanding qty per itemNo from PO details.
  * Formula from Accurate: Outstanding = quantity - shipQuantity
  * If PO status is "Ditutup" (Closed), outstanding = 0
+ *
+ * Returns: combined map + per-branch maps (for auto-splitting)
  */
-function aggregatePOOutstanding(pos: AccuratePO[]): POOutstandingMap {
-  const map: POOutstandingMap = new Map();
+function aggregatePOOutstanding(pos: AccuratePO[]): {
+  combined: POOutstandingMap;
+  perBranch: Map<number, POOutstandingMap>;
+} {
+  const combined: POOutstandingMap = new Map();
+  const perBranch = new Map<number, POOutstandingMap>();
   const CLOSED_STATUSES = ['ditutup', 'closed', 'selesai', 'void', 'cancel', 'batal'];
 
   pos.forEach(po => {
     // Skip closed POs entirely (double check)
     const poStatus = (po.statusName || '').toLowerCase().trim();
     if (CLOSED_STATUSES.includes(poStatus)) return;
+
+    const poBranchId = po.branchId;
 
     if (po.detailItem) {
       po.detailItem.forEach(d => {
@@ -948,13 +956,23 @@ function aggregatePOOutstanding(pos: AccuratePO[]): POOutstandingMap {
         const outstanding = Math.max(0, d.quantity - d.shipQuantity);
 
         if (outstanding > 0) {
-          map.set(itemNo, (map.get(itemNo) || 0) + outstanding);
+          // Add to combined map
+          combined.set(itemNo, (combined.get(itemNo) || 0) + outstanding);
+
+          // Add to per-branch map
+          if (poBranchId) {
+            if (!perBranch.has(poBranchId)) {
+              perBranch.set(poBranchId, new Map());
+            }
+            const branchMap = perBranch.get(poBranchId)!;
+            branchMap.set(itemNo, (branchMap.get(itemNo) || 0) + outstanding);
+          }
         }
       });
     }
   });
 
-  return map;
+  return { combined, perBranch };
 }
 
 /**
@@ -1013,6 +1031,7 @@ export async function loadPOCache(branchId?: number): Promise<POOutstandingMap |
 /**
  * Main entry: Fetch all PO outstanding data with caching.
  * Returns a Map of itemNo → outstanding qty (pcs).
+ * When syncing all branches, also auto-saves per-branch PO caches.
  */
 export async function fetchAllPOOutstanding(
   force: boolean = false,
@@ -1048,12 +1067,21 @@ export async function fetchAllPOOutstanding(
     syncProgress.message = `PO Outstanding: ${done}/${total} PO`;
   });
 
-  // Phase 3: Aggregate
-  const poMap = aggregatePOOutstanding(pos);
+  // Phase 3: Aggregate (now returns combined + per-branch)
+  const { combined: poMap, perBranch } = aggregatePOOutstanding(pos);
   console.log(`[Accurate] PO done: ${poMap.size} items with outstanding qty from ${pos.length} POs`);
 
-  // Cache
+  // Cache — main (combined)
   await savePOCache(poMap, branchId);
+
+  // Auto-split per-branch caches (only when syncing all branches)
+  if (!branchId && perBranch.size > 0) {
+    console.log(`[Accurate] PO: Auto-splitting cache for ${perBranch.size} branches...`);
+    for (const [brId, brMap] of perBranch) {
+      await savePOCache(brMap, brId);
+      console.log(`[Accurate]   PO Branch ${brId}: ${brMap.size} items cached`);
+    }
+  }
 
   return { poMap, poCount: pos.length };
 }
