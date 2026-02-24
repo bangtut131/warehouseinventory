@@ -54,6 +54,7 @@ export const syncProgress = {
 // Create Axios client with proper headers (including X-Session-ID)
 export const accurateClient = axios.create({
   baseURL: API_HOST,
+  timeout: 30000, // 30 seconds — prevent hung connections from blocking sync
   headers: {
     'Authorization': `Bearer ${API_TOKEN}`,
     'X-Session-ID': DB_ID,
