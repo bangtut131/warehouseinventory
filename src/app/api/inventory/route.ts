@@ -4,7 +4,7 @@ import { InventoryItem, MonthlySales } from '@/lib/types';
 
 // ─── CONSTANTS ────────────────────────────────────────────────
 const Z_SCORE_95 = 1.645;
-const LEAD_TIME_DAYS = 14;
+const LEAD_TIME_DAYS = 10;
 const HOLDING_COST_PCT = 0.25;     // 25% of cost per year
 const ORDER_COST = 150000;         // Rp 150k per order (estimated)
 const DEFAULT_ANALYSIS_START = new Date(2025, 0, 1); // Jan 1, 2025
