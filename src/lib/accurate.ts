@@ -445,12 +445,12 @@ export async function fetchAllSalesData(
   force: boolean = false,
   branchId?: number,
   skipCacheOps: boolean = false  // When true: don't clear or write cache (caller manages atomicity)
-): Promise<{ salesMap: Map<string, ItemSalesData>; invoiceCount: number }> {
+): Promise<{ salesMap: Map<string, ItemSalesData>; invoiceCount: number; branchSalesMaps: Map<number, Map<string, ItemSalesData>> }> {
   // 1. Try cache first (unless force sync or skipCacheOps)
   if (!force && !skipCacheOps) {
     const cached = await loadSalesCache(fromDate, branchId);
     if (cached) {
-      return { salesMap: cached, invoiceCount: -1 }; // -1 indicates cached
+      return { salesMap: cached, invoiceCount: -1, branchSalesMaps: new Map() }; // -1 indicates cached
     }
   } else if (force && !skipCacheOps) {
     console.log(`[Accurate] Force sync requested — clearing cache${branchId ? ` (branch ${branchId})` : ''}`);
@@ -585,7 +585,7 @@ export async function fetchAllSalesData(
     console.log(`[Accurate] Atomic mode: skipping cache write (caller will handle)`);
   }
 
-  return { salesMap, invoiceCount: invoices.length };
+  return { salesMap, invoiceCount: invoices.length, branchSalesMaps };
 }
 
 // ─── WAREHOUSE STOCK (Phase 3) ───────────────────────────────

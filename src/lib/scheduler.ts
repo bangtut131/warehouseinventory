@@ -228,8 +228,17 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
             syncProgress.phase = 'done';
             syncProgress.message = 'Auto-sync: Menyimpan cache...';
 
-            // Save sales cache (was skipped during fetch due to skipCacheOps=true)
+            // Save combined sales cache
             await saveSalesCache(fromDate, result.salesMap, branchId);
+
+            // Save per-branch sales caches (auto-split, only when syncing all branches)
+            if (!branchId && result.branchSalesMaps && result.branchSalesMaps.size > 0) {
+                console.log(`[Scheduler] Saving per-branch sales caches for ${result.branchSalesMaps.size} branches...`);
+                for (const [brId, brMap] of result.branchSalesMaps) {
+                    await saveSalesCache(fromDate, brMap, brId);
+                }
+            }
+
             // Save warehouse stock cache
             await saveWarehouseStockCache(warehouseStockMap);
 
