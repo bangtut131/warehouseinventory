@@ -30,6 +30,16 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
 
+    // Sync status filter (which statuses to fetch from API)
+    const ALL_SO_STATUSES = ['Diajukan', 'Menunggu diproses', 'Sebagian diproses', 'Terproses'];
+    const [syncStatuses, setSyncStatuses] = useState<string[]>(['Menunggu diproses', 'Sebagian diproses']);
+
+    const toggleSyncStatus = (status: string) => {
+        setSyncStatuses(prev =>
+            prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
+        );
+    };
+
     const fetchSO = useCallback(async () => {
         setLoading(true);
         try {
@@ -79,6 +89,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     branch: branchFilter || undefined,
                     from: fromDate || undefined,
                     to: toDate || undefined,
+                    statuses: syncStatuses.length > 0 && syncStatuses.length < ALL_SO_STATUSES.length ? syncStatuses : undefined,
                 }),
             });
         } catch (err) {
@@ -223,6 +234,25 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                 >
                     {syncState.status === 'running' ? `⏳ ${syncState.progress}%` : '🔄 Sync SO'}
                 </Button>
+            </div>
+
+            {/* Sync Status Checkboxes */}
+            <div className="flex flex-wrap items-center gap-3 bg-indigo-50/50 rounded-lg px-3 py-2 border border-indigo-200">
+                <span className="text-xs font-medium text-indigo-600">🔄 Sync status:</span>
+                {ALL_SO_STATUSES.map(status => (
+                    <label key={status} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={syncStatuses.includes(status)}
+                            onChange={() => toggleSyncStatus(status)}
+                            className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                        />
+                        <span className="text-xs text-gray-700">{status}</span>
+                    </label>
+                ))}
+                <span className="text-xs text-muted-foreground ml-1">
+                    ({syncStatuses.length === 0 || syncStatuses.length === ALL_SO_STATUSES.length ? 'semua' : syncStatuses.length + ' dipilih'})
+                </span>
             </div>
 
             {/* Sync Progress Banner */}

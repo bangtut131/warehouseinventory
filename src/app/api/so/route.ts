@@ -99,13 +99,14 @@ export async function POST(request: NextRequest) {
     const branchId = body.branch ? parseInt(body.branch) : undefined;
     const fromDate = body.from || undefined;
     const toDate = body.to || undefined;
+    const statuses: string[] | undefined = body.statuses?.length > 0 ? body.statuses : undefined;
 
     soSyncState = { status: 'running', progress: 0, message: 'Memulai sync SO...' };
 
     // Fire and forget
     (async () => {
         try {
-            const { soList, soCount } = await fetchAllSOData(true, branchId, fromDate, toDate, (done, total) => {
+            const { soList, soCount } = await fetchAllSOData(true, branchId, fromDate, toDate, statuses, (done, total) => {
                 soSyncState.progress = Math.round((done / total) * 100);
                 soSyncState.message = `SO: ${done}/${total}`;
             });

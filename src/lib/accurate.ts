@@ -1098,17 +1098,18 @@ interface CachedSOData {
 
 /**
  * Fetch SO list from Accurate. Excludes Draf & Ditutup.
- * Supports optional date range filter.
+ * Supports optional date range and status filters.
  */
-async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string): Promise<{ id: number; number: string; transDate: string; branchId?: number; statusName?: string; customerName?: string }[]> {
+async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string, statuses?: string[]): Promise<{ id: number; number: string; transDate: string; branchId?: number; statusName?: string; customerName?: string }[]> {
   const allSOs: { id: number; number: string; transDate: string; branchId?: number; statusName?: string; customerName?: string }[] = [];
   let page = 1;
   const pageSize = 100;
   let hasMore = true;
 
   const EXCLUDE_STATUSES = ['draf', 'draft', 'ditutup', 'closed', 'void', 'batal'];
+  const includeStatuses = statuses?.map(s => s.toLowerCase().trim()) || [];
 
-  console.log(`[Accurate] SO: Fetching SO list${branchId ? ` branch=${branchId}` : ''}${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}...`);
+  console.log(`[Accurate] SO: Fetching SO list${branchId ? ` branch=${branchId}` : ''}${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}${includeStatuses.length ? ` statuses=[${includeStatuses.join(',')}]` : ''}...`);
 
   while (hasMore) {
     try {
@@ -1139,16 +1140,17 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
         } else {
           list.forEach((so: any) => {
             const status = (so.statusName || '').toLowerCase().trim();
-            if (!EXCLUDE_STATUSES.includes(status)) {
-              allSOs.push({
-                id: so.id,
-                number: so.number,
-                transDate: so.transDate,
-                branchId: so.branchId,
-                statusName: so.statusName,
-                customerName: so.customerName,
-              });
-            }
+            if (EXCLUDE_STATUSES.includes(status)) return;
+            // If statuses filter is specified, only include matching ones
+            if (includeStatuses.length > 0 && !includeStatuses.includes(status)) return;
+            allSOs.push({
+              id: so.id,
+              number: so.number,
+              transDate: so.transDate,
+              branchId: so.branchId,
+              statusName: so.statusName,
+              customerName: so.customerName,
+            });
           });
           page++;
           if (page > 200) {
@@ -1292,6 +1294,7 @@ export async function fetchAllSOData(
   branchId?: number,
   fromDate?: string,
   toDate?: string,
+  statuses?: string[],
   onProgress?: (done: number, total: number) => void
 ): Promise<{ soList: SOData[]; soCount: number }> {
   // Try cache first (only if not force and no specific filters)
@@ -1302,8 +1305,8 @@ export async function fetchAllSOData(
     }
   }
 
-  // Phase 1: List SOs
-  const soListRaw = await fetchSOList(branchId, fromDate, toDate);
+  // Phase 1: List SOs (status filter applied here = fewer detail fetches)
+  const soListRaw = await fetchSOList(branchId, fromDate, toDate, statuses);
 
   if (soListRaw.length === 0) {
     console.log('[Accurate] No outstanding SOs found');
