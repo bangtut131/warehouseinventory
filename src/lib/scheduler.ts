@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { prisma } from './prisma';
-import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, saveSalesCache, fetchAllPOOutstanding, syncProgress } from './accurate';
+import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, fetchAllPOOutstanding, syncProgress } from './accurate';
 
 // ─── Config ──────────────────────────────────────────────────
 
@@ -127,149 +127,79 @@ async function updateLogEntry(id: number, status: string, message?: string | nul
 
 // ─── Sync execution ─────────────────────────────────────────
 
-const JOB_TIMEOUT_MS = 15 * 60 * 1000;  // 15 minutes max per sync attempt
-const RETRY_DELAY_MS = 2 * 60 * 1000;   // 2 minutes between retries
-const MAX_RETRIES = 3;
-const STALE_LOCK_MS = 20 * 60 * 1000;   // 20 minutes — consider isRunning stale
+const STALE_LOCK_MS = 45 * 60 * 1000;   // 45 minutes — consider isRunning stale
 
 /**
- * Core sync logic — runs ALL phases and returns results in memory.
- * Does NOT write to cache. Throws on any critical failure.
- */
-async function executeSyncPhases(config: SchedulerConfig) {
-    const fromDate = new Date(config.fromDate);
-    const branchId = config.branchId ?? undefined;
-
-    // Phase 1+2: Fetch sales data (listing + details) — skipCacheOps=true for atomicity
-    syncProgress.phase = 'listing';
-    syncProgress.message = 'Auto-sync: Mengambil daftar invoice...';
-    const result = await fetchAllSalesData(fromDate, true, branchId, true); // skipCacheOps=true!
-
-    // Phase 3: Fetch warehouse stock
-    syncProgress.phase = 'warehouseStock';
-    syncProgress.done = 0;
-    syncProgress.message = 'Auto-sync: Mengambil stock per gudang...';
-
-    const allItems = await fetchAllInventory();
-    const itemNos = allItems.map(item => item.no).filter(Boolean);
-    syncProgress.total = itemNos.length;
-
-    const warehouseStockMap = await fetchWarehouseStock(itemNos, 10, (done, total) => {
-        syncProgress.done = done;
-        syncProgress.total = total;
-        syncProgress.message = `Auto-sync: Stock gudang ${done}/${total}`;
-    });
-
-    // Phase 4: Fetch PO Outstanding (non-critical — failure doesn't abort sync)
-    let poItemCount = 0;
-    try {
-        syncProgress.phase = 'poOutstanding';
-        syncProgress.done = 0;
-        syncProgress.total = 0;
-        syncProgress.message = 'Auto-sync: Mengambil PO Outstanding...';
-
-        const poResult = await fetchAllPOOutstanding(true, branchId, (done, total) => {
-            syncProgress.done = done;
-            syncProgress.total = total;
-            syncProgress.message = `Auto-sync: PO Outstanding ${done}/${total}`;
-        });
-        poItemCount = poResult.poMap.size;
-    } catch (poErr: any) {
-        console.warn('[Scheduler] PO Outstanding fetch failed (non-critical):', poErr.message);
-    }
-
-    // Return everything — caller decides when to write cache
-    return { result, warehouseStockMap, poItemCount, fromDate, branchId };
-}
-
-/**
- * Single sync attempt with job timeout.
- * Returns results if success, throws on failure/timeout.
- */
-async function attemptSync(config: SchedulerConfig) {
-    const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Sync timeout: exceeded ${JOB_TIMEOUT_MS / 60000} minutes`)), JOB_TIMEOUT_MS);
-    });
-
-    // Race the sync against the timeout
-    return Promise.race([
-        executeSyncPhases(config),
-        timeoutPromise,
-    ]);
-}
-
-/**
- * Main entry point: Execute sync with atomic cache write + auto-retry.
- * - All data is collected in memory first
- * - Cache is written ONLY if ALL phases succeed
- * - On failure, retries up to MAX_RETRIES times
+ * Execute sync job — simple, single-pass, same approach as Force Sync.
+ * No timeout, no retry — just let it run to completion.
+ * Cache is written by fetchAllSalesData/fetchAllPOOutstanding internally.
  */
 export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'scheduled'): Promise<void> {
     const config = await loadConfig();
     const start = Date.now();
+    const fromDate = new Date(config.fromDate);
+    const branchId = config.branchId ?? undefined;
 
     console.log(`[Scheduler] Starting ${trigger} sync...`);
     const logId = await createLogEntry(trigger.toUpperCase());
 
-    let lastError: Error | null = null;
+    try {
+        // Phase 1+2: Fetch sales data (listing + details + auto-save cache)
+        syncProgress.phase = 'listing';
+        syncProgress.message = 'Auto-sync: Mengambil daftar invoice...';
+        const result = await fetchAllSalesData(fromDate, true, branchId);
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        // Phase 3: Fetch warehouse stock
+        syncProgress.phase = 'warehouseStock';
+        syncProgress.done = 0;
+        syncProgress.message = 'Auto-sync: Mengambil stock per gudang...';
+
+        const allItems = await fetchAllInventory();
+        const itemNos = allItems.map(item => item.no).filter(Boolean);
+        syncProgress.total = itemNos.length;
+
+        const warehouseStockMap = await fetchWarehouseStock(itemNos, 10, (done, total) => {
+            syncProgress.done = done;
+            syncProgress.total = total;
+            syncProgress.message = `Auto-sync: Stock gudang ${done}/${total}`;
+        });
+
+        await saveWarehouseStockCache(warehouseStockMap);
+
+        // Phase 4: Fetch PO Outstanding (non-critical)
+        let poItemCount = 0;
         try {
-            if (attempt > 1) {
-                console.log(`[Scheduler] Retry attempt ${attempt}/${MAX_RETRIES}...`);
-                await updateLogEntry(logId, 'RETRYING', `Attempt ${attempt}/${MAX_RETRIES}`);
-                syncProgress.message = `Auto-sync: Retry ${attempt}/${MAX_RETRIES}...`;
-            }
+            syncProgress.phase = 'poOutstanding';
+            syncProgress.done = 0;
+            syncProgress.total = 0;
+            syncProgress.message = 'Auto-sync: Mengambil PO Outstanding...';
 
-            // ── Run all phases (data stays in memory) ──
-            const { result, warehouseStockMap, poItemCount, fromDate, branchId } = await attemptSync(config);
-
-            // ── ALL phases succeeded → NOW write ALL caches (truly atomic) ──
-            syncProgress.phase = 'done';
-            syncProgress.message = 'Auto-sync: Menyimpan cache...';
-
-            // Save combined sales cache
-            await saveSalesCache(fromDate, result.salesMap, branchId);
-
-            // Save per-branch sales caches (auto-split, only when syncing all branches)
-            if (!branchId && result.branchSalesMaps && result.branchSalesMaps.size > 0) {
-                console.log(`[Scheduler] Saving per-branch sales caches for ${result.branchSalesMaps.size} branches...`);
-                for (const [brId, brMap] of result.branchSalesMaps) {
-                    await saveSalesCache(fromDate, brMap, brId);
-                }
-            }
-
-            // Save warehouse stock cache
-            await saveWarehouseStockCache(warehouseStockMap);
-
-            const durationSec = Math.round((Date.now() - start) / 1000);
-            const msg = `Items: ${result.salesMap.size}, Invoices: ${result.invoiceCount}${poItemCount > 0 ? `, PO: ${poItemCount}` : ''}${attempt > 1 ? ` (after ${attempt} attempts)` : ''}`;
-
-            await updateLogEntry(logId, 'SUCCESS', msg);
-            syncProgress.message = 'Auto-sync selesai!';
-
-            console.log(`[Scheduler] Sync completed in ${durationSec}s — ${msg}`);
-            return; // ✅ Success — exit
-
-        } catch (err: any) {
-            lastError = err;
-            const durationSec = Math.round((Date.now() - start) / 1000);
-            console.error(`[Scheduler] Attempt ${attempt}/${MAX_RETRIES} failed after ${durationSec}s:`, err.message);
-
-            if (attempt < MAX_RETRIES) {
-                // Wait before retrying
-                syncProgress.message = `Auto-sync gagal, retry dalam ${RETRY_DELAY_MS / 60000} menit... (${attempt}/${MAX_RETRIES})`;
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
-            }
+            const poResult = await fetchAllPOOutstanding(true, branchId, (done, total) => {
+                syncProgress.done = done;
+                syncProgress.total = total;
+                syncProgress.message = `Auto-sync: PO Outstanding ${done}/${total}`;
+            });
+            poItemCount = poResult.poMap.size;
+        } catch (poErr: any) {
+            console.warn('[Scheduler] PO Outstanding fetch failed (non-critical):', poErr.message);
         }
-    }
 
-    // ❌ All retries exhausted
-    const durationSec = Math.round((Date.now() - start) / 1000);
-    await updateLogEntry(logId, 'FAILED', `${lastError?.message || 'Unknown error'} (after ${MAX_RETRIES} attempts, ${durationSec}s)`);
-    syncProgress.phase = 'done';
-    syncProgress.message = `Auto-sync GAGAL setelah ${MAX_RETRIES}x percobaan.`;
-    console.error(`[Scheduler] Sync FAILED after ${MAX_RETRIES} attempts (${durationSec}s total)`);
+        syncProgress.phase = 'done';
+        syncProgress.message = 'Auto-sync selesai!';
+
+        const durationSec = Math.round((Date.now() - start) / 1000);
+        const msg = `Items: ${result.salesMap.size}, Invoices: ${result.invoiceCount}${poItemCount > 0 ? `, PO: ${poItemCount}` : ''} (${durationSec}s)`;
+
+        await updateLogEntry(logId, 'SUCCESS', msg);
+        console.log(`[Scheduler] Sync completed in ${durationSec}s — ${msg}`);
+    } catch (err: any) {
+        syncProgress.phase = 'done';
+        syncProgress.message = `Auto-sync GAGAL: ${err.message}`;
+
+        const durationSec = Math.round((Date.now() - start) / 1000);
+        await updateLogEntry(logId, 'FAILED', `${err.message} (${durationSec}s)`);
+        console.error(`[Scheduler] Sync failed after ${durationSec}s:`, err.message);
+    }
 }
 
 // ─── Cron management ─────────────────────────────────────────
