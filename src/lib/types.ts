@@ -83,3 +83,30 @@ export interface InventorySummary {
     classB: { count: number; revenue: number; pct: number };
     classC: { count: number; revenue: number; pct: number };
 }
+
+// ─── SO Control Types ─────────────────────────────────────────
+
+export interface SODetailItem {
+    itemNo: string;
+    itemName: string;
+    quantity: number;        // Qty ordered
+    shipQuantity: number;    // Qty processed/shipped
+    outstanding: number;     // quantity - shipQuantity
+    unitName: string;
+    unitPrice: number;
+    totalPrice: number;
+    stock?: number;          // Current stock (joined from inventory)
+}
+
+export interface SOData {
+    id: number;
+    soNumber: string;
+    transDate: string;       // dd/mm/yyyy
+    customerName: string;
+    branchId?: number;
+    branchName?: string;
+    statusName: string;      // Diajukan / Menunggu diproses / Terproses
+    detailItems: SODetailItem[];
+    totalOutstanding: number; // Sum of all outstanding items
+}
+

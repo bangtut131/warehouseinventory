@@ -11,6 +11,7 @@ import { AlertsView } from './views/AlertsView';
 import { OverstockView } from './views/OverstockView';
 import { TopItemsView } from './views/TopItemsView';
 import { EOQView } from './views/EOQView';
+import { SOControlView } from './views/SOControlView';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { exportAllAnalysis } from '@/lib/exportExcel';
@@ -191,6 +192,7 @@ export default function InventoryDashboard() {
         { id: 'alerts', label: '🚨 Alerts', color: 'text-red-600 border-red-200 hover:bg-red-50' },
         { id: 'overstock', label: '📦 Overstock', color: 'text-blue-600 border-blue-200 hover:bg-blue-50' },
         { id: 'top', label: '🏆 Top Items', color: '' },
+        { id: 'so', label: '📋 Kontrol SO', color: 'text-indigo-600 border-indigo-200 hover:bg-indigo-50' },
     ];
 
     const renderContent = () => {
@@ -203,6 +205,7 @@ export default function InventoryDashboard() {
             case 'alerts': return <AlertsView items={items} />;
             case 'overstock': return <OverstockView items={items} />;
             case 'top': return <TopItemsView items={items} />;
+            case 'so': return <SOControlView branches={branches} />;
             default: return <DashboardView items={items} />;
         }
     };

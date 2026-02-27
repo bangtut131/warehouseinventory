@@ -2,6 +2,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import path from 'path'; // still needed for date logic? No, but maybe specific utility
 import { prisma } from './prisma';
+import { SOData, SODetailItem } from './types';
 
 const API_HOST = process.env.ACCURATE_API_HOST || 'https://zeus.accurate.id/accurate/api';
 const API_TOKEN = process.env.ACCURATE_API_TOKEN || '';
@@ -1084,4 +1085,247 @@ export async function fetchAllPOOutstanding(
   }
 
   return { poMap, poCount: pos.length };
+}
+
+// ─── SO OUTSTANDING (Kontrol SO) ─────────────────────────────
+
+const SO_CACHE_KEY = 'so-outstanding-cache';
+
+interface CachedSOData {
+  timestamp: number;
+  data: SOData[];
+}
+
+/**
+ * Fetch SO list from Accurate. Excludes Draf & Ditutup.
+ * Supports optional date range filter.
+ */
+async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string): Promise<{ id: number; number: string; transDate: string; branchId?: number; statusName?: string; customerName?: string }[]> {
+  const allSOs: { id: number; number: string; transDate: string; branchId?: number; statusName?: string; customerName?: string }[] = [];
+  let page = 1;
+  const pageSize = 100;
+  let hasMore = true;
+
+  const EXCLUDE_STATUSES = ['draf', 'draft', 'ditutup', 'closed', 'void', 'batal'];
+
+  console.log(`[Accurate] SO: Fetching SO list${branchId ? ` branch=${branchId}` : ''}${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}...`);
+
+  while (hasMore) {
+    try {
+      const params: Record<string, any> = {
+        fields: 'id,number,transDate,branchId,statusName,customerName',
+        'sp.page': page,
+        'sp.pageSize': pageSize,
+      };
+      if (branchId) {
+        params['filter.branchId.op'] = 'EQUAL';
+        params['filter.branchId.val'] = branchId;
+      }
+      if (fromDate) {
+        params['filter.transDate.op'] = 'GREATER_EQUAL';
+        params['filter.transDate.val'] = fromDate;
+      }
+      if (toDate) {
+        params['filter.transDate.op2'] = 'LESS_EQUAL';
+        params['filter.transDate.val2'] = toDate;
+      }
+
+      const response = await accurateClient.get('/sales-order/list.do', { params });
+
+      if (response.data?.s) {
+        const list = response.data.d || [];
+        if (list.length === 0) {
+          hasMore = false;
+        } else {
+          list.forEach((so: any) => {
+            const status = (so.statusName || '').toLowerCase().trim();
+            if (!EXCLUDE_STATUSES.includes(status)) {
+              allSOs.push({
+                id: so.id,
+                number: so.number,
+                transDate: so.transDate,
+                branchId: so.branchId,
+                statusName: so.statusName,
+                customerName: so.customerName,
+              });
+            }
+          });
+          page++;
+          if (page > 200) {
+            console.log(`[Accurate] SO: Hit 200 pages, stopping at ${allSOs.length} SOs`);
+            hasMore = false;
+          }
+        }
+      } else {
+        console.warn('[Accurate] SO list API returned s=false:', response.data?.d);
+        hasMore = false;
+      }
+    } catch (error: any) {
+      console.error(`[Accurate] SO list page ${page} error:`, error.message);
+      hasMore = false;
+    }
+  }
+
+  console.log(`[Accurate] SO list done: ${allSOs.length} SOs`);
+  return allSOs;
+}
+
+/**
+ * Fetch detail for a single SO with retry.
+ */
+async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await accurateClient.get('/sales-order/detail.do', {
+        params: { id: soId }
+      });
+
+      if (response.data?.s && response.data.d) {
+        const d = response.data.d;
+        const detailItems: SODetailItem[] = (d.detailItem || []).map((di: any) => {
+          const qty = di.quantity || 0;
+          const shipped = di.shipQuantity ?? 0;
+          return {
+            itemNo: di.item?.no || '',
+            itemName: di.item?.name || '',
+            quantity: qty,
+            shipQuantity: shipped,
+            outstanding: Math.max(0, qty - shipped),
+            unitName: di.itemUnitName || di.unitName || '',
+            unitPrice: di.unitPrice || 0,
+            totalPrice: di.totalPrice || 0,
+          };
+        });
+
+        const totalOutstanding = detailItems.reduce((sum, i) => sum + i.outstanding, 0);
+
+        return {
+          id: d.id,
+          soNumber: d.number,
+          transDate: d.transDate,
+          customerName: d.customerName || d.customer?.name || '',
+          branchId: d.branchId || undefined,
+          statusName: d.statusName || '',
+          detailItems,
+          totalOutstanding,
+        };
+      }
+      return null;
+    } catch (err: any) {
+      if (attempt < maxRetries) {
+        const delay = 1000 * attempt;
+        console.warn(`[Accurate] SO ${soId} fetch failed (attempt ${attempt}): ${err.message}. Retrying...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error(`[Accurate] SO ${soId} FAILED after ${maxRetries} attempts: ${err.message}`);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch SO details in parallel batches.
+ */
+async function fetchSODetailsInBatch(
+  soIds: number[],
+  batchSize = 15,
+  onProgress?: (done: number, total: number) => void
+): Promise<SOData[]> {
+  const results: SOData[] = [];
+  const total = soIds.length;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = soIds.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(id => fetchSODetail(id)));
+    batchResults.forEach(r => { if (r) results.push(r); });
+    if (onProgress) onProgress(Math.min(i + batchSize, total), total);
+  }
+
+  return results;
+}
+
+/**
+ * Save SO cache to DB.
+ */
+export async function saveSOCache(soData: SOData[]): Promise<void> {
+  try {
+    const cached: CachedSOData = { timestamp: Date.now(), data: soData };
+    await prisma.dataCache.upsert({
+      where: { key: SO_CACHE_KEY },
+      update: { data: cached as any },
+      create: { key: SO_CACHE_KEY, data: cached as any },
+    });
+    console.log(`[Cache] SO data saved (${soData.length} SOs)`);
+  } catch (err: any) {
+    console.warn(`[Cache] Failed to save SO cache:`, err.message);
+  }
+}
+
+/**
+ * Load SO cache from DB.
+ */
+export async function loadSOCache(): Promise<SOData[] | null> {
+  try {
+    const cacheEntry = await prisma.dataCache.findUnique({ where: { key: SO_CACHE_KEY } });
+    if (!cacheEntry || !cacheEntry.data) {
+      console.log('[Cache] No SO cache found');
+      return null;
+    }
+    const cached = cacheEntry.data as unknown as CachedSOData;
+    const age = Date.now() - cached.timestamp;
+    console.log(`[Cache] SO cache is ${Math.round(age / 60000)} min old, ${cached.data.length} SOs`);
+    return cached.data;
+  } catch (err: any) {
+    console.warn('[Cache] SO cache load error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Main entry: Fetch all outstanding SO data.
+ * Returns an array of SOData with detail items.
+ */
+export async function fetchAllSOData(
+  force: boolean = false,
+  branchId?: number,
+  fromDate?: string,
+  toDate?: string,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ soList: SOData[]; soCount: number }> {
+  // Try cache first (only if not force and no specific filters)
+  if (!force) {
+    const cached = await loadSOCache();
+    if (cached) {
+      return { soList: cached, soCount: -1 };
+    }
+  }
+
+  // Phase 1: List SOs
+  const soListRaw = await fetchSOList(branchId, fromDate, toDate);
+
+  if (soListRaw.length === 0) {
+    console.log('[Accurate] No outstanding SOs found');
+    await saveSOCache([]);
+    return { soList: [], soCount: 0 };
+  }
+
+  // Phase 2: Fetch details
+  const soIds = soListRaw.map(so => so.id);
+  console.log(`[Accurate] SO Phase 2: Fetching detail for ${soIds.length} SOs...`);
+
+  const soData = await fetchSODetailsInBatch(soIds, 15, (done, total) => {
+    if (onProgress) onProgress(done, total);
+  });
+
+  // Filter out SOs with no outstanding items (fully processed)
+  const outstandingSOs = soData.filter(so => so.totalOutstanding > 0 || ['diajukan', 'menunggu diproses'].includes(so.statusName.toLowerCase()));
+
+  console.log(`[Accurate] SO done: ${outstandingSOs.length} SOs with outstanding items from ${soData.length} total`);
+
+  // Cache
+  await saveSOCache(outstandingSOs);
+
+  return { soList: outstandingSOs, soCount: soData.length };
 }
