@@ -98,6 +98,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
     // Summary counts
     const diajukan = filtered.filter(s => s.statusName.toLowerCase() === 'diajukan').length;
     const menunggu = filtered.filter(s => s.statusName.toLowerCase() === 'menunggu diproses').length;
+    const sebagian = filtered.filter(s => s.statusName.toLowerCase() === 'sebagian diproses').length;
     const terproses = filtered.filter(s => s.statusName.toLowerCase() === 'terproses').length;
     const totalOutstandingQty = filtered.reduce((sum, s) => sum + s.totalOutstanding, 0);
 
@@ -105,6 +106,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         const s = status.toLowerCase();
         if (s === 'diajukan') return 'bg-blue-100 text-blue-700 border-blue-300';
         if (s === 'menunggu diproses') return 'bg-amber-100 text-amber-700 border-amber-300';
+        if (s === 'sebagian diproses') return 'bg-orange-100 text-orange-700 border-orange-300';
         if (s === 'terproses') return 'bg-green-100 text-green-700 border-green-300';
         return 'bg-gray-100 text-gray-700 border-gray-300';
     };
@@ -121,7 +123,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
     return (
         <div className="space-y-4">
             {/* Summary Cards */}
-            <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
                 <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                     <CardContent className="p-4">
                         <div className="text-2xl font-bold">{diajukan}</div>
@@ -134,10 +136,16 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         <p className="text-xs opacity-80">⏳ Menunggu Diproses</p>
                     </CardContent>
                 </Card>
+                <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+                    <CardContent className="p-4">
+                        <div className="text-2xl font-bold">{sebagian}</div>
+                        <p className="text-xs opacity-80">🔄 Sebagian Diproses</p>
+                    </CardContent>
+                </Card>
                 <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
                     <CardContent className="p-4">
                         <div className="text-2xl font-bold">{terproses}</div>
-                        <p className="text-xs opacity-80">✅ Terproses (Partial)</p>
+                        <p className="text-xs opacity-80">✅ Terproses</p>
                     </CardContent>
                 </Card>
                 <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
@@ -167,6 +175,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     <option value="">Semua Status</option>
                     <option value="Diajukan">Diajukan</option>
                     <option value="Menunggu diproses">Menunggu Diproses</option>
+                    <option value="Sebagian diproses">Sebagian Diproses</option>
                     <option value="Terproses">Terproses</option>
                 </select>
 

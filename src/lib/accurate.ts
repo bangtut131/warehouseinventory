@@ -1320,7 +1320,7 @@ export async function fetchAllSOData(
   });
 
   // Filter out SOs with no outstanding items (fully processed)
-  const outstandingSOs = soData.filter(so => so.totalOutstanding > 0 || ['diajukan', 'menunggu diproses'].includes(so.statusName.toLowerCase()));
+  const outstandingSOs = soData.filter(so => so.totalOutstanding > 0 || ['diajukan', 'menunggu diproses', 'sebagian diproses'].includes(so.statusName.toLowerCase()));
 
   console.log(`[Accurate] SO done: ${outstandingSOs.length} SOs with outstanding items from ${soData.length} total`);
 
