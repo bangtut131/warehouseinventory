@@ -1113,7 +1113,7 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
 
   // Smart early-exit: when filtering by status, stop after N consecutive pages with 0 matches
   let consecutiveEmptyPages = 0;
-  const MAX_EMPTY_PAGES = 15; // Stop after 15 pages (3000 SOs) with no matches
+  const MAX_EMPTY_PAGES = 30; // Stop after 30 pages (6000 SOs) with no matches
   const MAX_PAGES = 500; // Absolute maximum
 
   console.log(`[Accurate] SO: Fetching SO list${branchId ? ` branch=${branchId}` : ''}${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}${isStatusFiltered ? ` statuses=[${includeStatuses.join(',')}]` : ''}...`);
@@ -1350,13 +1350,11 @@ export async function fetchAllSOData(
     if (onProgress) onProgress(done, total);
   });
 
-  // Filter out SOs with no outstanding items (fully processed)
-  const outstandingSOs = soData.filter(so => so.totalOutstanding > 0 || ['diajukan', 'menunggu diproses', 'sebagian diproses'].includes(so.statusName.toLowerCase()));
-
-  console.log(`[Accurate] SO done: ${outstandingSOs.length} SOs with outstanding items from ${soData.length} total`);
+  // Log stats — no further filtering, since user already chose which statuses to sync
+  console.log(`[Accurate] SO done: ${soData.length} SOs fetched with detail`);
 
   // Cache
-  await saveSOCache(outstandingSOs);
+  await saveSOCache(soData);
 
-  return { soList: outstandingSOs, soCount: soData.length };
+  return { soList: soData, soCount: soData.length };
 }
