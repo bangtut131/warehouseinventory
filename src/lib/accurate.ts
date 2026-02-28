@@ -1099,17 +1099,24 @@ interface CachedSOData {
 /**
  * Fetch SO list from Accurate. Excludes Draf & Ditutup.
  * Supports optional date range and status filters.
+ * Uses smart early-exit when filtering by status to avoid paginating all 40K+ records.
  */
 async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string, statuses?: string[]): Promise<{ id: number; number: string; transDate: string; branchId?: number; statusName?: string; customerName?: string }[]> {
   const allSOs: { id: number; number: string; transDate: string; branchId?: number; statusName?: string; customerName?: string }[] = [];
   let page = 1;
-  const pageSize = 100;
+  const pageSize = 200; // Larger pages = fewer API calls
   let hasMore = true;
 
   const EXCLUDE_STATUSES = ['draf', 'draft', 'ditutup', 'closed', 'void', 'batal'];
   const includeStatuses = statuses?.map(s => s.toLowerCase().trim()) || [];
+  const isStatusFiltered = includeStatuses.length > 0;
 
-  console.log(`[Accurate] SO: Fetching SO list${branchId ? ` branch=${branchId}` : ''}${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}${includeStatuses.length ? ` statuses=[${includeStatuses.join(',')}]` : ''}...`);
+  // Smart early-exit: when filtering by status, stop after N consecutive pages with 0 matches
+  let consecutiveEmptyPages = 0;
+  const MAX_EMPTY_PAGES = 15; // Stop after 15 pages (3000 SOs) with no matches
+  const MAX_PAGES = 500; // Absolute maximum
+
+  console.log(`[Accurate] SO: Fetching SO list${branchId ? ` branch=${branchId}` : ''}${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}${isStatusFiltered ? ` statuses=[${includeStatuses.join(',')}]` : ''}...`);
 
   while (hasMore) {
     try {
@@ -1138,11 +1145,13 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
         if (list.length === 0) {
           hasMore = false;
         } else {
+          let matchesInPage = 0;
           list.forEach((so: any) => {
             const status = (so.statusName || '').toLowerCase().trim();
             if (EXCLUDE_STATUSES.includes(status)) return;
             // If statuses filter is specified, only include matching ones
-            if (includeStatuses.length > 0 && !includeStatuses.includes(status)) return;
+            if (isStatusFiltered && !includeStatuses.includes(status)) return;
+            matchesInPage++;
             allSOs.push({
               id: so.id,
               number: so.number,
@@ -1152,9 +1161,28 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
               customerName: so.customerName,
             });
           });
+
+          // Smart early-exit for status-filtered queries
+          if (isStatusFiltered) {
+            if (matchesInPage === 0) {
+              consecutiveEmptyPages++;
+              if (consecutiveEmptyPages >= MAX_EMPTY_PAGES) {
+                console.log(`[Accurate] SO: ${MAX_EMPTY_PAGES} consecutive pages with 0 matches, stopping at page ${page} (${allSOs.length} SOs found)`);
+                hasMore = false;
+              }
+            } else {
+              consecutiveEmptyPages = 0;
+            }
+          }
+
+          // Log progress every 50 pages
+          if (page % 50 === 0) {
+            console.log(`[Accurate] SO: Page ${page}, ${allSOs.length} matching SOs so far...`);
+          }
+
           page++;
-          if (page > 200) {
-            console.log(`[Accurate] SO: Hit 200 pages, stopping at ${allSOs.length} SOs`);
+          if (page > MAX_PAGES) {
+            console.log(`[Accurate] SO: Hit ${MAX_PAGES} pages, stopping at ${allSOs.length} SOs`);
             hasMore = false;
           }
         }
@@ -1168,7 +1196,7 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
     }
   }
 
-  console.log(`[Accurate] SO list done: ${allSOs.length} SOs`);
+  console.log(`[Accurate] SO list done: ${allSOs.length} SOs found in ${page - 1} pages`);
   return allSOs;
 }
 
