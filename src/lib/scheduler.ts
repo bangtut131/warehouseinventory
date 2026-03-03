@@ -75,17 +75,29 @@ export async function loadHistory(): Promise<SyncHistoryEntry[]> {
             take: 50,
         });
 
-        return logs.map(log => ({
-            id: log.id,
-            startedAt: log.startedAt.toISOString(),
-            completedAt: log.completedAt ? log.completedAt.toISOString() : null,
-            status: log.status as any,
-            durationSec: log.completedAt ? Math.round((log.completedAt.getTime() - log.startedAt.getTime()) / 1000) : null,
-            itemCount: null,
-            invoiceCount: null,
-            error: log.status === 'FAILED' ? log.message : null,
-            trigger: log.trigger as any,
-        }));
+        return logs.map(log => {
+            // Parse itemCount and invoiceCount from message (format: "Items: N, Invoices: M, ...")
+            let itemCount: number | null = null;
+            let invoiceCount: number | null = null;
+            if (log.message) {
+                const itemMatch = log.message.match(/Items:\s*(\d+)/i);
+                const invMatch = log.message.match(/Invoices:\s*(\d+)/i);
+                if (itemMatch) itemCount = parseInt(itemMatch[1]);
+                if (invMatch) invoiceCount = parseInt(invMatch[1]);
+            }
+
+            return {
+                id: log.id,
+                startedAt: log.startedAt.toISOString(),
+                completedAt: log.completedAt ? log.completedAt.toISOString() : null,
+                status: (log.status === 'SUCCESS' ? 'success' : log.status === 'FAILED' ? 'error' : 'running') as any,
+                durationSec: log.completedAt ? Math.round((log.completedAt.getTime() - log.startedAt.getTime()) / 1000) : null,
+                itemCount,
+                invoiceCount,
+                error: log.status === 'FAILED' ? log.message : null,
+                trigger: log.trigger as any,
+            };
+        });
     } catch (err: any) {
         console.warn('[Scheduler] DB History Error:', err.message);
         return [];
