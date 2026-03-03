@@ -350,9 +350,9 @@ export async function GET(request: NextRequest) {
                 totalSalesQty: salesData.totalQty,
                 totalSalesQtyBox: salesData.totalQtyBox || 0,
                 totalSalesRevenue: salesData.totalRevenue,
-                // Unit conversion: prefer sales data, fallback to master item data
-                unitConversion: salesData.unitConversion || item.unit2Ratio || 0,
-                salesUnitName: salesData.salesUnitName || item.unit2Name || '',
+                // Unit conversion: prefer sales data, fallback to master item data (ratio2 from list.do)
+                unitConversion: salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0),
+                salesUnitName: salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : ''),
                 poOutstanding: poQty,
                 netShortage,
                 suggestedOrder,
