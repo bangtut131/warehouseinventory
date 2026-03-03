@@ -89,14 +89,16 @@ export interface AccurateItem {
   quantity: number;
   unitPrice: number;
   cost: number;
-  unit1Name?: string; // Satuan utama
+  unit1Name?: string; // Satuan utama (Pcs)
+  unit2Name?: string; // Satuan kedua (Box, Karung, etc)
+  unit2Ratio?: number; // Rasio unit2 ke unit1 (misal 1 Box = 12 Pcs → ratio = 12)
 }
 
 export async function fetchInventory(page = 1, pageSize = 100): Promise<{ list: AccurateItem[], hasMore: boolean }> {
   try {
     const response = await accurateClient.get('/item/list.do', {
       params: {
-        fields: 'id,no,name,itemType,quantity,unitPrice,cost,unit1Name',
+        fields: 'id,no,name,itemType,quantity,unitPrice,cost,unit1Name,unit2Name,unit2Ratio',
         'sp.page': page,
         'sp.pageSize': pageSize
       }
