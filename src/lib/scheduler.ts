@@ -1,6 +1,8 @@
 import cron from 'node-cron';
 import { prisma } from './prisma';
 import { fetchAllSalesData, fetchAllInventory, fetchWarehouseStock, saveWarehouseStockCache, fetchAllPOOutstanding, syncProgress } from './accurate';
+import { sendTextMessage, checkSession, WahaConfig } from './waha';
+import { loadBroadcastConfig } from './broadcast-scheduler';
 
 // ─── Config ──────────────────────────────────────────────────
 
@@ -14,6 +16,9 @@ export interface SchedulerConfig {
     branchId: number | null;
     // Start date for sales data (ISO string)
     fromDate: string;
+    // WA Sync Report broadcast
+    syncReportEnabled: boolean;
+    syncReportTargets: string[];  // WA numbers to send sync report to
 }
 
 export interface SyncHistoryEntry {
@@ -36,6 +41,8 @@ const DEFAULT_CONFIG: SchedulerConfig = {
     intervalLabel: 'Setiap 4 Jam',
     branchId: null,
     fromDate: '2025-01-01',
+    syncReportEnabled: false,
+    syncReportTargets: [],
 };
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -204,6 +211,16 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
 
         await updateLogEntry(logId, 'SUCCESS', msg);
         console.log(`[Scheduler] Sync completed in ${durationSec}s — ${msg}`);
+
+        // Send WA sync report on success
+        await sendSyncReport({
+            success: true,
+            trigger,
+            durationSec,
+            itemCount: result.salesMap.size,
+            invoiceCount: result.invoiceCount,
+            poItemCount,
+        });
     } catch (err: any) {
         syncProgress.phase = 'done';
         syncProgress.message = `Auto-sync GAGAL: ${err.message}`;
@@ -211,6 +228,102 @@ export async function executeSyncJob(trigger: 'scheduled' | 'manual' = 'schedule
         const durationSec = Math.round((Date.now() - start) / 1000);
         await updateLogEntry(logId, 'FAILED', `${err.message} (${durationSec}s)`);
         console.error(`[Scheduler] Sync failed after ${durationSec}s:`, err.message);
+
+        // Send WA sync report on failure
+        await sendSyncReport({
+            success: false,
+            trigger,
+            durationSec,
+            error: err.message,
+        });
+    }
+}
+
+// ─── Sync Report WA Broadcast ────────────────────────────────
+
+interface SyncReportData {
+    success: boolean;
+    trigger: 'scheduled' | 'manual';
+    durationSec: number;
+    itemCount?: number;
+    invoiceCount?: number;
+    poItemCount?: number;
+    error?: string;
+}
+
+async function sendSyncReport(data: SyncReportData): Promise<void> {
+    try {
+        const config = await loadConfig();
+        if (!config.syncReportEnabled || !config.syncReportTargets?.length) return;
+
+        // Reuse WAHA config from broadcast settings
+        const broadcastCfg = await loadBroadcastConfig();
+        const wahaConfig: WahaConfig = {
+            apiUrl: broadcastCfg.wahaUrl,
+            session: broadcastCfg.wahaSession,
+            apiKey: broadcastCfg.wahaApiKey || undefined,
+        };
+
+        // Check WAHA session
+        const session = await checkSession(wahaConfig);
+        if (!session.ok) {
+            console.warn(`[Scheduler] WA sync report skipped — WAHA not ready: ${session.error || session.status}`);
+            return;
+        }
+
+        // Format date
+        const now = new Date();
+        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const yyyy = now.getFullYear();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const dateStr = `${days[now.getDay()]}, ${dd}/${mm}/${yyyy} ${hh}:${min}`;
+
+        // Format duration
+        const durMin = Math.floor(data.durationSec / 60);
+        const durSec = data.durationSec % 60;
+        const durStr = durMin > 0 ? `${durMin}m ${durSec}s` : `${durSec}s`;
+
+        // Build message
+        let msg = '';
+        if (data.success) {
+            msg = `📊 *SYNC REPORT*\n${dateStr}\n\n`;
+            msg += `✅ Status: *Sukses*\n`;
+            msg += `⏱ Durasi: ${durStr}\n`;
+            if (data.itemCount !== undefined) msg += `📦 Items: ${data.itemCount.toLocaleString('id-ID')}\n`;
+            if (data.invoiceCount !== undefined && data.invoiceCount >= 0) {
+                msg += `🧾 Faktur: ${data.invoiceCount.toLocaleString('id-ID')}\n`;
+            }
+            if (data.poItemCount && data.poItemCount > 0) {
+                msg += `📋 PO Items: ${data.poItemCount.toLocaleString('id-ID')}\n`;
+            }
+            msg += `🔄 Trigger: ${data.trigger === 'scheduled' ? '⏰ Auto' : '👤 Manual'}`;
+        } else {
+            msg = `📊 *SYNC REPORT*\n${dateStr}\n\n`;
+            msg += `❌ Status: *GAGAL*\n`;
+            msg += `⏱ Durasi: ${durStr}\n`;
+            msg += `🔄 Trigger: ${data.trigger === 'scheduled' ? '⏰ Auto' : '👤 Manual'}\n\n`;
+            msg += `⚠️ Error:\n${data.error || 'Unknown error'}`;
+        }
+
+        // Send to all targets
+        for (const target of config.syncReportTargets) {
+            try {
+                const result = await sendTextMessage(target, msg, wahaConfig);
+                if (result.ok) {
+                    console.log(`[Scheduler] Sync report sent to ${target}`);
+                } else {
+                    console.warn(`[Scheduler] Sync report failed to ${target}: ${result.error}`);
+                }
+            } catch (err: any) {
+                console.warn(`[Scheduler] Sync report send error to ${target}:`, err.message);
+            }
+        }
+    } catch (err: any) {
+        // Non-critical — don't break sync flow
+        console.warn('[Scheduler] Sync report broadcast error:', err.message);
     }
 }
 

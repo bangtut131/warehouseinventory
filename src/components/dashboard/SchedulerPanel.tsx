@@ -11,6 +11,8 @@ interface SchedulerConfig {
     intervalLabel: string;
     branchId: number | null;
     fromDate: string;
+    syncReportEnabled: boolean;
+    syncReportTargets: string[];
 }
 
 interface SyncHistoryEntry {
@@ -132,6 +134,7 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
     const [scheduleMode, setScheduleMode] = useState<'preset' | 'custom'>('preset');
     const [selectedHours, setSelectedHours] = useState<number[]>([8]);
     const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
+    const [syncReportNumbers, setSyncReportNumbers] = useState('');
 
     const fetchStatus = useCallback(async () => {
         setError(null);
@@ -146,6 +149,10 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                 const parsed = parseCronToCustom(cfg.cronExpression);
                 setSelectedHours(parsed.hours);
                 setSelectedDays(parsed.days);
+            }
+            // Sync report targets
+            if (cfg?.syncReportTargets?.length) {
+                setSyncReportNumbers(cfg.syncReportTargets.join(', '));
             }
         } catch (err: any) {
             console.error('Failed to fetch scheduler status', err);
@@ -461,6 +468,52 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
                             </div>
                         </div>
                     )}
+
+                    {/* WA Sync Report */}
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm">📱</span>
+                                <span className="text-xs font-semibold text-green-800">WA Sync Report</span>
+                            </div>
+                            <Button
+                                variant={config.syncReportEnabled ? 'default' : 'outline'}
+                                size="sm"
+                                onClick={() => updateConfig({ syncReportEnabled: !config.syncReportEnabled })}
+                                disabled={updating}
+                                className={`text-[10px] h-6 px-2 ${config.syncReportEnabled
+                                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                                    : 'text-green-700 border-green-300'
+                                    }`}
+                            >
+                                {config.syncReportEnabled ? '✅ Aktif' : '⬜ Nonaktif'}
+                            </Button>
+                        </div>
+                        <p className="text-[10px] text-green-700 mb-2">
+                            Kirim laporan status sync ke WA setiap selesai sync (menggunakan koneksi WAHA dari Broadcast)
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="text"
+                                value={syncReportNumbers}
+                                onChange={(e) => setSyncReportNumbers(e.target.value)}
+                                placeholder="08123456789, 08198765432"
+                                className="flex-1 text-xs border rounded px-2 py-1.5 bg-white"
+                            />
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updating}
+                                onClick={() => {
+                                    const targets = syncReportNumbers.split(',').map(n => n.trim()).filter(Boolean);
+                                    updateConfig({ syncReportTargets: targets });
+                                }}
+                                className="text-[10px] h-7 px-2 border-green-300 text-green-700 hover:bg-green-100"
+                            >
+                                💾 Simpan
+                            </Button>
+                        </div>
+                    </div>
 
                     {/* Sync History */}
                     {history.length > 0 && (
