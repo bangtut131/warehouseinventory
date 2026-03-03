@@ -173,6 +173,7 @@ function parseAccurateDate(dateStr: string): Date {
 /**
  * Phase 1: Fetch invoice IDs using API-level date + branch filter.
  * Uses dot-notation params: filter.transDate.op=BETWEEN, filter.branchId.op=EQUAL
+ * Includes retry with backoff on HTTP 429 (rate limit).
  */
 async function fetchInvoiceList(fromDate: Date, branchId?: number): Promise<{ id: number; transDate: string; branchId?: number }[]> {
   const allInvoices: { id: number; transDate: string; branchId?: number }[] = [];
@@ -188,48 +189,73 @@ async function fetchInvoiceList(fromDate: Date, branchId?: number): Promise<{ id
   console.log(`[Accurate] Phase 1: Fetching invoice IDs (${fromStr} → ${toStr})${branchId ? ` branch=${branchId}` : ''}...`);
 
   while (hasMore) {
-    try {
-      const params: Record<string, any> = {
-        fields: 'id,transDate,branchId',
-        'filter.transDate.op': 'BETWEEN',
-        'filter.transDate.val[0]': fromStr,
-        'filter.transDate.val[1]': toStr,
-        'sp.page': page,
-        'sp.pageSize': pageSize,
-      };
-      // Add branch filter if specified
-      if (branchId) {
-        params['filter.branchId.op'] = 'EQUAL';
-        params['filter.branchId.val'] = branchId;
-      }
-      const response = await accurateClient.get('/sales-invoice/list.do', {
-        params
-      });
+    const params: Record<string, any> = {
+      fields: 'id,transDate,branchId',
+      'filter.transDate.op': 'BETWEEN',
+      'filter.transDate.val[0]': fromStr,
+      'filter.transDate.val[1]': toStr,
+      'sp.page': page,
+      'sp.pageSize': pageSize,
+    };
+    if (branchId) {
+      params['filter.branchId.op'] = 'EQUAL';
+      params['filter.branchId.val'] = branchId;
+    }
 
-      if (response.data?.s) {
-        const list = response.data.d || [];
-        if (list.length === 0) {
-          hasMore = false;
-        } else {
-          list.forEach((inv: any) => {
-            allInvoices.push({ id: inv.id, transDate: inv.transDate, branchId: inv.branchId });
-          });
-          if (page % 50 === 0) {
-            console.log(`[Accurate]   ... page ${page}, collected ${allInvoices.length} invoices so far`);
-          }
-          page++;
-          if (page > 500) {
-            console.log(`[Accurate]   Hit 500 pages, stopping at ${allInvoices.length} invoices`);
+    // Retry loop for rate limiting (429)
+    let success = false;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        const response = await accurateClient.get('/sales-invoice/list.do', { params });
+
+        if (response.data?.s) {
+          const list = response.data.d || [];
+          if (list.length === 0) {
             hasMore = false;
+          } else {
+            list.forEach((inv: any) => {
+              allInvoices.push({ id: inv.id, transDate: inv.transDate, branchId: inv.branchId });
+            });
+            if (page % 50 === 0) {
+              console.log(`[Accurate]   ... page ${page}, collected ${allInvoices.length} invoices so far`);
+            }
+            page++;
+            if (page > 500) {
+              console.log(`[Accurate]   Hit 500 pages, stopping at ${allInvoices.length} invoices`);
+              hasMore = false;
+            }
           }
+          success = true;
+          break; // Success — exit retry loop
+        } else {
+          console.warn('[Accurate] Invoice list API returned s=false:', response.data?.d);
+          hasMore = false;
+          success = true;
+          break;
         }
-      } else {
-        console.warn('[Accurate] Invoice list API returned s=false:', response.data?.d);
-        hasMore = false;
+      } catch (error: any) {
+        const status = error.response?.status;
+        if (status === 429 && attempt < 5) {
+          const delay = 3000 * Math.pow(2, attempt - 1); // 3s, 6s, 12s, 24s
+          console.warn(`[Accurate] Invoice page ${page}: HTTP 429 rate limit (attempt ${attempt}/5). Waiting ${delay / 1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          console.error(`[Accurate] Invoice list page ${page} error (attempt ${attempt}):`, error.message);
+          hasMore = false;
+          success = true; // Stop retrying
+          break;
+        }
       }
-    } catch (error: any) {
-      console.error(`[Accurate] Invoice list page ${page} error:`, error.message);
+    }
+
+    if (!success) {
+      console.error(`[Accurate] Invoice page ${page}: All 5 retry attempts failed. Stopping.`);
       hasMore = false;
+    }
+
+    // Small throttle between pages to reduce rate limit hits
+    if (hasMore) {
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
 
