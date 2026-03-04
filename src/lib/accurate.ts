@@ -1385,3 +1385,93 @@ export async function fetchAllSOData(
 
   return { soList: soData, soCount: soData.length };
 }
+
+// ─── Customer City Map ────────────────────────────────────────
+
+export interface CustomerCity {
+  city: string;
+  province: string;
+}
+
+const CUSTOMER_CITY_CACHE_KEY = 'customer_city_map';
+const CUSTOMER_CITY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+/**
+ * Fetch customer name → city/province mapping from Accurate.
+ * Uses DataCache with 6-hour TTL. Pass force=true to refresh.
+ */
+export async function fetchCustomerCityMap(force = false): Promise<Map<string, CustomerCity>> {
+  // Try cache
+  if (!force) {
+    try {
+      const cacheEntry = await prisma.dataCache.findUnique({ where: { key: CUSTOMER_CITY_CACHE_KEY } });
+      if (cacheEntry?.data) {
+        const cached = cacheEntry.data as any;
+        const age = Date.now() - (cached.timestamp || 0);
+        if (age < CUSTOMER_CITY_CACHE_TTL_MS) {
+          const map = new Map<string, CustomerCity>();
+          Object.entries(cached.data || {}).forEach(([name, val]) => map.set(name, val as CustomerCity));
+          console.log(`[Cache] Customer city map loaded (${map.size} entries, ${Math.round(age / 60000)}m old)`);
+          return map;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Cache] Customer city map load error:', err.message);
+    }
+  }
+
+  // Fetch from Accurate
+  const map = new Map<string, CustomerCity>();
+  let page = 1;
+  const pageSize = 200;
+  let hasMore = true;
+
+  console.log('[Accurate] Fetching customer city/province data...');
+
+  while (hasMore) {
+    try {
+      const response = await accurateClient.get('/customer/list.do', {
+        params: {
+          fields: 'id,name,city,province',
+          'sp.page': page,
+          'sp.pageSize': pageSize,
+        }
+      });
+      if (response.data?.s) {
+        const customers: { name: string; city?: string; province?: string }[] = response.data.d || [];
+        customers.forEach(c => {
+          if (c.name && (c.city || c.province)) {
+            map.set(c.name.trim(), {
+              city: (c.city || '').trim(),
+              province: (c.province || '').trim(),
+            });
+          }
+        });
+        hasMore = response.data.sp?.pageCount > page;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    } catch (err: any) {
+      console.error('[Accurate] Customer city fetch error:', err.message);
+      hasMore = false;
+    }
+  }
+
+  console.log(`[Accurate] Customer city map fetched: ${map.size} customers with city data`);
+
+  // Save cache
+  try {
+    const cacheData = { timestamp: Date.now(), data: Object.fromEntries(map) };
+    await prisma.dataCache.upsert({
+      where: { key: CUSTOMER_CITY_CACHE_KEY },
+      update: { data: cacheData as any },
+      create: { key: CUSTOMER_CITY_CACHE_KEY, data: cacheData as any },
+    });
+  } catch (err: any) {
+    console.warn('[Cache] Failed to save customer city map:', err.message);
+  }
+
+  return map;
+}
+
