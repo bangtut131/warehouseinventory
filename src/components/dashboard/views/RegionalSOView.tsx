@@ -17,6 +17,7 @@ interface RegionalItem {
 
 interface RegionalCustomer {
     customerName: string;
+    address: string;
     soCount: number;
     totalQty: number;
     totalOutstanding: number;
@@ -72,6 +73,7 @@ export const RegionalSOView: React.FC = () => {
 
     // Filters & sort
     const [searchCity, setSearchCity] = useState('');
+    const [filterProvince, setFilterProvince] = useState('');
     const [sortKey, setSortKey] = useState<SortKey>('totalQty');
     const [sortAsc, setSortAsc] = useState(false);
 
@@ -110,12 +112,18 @@ export const RegionalSOView: React.FC = () => {
         fetchData(true);
     };
 
-    // Derived: unique provinces — not needed (no province in data)
+    // Derived: unique provinces from data
+    const provinces = useMemo(() =>
+        [...new Set(regional.map(r => r.province).filter(p => p && p !== '-'))].sort(),
+        [regional]
+    );
 
     // Filtered + sorted
     const filtered = useMemo(() => {
         let data = regional.filter(r => {
-            return !searchCity || r.city.toLowerCase().includes(searchCity.toLowerCase());
+            const matchCity = !searchCity || r.city.toLowerCase().includes(searchCity.toLowerCase());
+            const matchProv = !filterProvince || r.province === filterProvince;
+            return matchCity && matchProv;
         });
         data = [...data].sort((a, b) => {
             const av = sortKey === 'city' ? a.city : (a[sortKey] as number);
@@ -124,7 +132,7 @@ export const RegionalSOView: React.FC = () => {
             return sortAsc ? (av as number) - (bv as number) : (bv as number) - (av as number);
         });
         return data;
-    }, [regional, searchCity, sortKey, sortAsc]);
+    }, [regional, searchCity, filterProvince, sortKey, sortAsc]);
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) setSortAsc(p => !p);
@@ -195,6 +203,12 @@ export const RegionalSOView: React.FC = () => {
                         >Box</button>
                     </div>
                     <Button variant="outline" size="sm" onClick={handleExport} className="text-xs">📥 Export</Button>
+                    <Button
+                        variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}
+                        className="text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
+                    >
+                        {refreshing ? '⧐ Memuat...' : '🔄 Refresh Kota'}
+                    </Button>
                 </div>
             </div>
 
@@ -235,6 +249,14 @@ export const RegionalSOView: React.FC = () => {
                     placeholder="🔍 Cari kota..."
                     className="text-xs border rounded-lg px-3 py-1.5 bg-white w-44 focus:ring-1 focus:ring-blue-300 outline-none"
                 />
+                <select
+                    value={filterProvince}
+                    onChange={e => setFilterProvince(e.target.value)}
+                    className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-300 outline-none"
+                >
+                    <option value="">Semua Provinsi</option>
+                    {provinces.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
                 <span className="text-xs text-gray-400 ml-1">{filtered.length} kota</span>
             </div>
 
@@ -249,6 +271,7 @@ export const RegionalSOView: React.FC = () => {
                                     className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none"
                                     onClick={() => handleSort('city')}
                                 >Kota/Kab <SortIcon k="city" /></th>
+                                <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Provinsi</th>
                                 <th
                                     className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none"
                                     onClick={() => handleSort('customerCount')}
@@ -284,9 +307,8 @@ export const RegionalSOView: React.FC = () => {
                                             className={`border-b transition-colors ${isExpanded ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50'} ${row.city === 'Tidak Diketahui' ? 'text-gray-400' : ''}`}
                                         >
                                             <td className="px-3 py-2.5 text-gray-400">{idx + 1}</td>
-                                            <td className="px-3 py-2.5 font-semibold text-gray-800">
-                                                {row.city}
-                                            </td>
+                                            <td className="px-3 py-2.5 font-semibold text-gray-800">{row.city}</td>
+                                            <td className="px-3 py-2.5 text-gray-500 text-[11px]">{row.province}</td>
                                             <td className="px-3 py-2.5 text-right">
                                                 <span className="font-medium text-green-700">{fmt(row.customerCount)}</span>
                                             </td>
@@ -344,6 +366,7 @@ export const RegionalSOView: React.FC = () => {
                                                                 <thead className="bg-gray-50 border-b">
                                                                     <tr>
                                                                         <th className="text-left px-3 py-2 text-gray-500">Customer</th>
+                                                                        <th className="text-left px-3 py-2 text-gray-500">Alamat</th>
                                                                         <th className="text-right px-3 py-2 text-gray-500">SO</th>
                                                                         <th className="text-right px-3 py-2 text-gray-500">Qty</th>
                                                                         <th className="text-right px-3 py-2 text-gray-500">Outstanding</th>
@@ -355,6 +378,7 @@ export const RegionalSOView: React.FC = () => {
                                                                     {row.customers.map(c => (
                                                                         <tr key={c.customerName} className="border-b border-gray-50 hover:bg-gray-50">
                                                                             <td className="px-3 py-2 font-medium text-gray-700">{c.customerName}</td>
+                                                                            <td className="px-3 py-2 text-gray-400 text-[10px] max-w-[180px] truncate" title={c.address}>{c.address || '-'}</td>
                                                                             <td className="px-3 py-2 text-right text-purple-600">{c.soCount}</td>
                                                                             <td className="px-3 py-2 text-right text-blue-600 font-medium">{fmt(c.totalQty)}</td>
                                                                             <td className="px-3 py-2 text-right">

@@ -1391,9 +1391,10 @@ export async function fetchAllSOData(
 export interface CustomerCity {
   city: string;
   province: string;
+  address: string;  // billAddress.address (full address)
 }
 
-const CUSTOMER_CITY_CACHE_KEY = 'customer_city_map';
+const CUSTOMER_CITY_CACHE_KEY = 'customer_city_map_v2'; // v2: uses billAddress
 const CUSTOMER_CITY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /**
@@ -1432,18 +1433,29 @@ export async function fetchCustomerCityMap(force = false): Promise<Map<string, C
     try {
       const response = await accurateClient.get('/customer/list.do', {
         params: {
-          fields: 'id,name,city,province',
+          fields: 'id,name,billAddress',
           'sp.page': page,
           'sp.pageSize': pageSize,
         }
       });
       if (response.data?.s) {
-        const customers: { name: string; city?: string; province?: string }[] = response.data.d || [];
+        const customers: {
+          name: string;
+          billAddress?: {
+            city?: string;
+            province?: string;
+            address?: string;
+            street?: string;
+          };
+        }[] = response.data.d || [];
+
         customers.forEach(c => {
-          if (c.name && (c.city || c.province)) {
+          const bill = c.billAddress;
+          if (c.name && bill && (bill.city || bill.province)) {
             map.set(c.name.trim(), {
-              city: (c.city || '').trim(),
-              province: (c.province || '').trim(),
+              city: (bill.city || '').trim(),
+              province: (bill.province || '').trim(),
+              address: (bill.address || bill.street || '').trim(),
             });
           }
         });

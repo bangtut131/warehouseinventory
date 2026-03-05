@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { loadSOCache } from '@/lib/accurate';
+import { loadSOCache, fetchCustomerCityMap } from '@/lib/accurate';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -15,6 +15,7 @@ export interface RegionalItem {
 
 export interface RegionalCustomer {
     customerName: string;
+    address: string;
     soCount: number;
     totalQty: number;
     totalOutstanding: number;
@@ -24,6 +25,7 @@ export interface RegionalCustomer {
 
 export interface RegionalEntry {
     city: string;
+    province: string;
     customerCount: number;
     soCount: number;
     totalQty: number;
@@ -45,39 +47,14 @@ export interface RegionalSummary {
     dateTo: string | null;
 }
 
-// ─── Parse kota from customer name ───────────────────────────
-// Pattern: "[Number] [Words...] [KotaName]"
-// Examples:
-//   "129 Sragi Pekalongan" → "Pekalongan"
-//   "234 Gombong Kebumen"  → "Kebumen"
-//   "777 Pertanian - Kota Kefamenanu" → "Kefamenanu"
-//   "Toko ABC Semarang"    → "Semarang"
-
-function parseCityFromName(name: string): string {
-    if (!name) return '';
-
-    // Remove leading number (e.g., "129 ", "234 ")
-    let cleaned = name.trim().replace(/^\d+\s+/, '');
-
-    // Remove common prefixes after dash
-    cleaned = cleaned.replace(/\s*-\s*kota\s*/i, ' ');
-    cleaned = cleaned.replace(/\s*-\s*/i, ' ');
-
-    // Split into words
-    const words = cleaned.trim().split(/\s+/).filter(Boolean);
-
-    if (words.length === 0) return name;
-    if (words.length === 1) return words[0];
-
-    // Last word is typically the kabupaten/kota
-    return words[words.length - 1];
-}
-
 // ─── GET handler ─────────────────────────────────────────────
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
     try {
-        // Load SO cache
+        const { searchParams } = new URL(request.url);
+        const forceRefresh = searchParams.get('refresh') === 'true';
+
+        // 1. Load SO cache
         const soList = await loadSOCache();
         if (!soList || soList.length === 0) {
             return NextResponse.json(
@@ -86,13 +63,14 @@ export async function GET(_request: NextRequest) {
             );
         }
 
-        // Determine date range from SO cache
+        // 2. Load customer city map (uses billAddress.city/province from Accurate)
+        const cityMap = await fetchCustomerCityMap(forceRefresh);
+
+        // 3. Determine date range
         let dateFrom: string | null = null;
         let dateTo: string | null = null;
-
         for (const so of soList) {
             if (!so.transDate) continue;
-            // transDate is "dd/mm/yyyy"
             const parts = so.transDate.split('/');
             if (parts.length === 3) {
                 const iso = `${parts[2]}-${parts[1]}-${parts[0]}`;
@@ -101,13 +79,12 @@ export async function GET(_request: NextRequest) {
             }
         }
 
-        // All SOs — no status filter (show all cached SOs since sync already filtered by status)
-        const allSOs = soList;
-
-        // Group by parsed city
-        const cityMap = new Map<string, {
+        // 4. Group by city
+        type CityEntry = {
             city: string;
+            province: string;
             customers: Map<string, {
+                address: string;
                 soCount: number;
                 totalQty: number;
                 totalOutstanding: number;
@@ -123,18 +100,25 @@ export async function GET(_request: NextRequest) {
             totalQty: number;
             totalOutstanding: number;
             totalValue: number;
-        }>();
+        };
 
+        const cityEntries = new Map<string, CityEntry>();
         let unmapped = 0;
 
-        for (const so of allSOs) {
-            const city = parseCityFromName(so.customerName);
+        for (const so of soList) {
+            const info = cityMap.get(so.customerName);
+            const city = info?.city?.trim() || '';
+            const province = info?.province?.trim() || '';
+            const address = info?.address || '';
+
             const cityKey = city || 'Tidak Diketahui';
+            const provKey = province || '-';
             if (!city) unmapped++;
 
-            if (!cityMap.has(cityKey)) {
-                cityMap.set(cityKey, {
+            if (!cityEntries.has(cityKey)) {
+                cityEntries.set(cityKey, {
                     city: cityKey,
+                    province: provKey,
                     customers: new Map(),
                     itemMap: new Map(),
                     totalQty: 0,
@@ -142,11 +126,12 @@ export async function GET(_request: NextRequest) {
                     totalValue: 0,
                 });
             }
-            const entry = cityMap.get(cityKey)!;
+            const entry = cityEntries.get(cityKey)!;
 
-            // Customer aggregation
+            // Customer
             if (!entry.customers.has(so.customerName)) {
                 entry.customers.set(so.customerName, {
+                    address,
                     soCount: 0, totalQty: 0, totalOutstanding: 0, totalValue: 0, soNumbers: [],
                 });
             }
@@ -154,6 +139,7 @@ export async function GET(_request: NextRequest) {
             cust.soCount++;
             cust.soNumbers.push(so.soNumber);
 
+            // Items
             for (const item of so.detailItems) {
                 cust.totalQty += item.quantity;
                 cust.totalOutstanding += item.outstanding;
@@ -178,13 +164,13 @@ export async function GET(_request: NextRequest) {
             entry.totalValue += soVal;
         }
 
-        // Build result
+        // 5. Build result
         const regional: RegionalEntry[] = [];
-
-        for (const [, entry] of cityMap) {
+        for (const [, entry] of cityEntries) {
             const customers: RegionalCustomer[] = Array.from(entry.customers.entries())
                 .map(([name, c]) => ({
                     customerName: name,
+                    address: c.address,
                     soCount: c.soCount,
                     totalQty: c.totalQty,
                     totalOutstanding: c.totalOutstanding,
@@ -206,6 +192,7 @@ export async function GET(_request: NextRequest) {
 
             regional.push({
                 city: entry.city,
+                province: entry.province,
                 customerCount: entry.customers.size,
                 soCount: Array.from(entry.customers.values()).reduce((s, c) => s + c.soCount, 0),
                 totalQty: entry.totalQty,
@@ -221,7 +208,7 @@ export async function GET(_request: NextRequest) {
         const summary: RegionalSummary = {
             totalCities: regional.filter(r => r.city !== 'Tidak Diketahui').length,
             totalCustomers: regional.reduce((s, r) => s + r.customerCount, 0),
-            totalSOs: allSOs.length,
+            totalSOs: soList.length,
             totalQty: regional.reduce((s, r) => s + r.totalQty, 0),
             totalOutstanding: regional.reduce((s, r) => s + r.totalOutstanding, 0),
             totalValue: regional.reduce((s, r) => s + r.totalValue, 0),
