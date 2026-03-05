@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SOBroadcastPanel } from "@/components/dashboard/SOBroadcastPanel";
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -469,6 +470,8 @@ export const RegionalSOView: React.FC = () => {
                     )}
                 </>
             )}
+            {/* SO Broadcast Panel */}
+            <SOBroadcastPanel />
         </div>
     );
 };

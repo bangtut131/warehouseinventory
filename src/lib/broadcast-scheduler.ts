@@ -30,7 +30,7 @@ export interface BroadcastConfig {
     enabled: boolean;
     cronExpression: string;      // e.g. "0 7 * * 1-5" = weekdays 7am
     intervalLabel: string;       // friendly label for UI
-    reportTypes: ('reorder' | 'alert-pdf' | 'so-regional')[];
+    reportTypes: ('reorder' | 'alert-pdf')[];
     targetNumbers: string[];     // WA numbers to send to
     branchId: number | null;
     warehouseId: number | null;
@@ -41,7 +41,6 @@ export interface BroadcastConfig {
     wahaSession: string;
     wahaApiKey: string;
     stockUnit: StockUnit;
-    soRegionalStatuses: string;  // comma-separated: 'menunggu,sebagian'
 }
 
 const DEFAULT_CONFIG: BroadcastConfig = {
@@ -56,7 +55,6 @@ const DEFAULT_CONFIG: BroadcastConfig = {
     wahaSession: process.env.WAHA_SESSION || 'default',
     wahaApiKey: process.env.WAHA_API_KEY || '',
     stockUnit: 'pcs',
-    soRegionalStatuses: 'menunggu,sebagian',
 };
 
 // ─── CONFIG PERSISTENCE ──────────────────────────────────────
@@ -87,95 +85,6 @@ export async function saveBroadcastConfig(config: BroadcastConfig): Promise<void
         console.error('[Broadcast] DB config save error:', err.message);
         throw err;
     }
-}
-
-// ─── SO REGIONAL MESSAGE FORMATTER ───────────────────────────
-
-function fmtNum(n: number): string {
-    return Math.round(n).toLocaleString('id-ID');
-}
-
-const STATUS_LABELS: Record<string, string> = {
-    'menunggu': 'Menunggu Diproses',
-    'sebagian': 'Sebagian Diproses',
-    'disetujui': 'Disetujui',
-    'terproses': 'Terproses',
-    'all': 'Semua Status',
-};
-
-function generateSORegionalMessage(
-    regional: any[],
-    summary: any,
-    statuses: string,
-): string {
-    const statusList = statuses.split(',').map(s => STATUS_LABELS[s.trim()] || s.trim()).join(' & ');
-    let msg = `📦 *LAPORAN SO PER WILAYAH*\n${formatDate()}\nStatus: ${statusList}\n`;
-
-    // Period
-    if (summary.dateFrom || summary.dateTo) {
-        const from = summary.dateFrom ? summary.dateFrom.split('-').reverse().join('/') : '?';
-        const to = summary.dateTo ? summary.dateTo.split('-').reverse().join('/') : '?';
-        msg += `Periode: ${from} - ${to}\n`;
-    }
-
-    msg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `📊 *RINGKASAN*\n`;
-    msg += `🏙 Kota: ${summary.totalCities} wilayah\n`;
-    msg += `👥 Customer: ${fmtNum(summary.totalCustomers)}\n`;
-    msg += `📋 Total SO: ${fmtNum(summary.totalSOs)}\n`;
-    msg += `📦 Total Qty: ${fmtNum(summary.totalQty)}\n`;
-    msg += `📦 Outstanding: ${fmtNum(summary.totalOutstanding)}\n`;
-
-    // Global unit breakdown
-    const unitBd = summary.unitBreakdown || {};
-    const unitKeys = Object.keys(unitBd).sort((a, b) => unitBd[b] - unitBd[a]);
-    if (unitKeys.length > 0) {
-        msg += `\n📦 *REKAP SATUAN:*\n`;
-        const outBd = summary.outstandingBreakdown || {};
-        for (const unit of unitKeys) {
-            const out = outBd[unit] ? ` (sisa ${fmtNum(outBd[unit])})` : '';
-            msg += `  ${unit}: ${fmtNum(unitBd[unit])}${out}\n`;
-        }
-    }
-
-    // Top N cities
-    const topN = Math.min(10, regional.length);
-    if (topN > 0) {
-        msg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-        msg += `🏆 *TOP ${topN} WILAYAH*\n`;
-
-        const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-        for (let i = 0; i < topN; i++) {
-            const r = regional[i];
-            msg += `\n${emojis[i] || `${i + 1}.`} *${r.city}* (${r.customerCount} cust, ${r.soCount} SO)\n`;
-            msg += `   Qty: ${fmtNum(r.totalQty)}  |  Sisa: ${fmtNum(r.totalOutstanding)}\n`;
-
-            // Per-city unit breakdown (compact)
-            const cityUnitBd = r.unitBreakdown || {};
-            const cityOutBd = r.outstandingBreakdown || {};
-            const cUnits = Object.keys(cityUnitBd).filter(u => cityUnitBd[u] > 0);
-            if (cUnits.length > 0) {
-                const parts = cUnits.map(u => {
-                    const out = cityOutBd[u] ? ` (${fmtNum(cityOutBd[u])})` : '';
-                    return `${u}: ${fmtNum(cityUnitBd[u])}${out}`;
-                });
-                msg += `   📦 ${parts.join(' | ')}\n`;
-            }
-        }
-
-        if (regional.length > topN) {
-            msg += `\n_... dan ${regional.length - topN} wilayah lainnya_\n`;
-        }
-    }
-
-    if (summary.unmapped > 0) {
-        msg += `\n⚠️ _${summary.unmapped} SO belum terpetakan ke wilayah_\n`;
-    }
-
-    msg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `📱 _Inventory Analysis System_`;
-
-    return msg;
 }
 
 // ─── BROADCAST EXECUTION ─────────────────────────────────────
@@ -214,39 +123,32 @@ export async function executeBroadcast(
         return { success: false, error: msg, sentCount: 0 };
     }
 
-    let sentCount = 0;
-    const errors: string[] = [];
+    // 2. Fetch inventory data from our own API
+    let items: InventoryItem[];
+    try {
+        // Use explicit env URL if set, otherwise use internal localhost with correct port
+        const baseUrl = process.env.NEXTAUTH_URL
+            || process.env.NEXT_PUBLIC_BASE_URL
+            || `http://localhost:${process.env.PORT || 3000}`;
+        const params: Record<string, string> = {};
+        if (config.branchId) params.branch = config.branchId.toString();
+        if (config.warehouseId) params.warehouse = config.warehouseId.toString();
+        const qs = new URLSearchParams(params).toString();
+        const url = `${baseUrl}/api/inventory${qs ? '?' + qs : ''}`;
 
-    // 2. Fetch inventory data from our own API (only if needed)
-    const baseUrl = process.env.NEXTAUTH_URL
-        || process.env.NEXT_PUBLIC_BASE_URL
-        || `http://localhost:${process.env.PORT || 3000}`;
-
-    const needsInventory = config.reportTypes.some(t => t === 'reorder' || t === 'alert-pdf');
-    let items: InventoryItem[] = [];
-    if (needsInventory) {
-        try {
-            const params: Record<string, string> = {};
-            if (config.branchId) params.branch = config.branchId.toString();
-            if (config.warehouseId) params.warehouse = config.warehouseId.toString();
-            const qs = new URLSearchParams(params).toString();
-            const url = `${baseUrl}/api/inventory${qs ? '?' + qs : ''}`;
-
-            console.log(`[Broadcast] Fetching inventory data from ${url}`);
-            const res = await axios.get(url, { timeout: 120000 });
-            items = res.data;
-            console.log(`[Broadcast] Got ${items.length} inventory items`);
-        } catch (err: any) {
-            const msg = `Failed to fetch inventory: ${err.message}`;
-            console.error(`[Broadcast] ${msg}`);
-            if (!config.reportTypes.includes('so-regional')) {
-                await logBroadcast(config, 'FAILED', msg, 0);
-                return { success: false, error: msg, sentCount: 0 };
-            }
-            errors.push(msg);
-        }
+        console.log(`[Broadcast] Fetching inventory data from ${url}`);
+        const res = await axios.get(url, { timeout: 120000 });
+        items = res.data;
+        console.log(`[Broadcast] Got ${items.length} inventory items`);
+    } catch (err: any) {
+        const msg = `Failed to fetch inventory: ${err.message}`;
+        console.error(`[Broadcast] ${msg}`);
+        await logBroadcast(config, 'FAILED', msg, 0);
+        return { success: false, error: msg, sentCount: 0 };
     }
 
+    let sentCount = 0;
+    const errors: string[] = [];
 
     // 3. Generate and send each report type
     for (const reportType of config.reportTypes) {
@@ -354,28 +256,6 @@ export async function executeBroadcast(
                 } catch (pdfErr: any) {
                     errors.push(`Alert PDF generation: ${pdfErr.message}`);
                     console.error(`[Broadcast] Alert PDF error:`, pdfErr.message);
-                }
-            }
-
-            // ─── SO REGIONAL REPORT ───────────────────────────
-            if (reportType === 'so-regional') {
-                try {
-                    const statuses = config.soRegionalStatuses || 'menunggu,sebagian';
-                    const url = `${baseUrl}/api/so-regional?status=${encodeURIComponent(statuses)}`;
-                    console.log(`[Broadcast] Fetching SO Regional data from ${url}`);
-                    const res = await axios.get(url, { timeout: 120000 });
-                    const { regional, summary } = res.data;
-                    const textMsg = generateSORegionalMessage(regional, summary, statuses);
-
-                    for (const target of config.targetNumbers) {
-                        const r = await sendTextMessage(target, textMsg, wahaConfig);
-                        if (r.ok) sentCount++;
-                        else errors.push(`SO Regional to ${target}: ${r.error}`);
-                    }
-                    console.log(`[Broadcast] SO Regional report sent to ${config.targetNumbers.length} targets`);
-                } catch (err: any) {
-                    errors.push(`SO Regional: ${err.message}`);
-                    console.error(`[Broadcast] SO Regional error:`, err.message);
                 }
             }
         } catch (err: any) {
