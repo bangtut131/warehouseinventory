@@ -8,10 +8,10 @@ import { loadSOCache, fetchCustomerCityMap, fetchItemUnitMap } from '@/lib/accur
 export interface RegionalItem {
     itemNo: string;
     itemName: string;
+    unitName: string;
     totalQty: number;
     totalOutstanding: number;
     totalValue: number;
-    unitName: string;
 }
 
 export interface RegionalCustomer {
@@ -32,8 +32,8 @@ export interface RegionalEntry {
     totalQty: number;
     totalOutstanding: number;
     totalValue: number;
-    unitBreakdown: Record<string, number>;      // e.g. { "Box": 120, "Pcs": 45, "Sak": 10 }
-    outstandingBreakdown: Record<string, number>; // outstanding per unit
+    unitBreakdown: Record<string, number>;
+    outstandingBreakdown: Record<string, number>;
     customers: RegionalCustomer[];
     topItems: RegionalItem[];
 }
@@ -54,12 +54,6 @@ export interface RegionalSummary {
 
 // ─── Status normalization ─────────────────────────────────────
 
-const BASE_UNIT_KEYWORDS = ['pcs', 'pcs.', 'buah', 'unit', 'biji', 'satuan', 'lembar', 'kg', 'liter'];
-
-function isBaseUnit(unitName: string): boolean {
-    return BASE_UNIT_KEYWORDS.includes(unitName.toLowerCase().trim());
-}
-
 const STATUS_GROUPS: Record<string, string[]> = {
     'menunggu': ['menunggu diproses', 'menunggu'],
     'sebagian': ['sebagian diproses', 'partially processed', 'sebagian'],
@@ -79,13 +73,9 @@ function matchStatus(statusName: string, allowedGroups: string[]): boolean {
 
 // ─── Unit aggregation helper ──────────────────────────────────
 
-function addToBreakdown(
-    breakdown: Record<string, number>,
-    unitName: string,
-    qty: number
-) {
-    const key = (unitName || 'Pcs').trim();
-    breakdown[key] = (breakdown[key] || 0) + qty;
+function addToBreakdown(bd: Record<string, number>, unit: string, qty: number) {
+    const key = (unit || 'Pcs').trim();
+    bd[key] = (bd[key] || 0) + qty;
 }
 
 // ─── GET handler ─────────────────────────────────────────────
@@ -94,10 +84,8 @@ export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const forceRefresh = searchParams.get('refresh') === 'true';
-
         const statusParam = searchParams.get('status') || 'menunggu,sebagian';
         const statusGroups = statusParam.split(',').map(s => s.trim().toLowerCase());
-
         const fromParam = searchParams.get('from') || null;
         const toParam = searchParams.get('to') || null;
 
@@ -113,7 +101,9 @@ export async function GET(request: NextRequest) {
             fetchItemUnitMap(),
         ]);
 
-        // 3. Filter
+        console.log(`[SO Regional] unitMap has ${unitMap.size} items with unit2 conversion`);
+
+        // 3. Filter SOs
         const filteredSOs = soList.filter(so => {
             if (!matchStatus(so.statusName, statusGroups)) return false;
             if (fromParam || toParam) {
@@ -140,36 +130,20 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // 5. Group by city
+        // 5. Group by city with unit breakdown
         type CityEntry = {
-            city: string;
-            province: string;
-            customers: Map<string, {
-                address: string;
-                soCount: number;
-                totalQty: number;
-                totalOutstanding: number;
-                totalValue: number;
-                soNumbers: string[];
-            }>;
-            itemMap: Map<string, {
-                itemName: string;
-                totalQty: number;
-                totalOutstanding: number;
-                totalValue: number;
-                unitName: string;
-            }>;
-            totalQty: number;
-            totalOutstanding: number;
-            totalValue: number;
+            city: string; province: string;
+            customers: Map<string, { address: string; soCount: number; totalQty: number; totalOutstanding: number; totalValue: number; soNumbers: string[] }>;
+            itemMap: Map<string, { itemName: string; totalQty: number; totalOutstanding: number; totalValue: number; unitName: string }>;
+            totalQty: number; totalOutstanding: number; totalValue: number;
             unitBreakdown: Record<string, number>;
             outstandingBreakdown: Record<string, number>;
         };
 
         const cityEntries = new Map<string, CityEntry>();
         let unmapped = 0;
-        const globalUnitBreakdown: Record<string, number> = {};
-        const globalOutstandingBreakdown: Record<string, number> = {};
+        const globalUnit: Record<string, number> = {};
+        const globalOut: Record<string, number> = {};
 
         for (const so of filteredSOs) {
             const info = cityMap.get(so.customerName);
@@ -190,9 +164,7 @@ export async function GET(request: NextRequest) {
             const entry = cityEntries.get(cityKey)!;
 
             if (!entry.customers.has(so.customerName)) {
-                entry.customers.set(so.customerName, {
-                    address, soCount: 0, totalQty: 0, totalOutstanding: 0, totalValue: 0, soNumbers: [],
-                });
+                entry.customers.set(so.customerName, { address, soCount: 0, totalQty: 0, totalOutstanding: 0, totalValue: 0, soNumbers: [] });
             }
             const cust = entry.customers.get(so.customerName)!;
             cust.soCount++;
@@ -203,31 +175,35 @@ export async function GET(request: NextRequest) {
                 cust.totalOutstanding += item.outstanding;
                 cust.totalValue += item.totalPrice;
 
-                // Determine effective unit and qty for breakdown
+                // Determine effective unit for breakdown:
+                // If the item has a unit2 (e.g. Box = 12 Pcs) AND the SO line is in base unit → convert
                 const unitInfo = unitMap.get(item.itemNo);
-                let displayUnit = item.unitName || 'Pcs';
+                let displayUnit = (item.unitName || 'Pcs').trim();
                 let displayQty = item.quantity;
                 let displayOut = item.outstanding;
 
-                if (unitInfo && unitInfo.unitConversion > 0 && isBaseUnit(item.unitName)) {
-                    // Item is in base unit (Pcs) but has a sales unit (Box/Karung etc.)
-                    displayUnit = unitInfo.salesUnitName || displayUnit;
-                    displayQty = Math.ceil(item.quantity / unitInfo.unitConversion);
-                    displayOut = item.outstanding > 0 ? Math.ceil(item.outstanding / unitInfo.unitConversion) : 0;
+                if (unitInfo && unitInfo.unitConversion > 1) {
+                    // Check if SO unit matches the base unit (unit1) of this item
+                    const soUnit = (item.unitName || '').trim().toLowerCase();
+                    const baseUnit = (unitInfo.baseUnitName || '').trim().toLowerCase();
+
+                    if (soUnit === baseUnit || soUnit === 'pcs' || soUnit === '') {
+                        // Convert from base → sales unit (Box/Karung/etc)
+                        displayUnit = unitInfo.salesUnitName;
+                        displayQty = Math.ceil(item.quantity / unitInfo.unitConversion);
+                        displayOut = item.outstanding > 0 ? Math.ceil(item.outstanding / unitInfo.unitConversion) : 0;
+                    }
+                    // If SO unit already == salesUnitName, keep as-is (already in Box)
                 }
 
                 addToBreakdown(entry.unitBreakdown, displayUnit, displayQty);
                 if (item.outstanding > 0) addToBreakdown(entry.outstandingBreakdown, displayUnit, displayOut);
-                addToBreakdown(globalUnitBreakdown, displayUnit, displayQty);
-                if (item.outstanding > 0) addToBreakdown(globalOutstandingBreakdown, displayUnit, displayOut);
+                addToBreakdown(globalUnit, displayUnit, displayQty);
+                if (item.outstanding > 0) addToBreakdown(globalOut, displayUnit, displayOut);
 
-                // Item map (use displayed unit for item top list)
                 const existing = entry.itemMap.get(item.itemNo);
                 if (!existing) {
-                    entry.itemMap.set(item.itemNo, {
-                        itemName: item.itemName, totalQty: displayQty, totalOutstanding: displayOut,
-                        totalValue: item.totalPrice, unitName: displayUnit,
-                    });
+                    entry.itemMap.set(item.itemNo, { itemName: item.itemName, totalQty: displayQty, totalOutstanding: displayOut, totalValue: item.totalPrice, unitName: displayUnit });
                 } else {
                     existing.totalQty += displayQty;
                     existing.totalOutstanding += displayOut;
@@ -247,29 +223,17 @@ export async function GET(request: NextRequest) {
         const regional: RegionalEntry[] = [];
         for (const [, entry] of cityEntries) {
             const customers: RegionalCustomer[] = Array.from(entry.customers.entries())
-                .map(([name, c]) => ({
-                    customerName: name, address: c.address,
-                    soCount: c.soCount, totalQty: c.totalQty,
-                    totalOutstanding: c.totalOutstanding, totalValue: c.totalValue,
-                    soNumbers: c.soNumbers,
-                }))
+                .map(([name, c]) => ({ customerName: name, address: c.address, soCount: c.soCount, totalQty: c.totalQty, totalOutstanding: c.totalOutstanding, totalValue: c.totalValue, soNumbers: c.soNumbers }))
                 .sort((a, b) => b.totalQty - a.totalQty);
-
             const topItems: RegionalItem[] = Array.from(entry.itemMap.entries())
-                .map(([no, im]) => ({
-                    itemNo: no, itemName: im.itemName, unitName: im.unitName,
-                    totalQty: im.totalQty, totalOutstanding: im.totalOutstanding, totalValue: im.totalValue,
-                }))
-                .sort((a, b) => b.totalQty - a.totalQty)
-                .slice(0, 10);
-
+                .map(([no, im]) => ({ itemNo: no, itemName: im.itemName, unitName: im.unitName, totalQty: im.totalQty, totalOutstanding: im.totalOutstanding, totalValue: im.totalValue }))
+                .sort((a, b) => b.totalQty - a.totalQty).slice(0, 10);
             regional.push({
                 city: entry.city, province: entry.province,
                 customerCount: entry.customers.size,
                 soCount: Array.from(entry.customers.values()).reduce((s, c) => s + c.soCount, 0),
                 totalQty: entry.totalQty, totalOutstanding: entry.totalOutstanding, totalValue: entry.totalValue,
-                unitBreakdown: entry.unitBreakdown,
-                outstandingBreakdown: entry.outstandingBreakdown,
+                unitBreakdown: entry.unitBreakdown, outstandingBreakdown: entry.outstandingBreakdown,
                 customers, topItems,
             });
         }
@@ -283,8 +247,7 @@ export async function GET(request: NextRequest) {
             totalOutstanding: regional.reduce((s, r) => s + r.totalOutstanding, 0),
             totalValue: regional.reduce((s, r) => s + r.totalValue, 0),
             unmapped, dateFrom, dateTo,
-            unitBreakdown: globalUnitBreakdown,
-            outstandingBreakdown: globalOutstandingBreakdown,
+            unitBreakdown: globalUnit, outstandingBreakdown: globalOut,
         };
 
         return NextResponse.json({ regional, summary });

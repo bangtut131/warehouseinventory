@@ -44,7 +44,7 @@ export async function clearSalesCache(fromDate?: Date, branchId?: number): Promi
   }
 }
 
-// ─── Sync progress tracker (read by /api/sync) ──────────────
+// â”€â”€â”€ Sync progress tracker (read by /api/sync) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export const syncProgress = {
   phase: '' as '' | 'listing' | 'details' | 'aggregating' | 'warehouseStock' | 'poOutstanding' | 'done',
   done: 0,
@@ -55,7 +55,7 @@ export const syncProgress = {
 // Create Axios client with proper headers (including X-Session-ID)
 export const accurateClient = axios.create({
   baseURL: API_HOST,
-  timeout: 30000, // 30 seconds — prevent hung connections from blocking sync
+  timeout: 30000, // 30 seconds â€” prevent hung connections from blocking sync
   headers: {
     'Authorization': `Bearer ${API_TOKEN}`,
     'X-Session-ID': DB_ID,
@@ -79,7 +79,7 @@ accurateClient.interceptors.request.use((config) => {
   return config;
 });
 
-// ─── ITEM LIST ───────────────────────────────────────────────
+// â”€â”€â”€ ITEM LIST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface AccurateItem {
   id: number;
@@ -90,7 +90,7 @@ export interface AccurateItem {
   unitPrice: number;
   cost: number;
   unit1Name?: string; // Satuan utama (Pcs)
-  ratio2?: number;    // Rasio unit2 ke unit1 (misal 1 Box = 12 Pcs → ratio2 = 12). 0 = no unit2.
+  ratio2?: number;    // Rasio unit2 ke unit1 (misal 1 Box = 12 Pcs â†’ ratio2 = 12). 0 = no unit2.
 }
 
 export async function fetchInventory(page = 1, pageSize = 100): Promise<{ list: AccurateItem[], hasMore: boolean }> {
@@ -136,7 +136,7 @@ export async function fetchAllInventory(): Promise<AccurateItem[]> {
   return allItems;
 }
 
-// ─── SALES INVOICE ───────────────────────────────────────────
+// â”€â”€â”€ SALES INVOICE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface AccurateInvoiceItem {
   item: {
@@ -160,7 +160,7 @@ export interface AccurateInvoice {
   detailItem?: AccurateInvoiceItem[];
 }
 
-// Parse Accurate date format DD/MM/YYYY → Date
+// Parse Accurate date format DD/MM/YYYY â†’ Date
 function parseAccurateDate(dateStr: string): Date {
   const parts = dateStr.split('/');
   if (parts.length === 3) {
@@ -185,7 +185,7 @@ async function fetchInvoiceList(fromDate: Date, branchId?: number): Promise<{ id
   const now = new Date();
   const toStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
 
-  console.log(`[Accurate] Phase 1: Fetching invoice IDs (${fromStr} → ${toStr})${branchId ? ` branch=${branchId}` : ''}...`);
+  console.log(`[Accurate] Phase 1: Fetching invoice IDs (${fromStr} â†’ ${toStr})${branchId ? ` branch=${branchId}` : ''}...`);
 
   while (hasMore) {
     const params: Record<string, any> = {
@@ -225,7 +225,7 @@ async function fetchInvoiceList(fromDate: Date, branchId?: number): Promise<{ id
             }
           }
           success = true;
-          break; // Success — exit retry loop
+          break; // Success â€” exit retry loop
         } else {
           console.warn('[Accurate] Invoice list API returned s=false:', response.data?.d);
           hasMore = false;
@@ -351,14 +351,14 @@ async function fetchDetailsInBatch(
     const stillFailed = failedIds.length - recovered;
     console.log(`[Accurate] Retry pass done: recovered ${recovered}/${failedIds.length}. Still failed: ${stillFailed}`);
     if (stillFailed > 0) {
-      console.warn(`[Accurate] ⚠️ ${stillFailed} invoices could NOT be fetched. Sales data may be incomplete.`);
+      console.warn(`[Accurate] âš ï¸ ${stillFailed} invoices could NOT be fetched. Sales data may be incomplete.`);
     }
   }
 
   return results;
 }
 
-// ─── AGGREGATED SALES DATA ───────────────────────────────────
+// â”€â”€â”€ AGGREGATED SALES DATA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface ItemSalesData {
   totalQty: number;          // total in base unit (pcs)
@@ -466,7 +466,7 @@ export async function saveSalesCache(fromDate: Date, salesMap: Map<string, ItemS
 
 /**
  * Main entry point: Fetch all sales data from Accurate with caching.
- * Returns a Map of itemNo → { totalQty, totalRevenue, monthlyData }
+ * Returns a Map of itemNo â†’ { totalQty, totalRevenue, monthlyData }
  */
 export async function fetchAllSalesData(
   fromDate: Date,
@@ -481,10 +481,10 @@ export async function fetchAllSalesData(
       return { salesMap: cached, invoiceCount: -1, branchSalesMaps: new Map() }; // -1 indicates cached
     }
   } else if (force && !skipCacheOps) {
-    console.log(`[Accurate] Force sync requested — clearing cache${branchId ? ` (branch ${branchId})` : ''}`);
+    console.log(`[Accurate] Force sync requested â€” clearing cache${branchId ? ` (branch ${branchId})` : ''}`);
     await clearSalesCache(fromDate, branchId);
   } else {
-    console.log(`[Accurate] Atomic sync mode — cache ops skipped (caller manages)`);
+    console.log(`[Accurate] Atomic sync mode â€” cache ops skipped (caller manages)`);
   }
 
   // 2. Phase 1: Get invoice IDs (API-level date + branch filter)
@@ -509,7 +509,7 @@ export async function fetchAllSalesData(
     }
   });
 
-  // Build invoiceId → branchId map from Phase 1 list data
+  // Build invoiceId â†’ branchId map from Phase 1 list data
   const invoiceBranchMap = new Map<number, number>();
   filteredInvoices.forEach(inv => {
     if (inv.branchId) invoiceBranchMap.set(inv.id, inv.branchId);
@@ -597,7 +597,7 @@ export async function fetchAllSalesData(
 
   console.log(`[Accurate] Aggregated sales data for ${salesMap.size} items from ${invoices.length} invoices`);
 
-  // 6. Cache results — ONLY if not in atomic mode
+  // 6. Cache results â€” ONLY if not in atomic mode
   if (!skipCacheOps) {
     await saveSalesCache(fromDate, salesMap, branchId);
 
@@ -616,16 +616,16 @@ export async function fetchAllSalesData(
   return { salesMap, invoiceCount: invoices.length, branchSalesMaps };
 }
 
-// ─── WAREHOUSE STOCK (Phase 3) ───────────────────────────────
+// â”€â”€â”€ WAREHOUSE STOCK (Phase 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
- * Per-warehouse stock data: itemNo → { warehouseId → quantity }
+ * Per-warehouse stock data: itemNo â†’ { warehouseId â†’ quantity }
  */
 export type WarehouseStockMap = Map<string, Map<number, number>>;
 
 interface CachedWarehouseStock {
   timestamp: number;
-  /** itemNo → { warehouseId: quantity } */
+  /** itemNo â†’ { warehouseId: quantity } */
   data: Record<string, Record<string, number>>;
 }
 
@@ -659,7 +659,7 @@ async function fetchItemWarehouseStock(itemNo: string): Promise<{ warehouseId: n
 
 /**
  * Batch fetch warehouse stock for all items.
- * Returns a Map: itemNo → Map(warehouseId → quantity)
+ * Returns a Map: itemNo â†’ Map(warehouseId â†’ quantity)
  */
 export async function fetchWarehouseStock(
   itemNos: string[],
@@ -756,7 +756,7 @@ export async function loadWarehouseStockCache(): Promise<WarehouseStockMap | nul
   }
 }
 
-// ─── PO OUTSTANDING (Phase 4) ────────────────────────────────
+// â”€â”€â”€ PO OUTSTANDING (Phase 4) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * PO Outstanding = qty in Purchase Orders that have NOT been fully received.
@@ -789,7 +789,7 @@ export type POOutstandingMap = Map<string, number>;
 
 interface CachedPOOutstanding {
   timestamp: number;
-  /** itemNo → outstanding qty */
+  /** itemNo â†’ outstanding qty */
   data: Record<string, number>;
 }
 
@@ -800,7 +800,7 @@ function getPOCacheKey(branchId?: number): string {
 }
 
 /**
- * Phase 4a: Fetch PO list — exclude "Ditutup"/"Closed" POs.
+ * Phase 4a: Fetch PO list â€” exclude "Ditutup"/"Closed" POs.
  * We fetch all POs and filter out closed ones, since Accurate may use
  * Indonesian (Buka/Sebagian/Ditutup) or English (Open/Partial/Closed) status names.
  */
@@ -1058,7 +1058,7 @@ export async function loadPOCache(branchId?: number): Promise<POOutstandingMap |
 
 /**
  * Main entry: Fetch all PO outstanding data with caching.
- * Returns a Map of itemNo → outstanding qty (pcs).
+ * Returns a Map of itemNo â†’ outstanding qty (pcs).
  * When syncing all branches, also auto-saves per-branch PO caches.
  */
 export async function fetchAllPOOutstanding(
@@ -1099,7 +1099,7 @@ export async function fetchAllPOOutstanding(
   const { combined: poMap, perBranch } = aggregatePOOutstanding(pos);
   console.log(`[Accurate] PO done: ${poMap.size} items with outstanding qty from ${pos.length} POs`);
 
-  // Cache — main (combined)
+  // Cache â€” main (combined)
   await savePOCache(poMap, branchId);
 
   // Auto-split per-branch caches (only when syncing all branches)
@@ -1114,7 +1114,7 @@ export async function fetchAllPOOutstanding(
   return { poMap, poCount: pos.length };
 }
 
-// ─── SO OUTSTANDING (Kontrol SO) ─────────────────────────────
+// â”€â”€â”€ SO OUTSTANDING (Kontrol SO) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const SO_CACHE_KEY = 'so-outstanding-cache';
 
@@ -1377,7 +1377,7 @@ export async function fetchAllSOData(
     if (onProgress) onProgress(done, total);
   });
 
-  // Log stats — no further filtering, since user already chose which statuses to sync
+  // Log stats â€” no further filtering, since user already chose which statuses to sync
   console.log(`[Accurate] SO done: ${soData.length} SOs fetched with detail`);
 
   // Cache
@@ -1386,7 +1386,7 @@ export async function fetchAllSOData(
   return { soList: soData, soCount: soData.length };
 }
 
-// ─── Customer City Map ────────────────────────────────────────
+// â”€â”€â”€ Customer City Map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface CustomerCity {
   city: string;
@@ -1398,7 +1398,7 @@ const CUSTOMER_CITY_CACHE_KEY = 'customer_city_map_v2'; // v2: uses billAddress
 const CUSTOMER_CITY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /**
- * Fetch customer name → city/province mapping from Accurate.
+ * Fetch customer name â†’ city/province mapping from Accurate.
  * Uses DataCache with 6-hour TTL. Pass force=true to refresh.
  */
 export async function fetchCustomerCityMap(force = false): Promise<Map<string, CustomerCity>> {
@@ -1491,33 +1491,83 @@ export async function fetchCustomerCityMap(force = false): Promise<Map<string, C
 // --- Item Unit Conversion Map ---
 
 export interface ItemUnitInfo {
-  unitConversion: number;  // pcs per sales unit (0 = same unit)
+  unitConversion: number;  // how many baseUnit per salesUnit (ratio2)
   salesUnitName: string;   // e.g. 'Box', 'Karung', 'Sak'
+  baseUnitName: string;    // e.g. 'Pcs'
 }
 
+const ITEM_UNIT_CACHE_KEY = 'item-unit-map-v1';
+const ITEM_UNIT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 /**
- * Load itemNo => { unitConversion, salesUnitName } from the most recent
- * sales-cache-* DataCache entry (pre-computed during sync from invoice data).
+ * Fetch itemNo -> { unitConversion, salesUnitName, baseUnitName }
+ * from Accurate /item/list.do using unit2Name + ratio2 fields.
+ * ratio2 = how many unit1(base) per unit2(sales): 1 Box = ratio2 Pcs
+ * Cached in DataCache for 24h. First call fetches from API.
  */
-export async function fetchItemUnitMap(): Promise<Map<string, ItemUnitInfo>> {
+export async function fetchItemUnitMap(force = false): Promise<Map<string, ItemUnitInfo>> {
   const result = new Map<string, ItemUnitInfo>();
-  try {
-    const entries = await prisma.dataCache.findMany({
-      where: { key: { startsWith: 'sales-cache-' } },
-      orderBy: { updatedAt: 'desc' },
-      take: 1,
-    });
-    if (!entries.length) return result;
-    const data = (entries[0].data as any)?.data || {};
-    for (const [itemNo, entry] of Object.entries(data)) {
-      const e = entry as any;
-      if (e.unitConversion > 0 || e.salesUnitName) {
-        result.set(itemNo, { unitConversion: e.unitConversion || 0, salesUnitName: e.salesUnitName || '' });
+
+  // Try cache
+  if (!force) {
+    try {
+      const cached = await prisma.dataCache.findUnique({ where: { key: ITEM_UNIT_CACHE_KEY } });
+      if (cached?.data) {
+        const c = cached.data as any;
+        const age = Date.now() - (c.timestamp || 0);
+        if (age < ITEM_UNIT_CACHE_TTL_MS) {
+          for (const [itemNo, entry] of Object.entries(c.data || {})) {
+            result.set(itemNo, entry as ItemUnitInfo);
+          }
+          console.log('[ItemUnitMap] Loaded ' + result.size + ' items from cache (' + Math.round(age / 3600000) + 'h old)');
+          return result;
+        }
       }
-    }
-    console.log('[ItemUnitMap] ' + result.size + ' items with unit info from sales cache');
-  } catch (err: any) {
-    console.warn('[ItemUnitMap] Failed to load:', err.message);
+    } catch {}
   }
+
+  // Fetch from Accurate
+  console.log('[ItemUnitMap] Fetching item unit data from Accurate...');
+  let page = 1;
+  const pageSize = 200;
+  let hasMore = true;
+
+  while (hasMore) {
+    try {
+      const response = await accurateClient.get('/item/list.do', {
+        params: { fields: 'id,no,unit1Name,unit2Name,ratio2', 'sp.page': page, 'sp.pageSize': pageSize }
+      });
+      if (response.data?.s) {
+        const items: { no: string; unit1Name?: string; unit2Name?: string; ratio2?: number }[] = response.data.d || [];
+        for (const item of items) {
+          if (item.no && item.unit2Name && item.ratio2 && item.ratio2 > 1) {
+            result.set(item.no, {
+              unitConversion: item.ratio2,
+              salesUnitName: item.unit2Name,
+              baseUnitName: item.unit1Name || 'Pcs',
+            });
+          }
+        }
+        hasMore = (response.data.sp?.pageCount || 1) > page;
+        page++;
+      } else { hasMore = false; }
+    } catch (err: any) {
+      console.error('[ItemUnitMap] Fetch error:', err.message);
+      hasMore = false;
+    }
+  }
+
+  console.log('[ItemUnitMap] Fetched ' + result.size + ' items with unit2 from Accurate');
+
+  // Save cache
+  try {
+    const cacheData = { timestamp: Date.now(), data: Object.fromEntries(result) } as any;
+    await prisma.dataCache.upsert({
+      where: { key: ITEM_UNIT_CACHE_KEY },
+      update: { data: cacheData },
+      create: { key: ITEM_UNIT_CACHE_KEY, data: cacheData },
+    });
+  } catch (err: any) { console.warn('[ItemUnitMap] Cache save failed:', err.message); }
+
   return result;
 }
