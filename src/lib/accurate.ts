@@ -1248,7 +1248,7 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
             quantity: qty,
             shipQuantity: shipped,
             outstanding: Math.max(0, qty - shipped),
-            unitName: di.itemUnitName || di.unitName || '',
+            unitName: di.itemUnit?.name || di.itemUnitName || di.unitName || '',
             unitPrice: di.unitPrice || 0,
             totalPrice: di.totalPrice || 0,
           };
@@ -1523,7 +1523,7 @@ export async function fetchItemUnitMap(force = false): Promise<Map<string, ItemU
           return result;
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Fetch from Accurate
