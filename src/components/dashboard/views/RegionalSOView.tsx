@@ -324,8 +324,10 @@ export const RegionalSOView: React.FC = () => {
                                                 Customer <SortIcon k="customerCount" /></th>
                                             <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('soCount')}>
                                                 SO <SortIcon k="soCount" /></th>
-                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('totalQty')}>
-                                                Qty per Satuan <SortIcon k="totalQty" /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('totalQty')}>
+                                                Total Qty <SortIcon k="totalQty" /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('totalOutstanding')}>
+                                                Outstanding <SortIcon k="totalOutstanding" /></th>
                                             <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('totalValue')}>
                                                 Nilai <SortIcon k="totalValue" /></th>
                                             <th className="text-center px-3 py-2.5 text-gray-500 font-semibold">Detail</th>
@@ -342,8 +344,11 @@ export const RegionalSOView: React.FC = () => {
                                                         <td className="px-3 py-2.5 text-gray-500 text-[11px]">{row.province}</td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-green-700">{fmt(row.customerCount)}</td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-purple-700">{fmt(row.soCount)}</td>
-                                                        <td className="px-3 py-2.5">
-                                                            <UnitBreakdown breakdown={row.unitBreakdown} outstanding={row.outstandingBreakdown} />
+                                                        <td className="px-3 py-2.5 text-right font-medium text-blue-700">{fmt(row.totalQty)}</td>
+                                                        <td className="px-3 py-2.5 text-right">
+                                                            {row.totalOutstanding > 0
+                                                                ? <span className="text-orange-600 font-medium">{fmt(row.totalOutstanding)}</span>
+                                                                : <span className="text-gray-300">-</span>}
                                                         </td>
                                                         <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{fmtRp(row.totalValue)}</td>
                                                         <td className="px-3 py-2.5 text-center">
@@ -356,7 +361,25 @@ export const RegionalSOView: React.FC = () => {
 
                                                     {isExpanded && (
                                                         <tr className="bg-blue-50/30">
-                                                            <td colSpan={8} className="px-4 py-3">
+                                                            <td colSpan={9} className="px-4 py-3">
+                                                                {/* Unit breakdown summary */}
+                                                                {Object.keys(row.unitBreakdown).length > 0 && (
+                                                                    <div className="mb-3 bg-white border border-blue-100 rounded-lg px-3 py-2">
+                                                                        <p className="text-[10px] text-gray-400 font-semibold mb-1.5">📦 Rekap Satuan Wilayah Ini</p>
+                                                                        <div className="flex flex-wrap gap-3">
+                                                                            {Object.entries(row.unitBreakdown).sort((a, b) => b[1] - a[1]).map(([unit, qty]) => (
+                                                                                <div key={unit} className="flex items-baseline gap-1">
+                                                                                    <span className="font-bold text-blue-700">{fmt(qty)}</span>
+                                                                                    <span className="text-xs text-gray-500">{unit}</span>
+                                                                                    {row.outstandingBreakdown[unit] > 0 && (
+                                                                                        <span className="text-[10px] text-orange-500 ml-0.5">({fmt(row.outstandingBreakdown[unit])} sisa)</span>
+                                                                                    )}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
                                                                 <div className="flex gap-2 mb-3">
                                                                     {[
                                                                         { key: 'customers', label: `🏪 Customer (${row.customerCount})` },
