@@ -176,24 +176,33 @@ export async function GET(request: NextRequest) {
                 cust.totalValue += item.totalPrice;
 
                 // Determine effective unit for breakdown:
-                // If the item has a unit2 (e.g. Box = 12 Pcs) AND the SO line is in base unit → convert
                 const unitInfo = unitMap.get(item.itemNo);
-                let displayUnit = (item.unitName || 'Pcs').trim();
-                let displayQty = item.quantity;
-                let displayOut = item.outstanding;
+                const soUnit = (item.unitName || '').trim();
+                let displayUnit: string;
+                let displayQty: number;
+                let displayOut: number;
 
-                if (unitInfo && unitInfo.unitConversion > 1) {
-                    // Check if SO unit matches the base unit (unit1) of this item
-                    const soUnit = (item.unitName || '').trim().toLowerCase();
-                    const baseUnit = (unitInfo.baseUnitName || '').trim().toLowerCase();
-
-                    if (soUnit === baseUnit || soUnit === 'pcs' || soUnit === '') {
-                        // Convert from base → sales unit (Box/Karung/etc)
-                        displayUnit = unitInfo.salesUnitName;
-                        displayQty = Math.ceil(item.quantity / unitInfo.unitConversion);
-                        displayOut = item.outstanding > 0 ? Math.ceil(item.outstanding / unitInfo.unitConversion) : 0;
-                    }
-                    // If SO unit already == salesUnitName, keep as-is (already in Box)
+                if (soUnit && unitInfo && soUnit.toLowerCase() === (unitInfo.salesUnitName || '').toLowerCase()) {
+                    // Case 1: SO already in sales unit (e.g., Box) — use directly
+                    displayUnit = unitInfo.salesUnitName || soUnit;
+                    displayQty = item.quantity;
+                    displayOut = item.outstanding;
+                } else if (soUnit && unitInfo && unitInfo.unitConversion > 1 &&
+                    (soUnit.toLowerCase() === (unitInfo.baseUnitName || 'pcs').toLowerCase() || soUnit.toLowerCase() === 'pcs')) {
+                    // Case 2: SO in base unit (Pcs) and item has Box conversion — convert
+                    displayUnit = unitInfo.salesUnitName;
+                    displayQty = Math.ceil(item.quantity / unitInfo.unitConversion);
+                    displayOut = item.outstanding > 0 ? Math.ceil(item.outstanding / unitInfo.unitConversion) : 0;
+                } else if (!soUnit && unitInfo) {
+                    // Case 3: unitName is empty in SO cache (field not populated) — use salesUnitName from master
+                    displayUnit = unitInfo.salesUnitName || 'Pcs';
+                    displayQty = item.quantity;
+                    displayOut = item.outstanding;
+                } else {
+                    // Case 4: No unit info — use SO unitName or Pcs fallback
+                    displayUnit = soUnit || 'Pcs';
+                    displayQty = item.quantity;
+                    displayOut = item.outstanding;
                 }
 
                 addToBreakdown(entry.unitBreakdown, displayUnit, displayQty);
