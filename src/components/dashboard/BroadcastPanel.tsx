@@ -32,6 +32,7 @@ interface BroadcastConfig {
     wahaSession: string;
     wahaApiKey: string;
     stockUnit: 'pcs' | 'box';
+    soRegionalStatuses?: string;
 }
 
 interface BroadcastLogEntry {
@@ -80,6 +81,8 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
     const [selectedCron, setSelectedCron] = useState('0 7 * * 1-5');
     const [reportReorder, setReportReorder] = useState(true);
     const [reportAlert, setReportAlert] = useState(false);
+    const [reportSORegional, setReportSORegional] = useState(false);
+    const [soRegionalStatuses, setSORegionalStatuses] = useState('menunggu,sebagian');
     const [branchId, setBranchId] = useState<string>('');
     const [warehouseId, setWarehouseId] = useState<string>('');
     const [stockUnit, setStockUnit] = useState<'pcs' | 'box'>('pcs');
@@ -104,6 +107,8 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
             setSelectedCron(c.cronExpression || '0 7 * * 1-5');
             setReportReorder((c.reportTypes || []).includes('reorder'));
             setReportAlert((c.reportTypes || []).includes('alert-pdf'));
+            setReportSORegional((c.reportTypes || []).includes('so-regional'));
+            setSORegionalStatuses(c.soRegionalStatuses || 'menunggu,sebagian');
             setBranchId(c.branchId ? c.branchId.toString() : '');
             setWarehouseId(c.warehouseId ? c.warehouseId.toString() : '');
             setStockUnit(c.stockUnit || 'pcs');
@@ -125,6 +130,7 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
             const reportTypes: string[] = [];
             if (reportReorder) reportTypes.push('reorder');
             if (reportAlert) reportTypes.push('alert-pdf');
+            if (reportSORegional) reportTypes.push('so-regional');
 
             const targets = targetInput
                 .split(/[,;\n]/)
@@ -148,6 +154,7 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
                 wahaSession,
                 wahaApiKey,
                 stockUnit,
+                soRegionalStatuses,
             };
 
             await axios.post('/api/broadcast', update);
@@ -338,7 +345,34 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
                                     />
                                     <span className="text-sm">🚨 Alert PDF</span>
                                 </label>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={reportSORegional}
+                                        onChange={(e) => setReportSORegional(e.target.checked)}
+                                        className="rounded"
+                                    />
+                                    <span className="text-sm">📦 SO per Wilayah</span>
+                                </label>
                             </div>
+
+                            {/* SO Regional Status Filter */}
+                            {reportSORegional && (
+                                <div className="flex items-center gap-3 ml-4 pl-4 border-l-2 border-green-300">
+                                    <span className="text-xs font-medium text-gray-600">Status SO:</span>
+                                    <select
+                                        value={soRegionalStatuses}
+                                        onChange={(e) => setSORegionalStatuses(e.target.value)}
+                                        className="px-3 py-1.5 text-sm border rounded-md bg-white"
+                                    >
+                                        <option value="menunggu,sebagian">Menunggu & Sebagian</option>
+                                        <option value="menunggu">Menunggu Diproses</option>
+                                        <option value="sebagian">Sebagian Diproses</option>
+                                        <option value="disetujui">Disetujui</option>
+                                        <option value="all">Semua Status</option>
+                                    </select>
+                                </div>
+                            )}
 
                             {/* Stock Unit */}
                             <div className="flex items-center gap-3">
@@ -465,7 +499,7 @@ export function BroadcastPanel({ branches, warehouses }: Props) {
                                                             {new Date(log.sentAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}
                                                         </td>
                                                         <td className="px-2 py-1">
-                                                            {log.type === 'reorder' ? '📋 Reorder' : '🚨 Alert'}
+                                                            {log.type === 'reorder' ? '📋 Reorder' : log.type === 'so-regional' ? '📦 SO Wilayah' : '🚨 Alert'}
                                                         </td>
                                                         <td className="px-2 py-1">{log.target}</td>
                                                         <td className="px-2 py-1 text-center">
