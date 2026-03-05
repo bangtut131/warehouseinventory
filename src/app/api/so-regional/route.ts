@@ -47,12 +47,40 @@ export interface RegionalSummary {
     dateTo: string | null;
 }
 
+// ─── Status normalization ─────────────────────────────────────
+
+const STATUS_GROUPS: Record<string, string[]> = {
+    'menunggu': ['menunggu diproses', 'menunggu'],
+    'sebagian': ['sebagian diproses', 'partially processed', 'sebagian'],
+    'disetujui': ['disetujui', 'approved'],
+    'terproses': ['terproses', 'processed'],
+};
+
+function matchStatus(statusName: string, allowedGroups: string[]): boolean {
+    const lower = (statusName || '').toLowerCase();
+    if (allowedGroups.includes('all')) return true;
+    for (const group of allowedGroups) {
+        const keywords = STATUS_GROUPS[group] || [group];
+        if (keywords.some(kw => lower.includes(kw))) return true;
+    }
+    return false;
+}
+
 // ─── GET handler ─────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const forceRefresh = searchParams.get('refresh') === 'true';
+
+        // Status filter: comma-separated group keys, or 'all'
+        // Defaults: menunggu + sebagian
+        const statusParam = searchParams.get('status') || 'menunggu,sebagian';
+        const statusGroups = statusParam.split(',').map(s => s.trim().toLowerCase());
+
+        // Date range filter (ISO: yyyy-mm-dd)
+        const fromParam = searchParams.get('from') || null;
+        const toParam = searchParams.get('to') || null;
 
         // 1. Load SO cache
         const soList = await loadSOCache();
@@ -63,13 +91,30 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        // 2. Load customer city map (uses billAddress.city/province from Accurate)
+        // 2. Load customer city map
         const cityMap = await fetchCustomerCityMap(forceRefresh);
 
-        // 3. Determine date range
+        // 3. Filter SOs by status and date
+        const filteredSOs = soList.filter(so => {
+            // Status
+            if (!matchStatus(so.statusName, statusGroups)) return false;
+
+            // Date range — transDate format: dd/mm/yyyy
+            if (fromParam || toParam) {
+                const parts = (so.transDate || '').split('/');
+                if (parts.length === 3) {
+                    const iso = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    if (fromParam && iso < fromParam) return false;
+                    if (toParam && iso > toParam) return false;
+                }
+            }
+            return true;
+        });
+
+        // 4. Date range of filtered SOs
         let dateFrom: string | null = null;
         let dateTo: string | null = null;
-        for (const so of soList) {
+        for (const so of filteredSOs) {
             if (!so.transDate) continue;
             const parts = so.transDate.split('/');
             if (parts.length === 3) {
@@ -79,7 +124,7 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // 4. Group by city
+        // 5. Group by city
         type CityEntry = {
             city: string;
             province: string;
@@ -105,7 +150,7 @@ export async function GET(request: NextRequest) {
         const cityEntries = new Map<string, CityEntry>();
         let unmapped = 0;
 
-        for (const so of soList) {
+        for (const so of filteredSOs) {
             const info = cityMap.get(so.customerName);
             const city = info?.city?.trim() || '';
             const province = info?.province?.trim() || '';
@@ -117,38 +162,29 @@ export async function GET(request: NextRequest) {
 
             if (!cityEntries.has(cityKey)) {
                 cityEntries.set(cityKey, {
-                    city: cityKey,
-                    province: provKey,
-                    customers: new Map(),
-                    itemMap: new Map(),
-                    totalQty: 0,
-                    totalOutstanding: 0,
-                    totalValue: 0,
+                    city: cityKey, province: provKey,
+                    customers: new Map(), itemMap: new Map(),
+                    totalQty: 0, totalOutstanding: 0, totalValue: 0,
                 });
             }
             const entry = cityEntries.get(cityKey)!;
 
-            // Customer
             if (!entry.customers.has(so.customerName)) {
                 entry.customers.set(so.customerName, {
-                    address,
-                    soCount: 0, totalQty: 0, totalOutstanding: 0, totalValue: 0, soNumbers: [],
+                    address, soCount: 0, totalQty: 0, totalOutstanding: 0, totalValue: 0, soNumbers: [],
                 });
             }
             const cust = entry.customers.get(so.customerName)!;
             cust.soCount++;
             cust.soNumbers.push(so.soNumber);
 
-            // Items
             for (const item of so.detailItems) {
                 cust.totalQty += item.quantity;
                 cust.totalOutstanding += item.outstanding;
                 cust.totalValue += item.totalPrice;
 
                 if (!entry.itemMap.has(item.itemNo)) {
-                    entry.itemMap.set(item.itemNo, {
-                        itemName: item.itemName, totalQty: 0, totalOutstanding: 0, totalValue: 0,
-                    });
+                    entry.itemMap.set(item.itemNo, { itemName: item.itemName, totalQty: 0, totalOutstanding: 0, totalValue: 0 });
                 }
                 const im = entry.itemMap.get(item.itemNo)!;
                 im.totalQty += item.quantity;
@@ -164,57 +200,44 @@ export async function GET(request: NextRequest) {
             entry.totalValue += soVal;
         }
 
-        // 5. Build result
+        // 6. Build sorted result
         const regional: RegionalEntry[] = [];
         for (const [, entry] of cityEntries) {
             const customers: RegionalCustomer[] = Array.from(entry.customers.entries())
                 .map(([name, c]) => ({
-                    customerName: name,
-                    address: c.address,
-                    soCount: c.soCount,
-                    totalQty: c.totalQty,
-                    totalOutstanding: c.totalOutstanding,
-                    totalValue: c.totalValue,
+                    customerName: name, address: c.address,
+                    soCount: c.soCount, totalQty: c.totalQty,
+                    totalOutstanding: c.totalOutstanding, totalValue: c.totalValue,
                     soNumbers: c.soNumbers,
                 }))
                 .sort((a, b) => b.totalQty - a.totalQty);
 
             const topItems: RegionalItem[] = Array.from(entry.itemMap.entries())
                 .map(([no, im]) => ({
-                    itemNo: no,
-                    itemName: im.itemName,
-                    totalQty: im.totalQty,
-                    totalOutstanding: im.totalOutstanding,
-                    totalValue: im.totalValue,
+                    itemNo: no, itemName: im.itemName,
+                    totalQty: im.totalQty, totalOutstanding: im.totalOutstanding, totalValue: im.totalValue,
                 }))
                 .sort((a, b) => b.totalQty - a.totalQty)
                 .slice(0, 10);
 
             regional.push({
-                city: entry.city,
-                province: entry.province,
+                city: entry.city, province: entry.province,
                 customerCount: entry.customers.size,
                 soCount: Array.from(entry.customers.values()).reduce((s, c) => s + c.soCount, 0),
-                totalQty: entry.totalQty,
-                totalOutstanding: entry.totalOutstanding,
-                totalValue: entry.totalValue,
-                customers,
-                topItems,
+                totalQty: entry.totalQty, totalOutstanding: entry.totalOutstanding, totalValue: entry.totalValue,
+                customers, topItems,
             });
         }
-
         regional.sort((a, b) => b.totalQty - a.totalQty);
 
         const summary: RegionalSummary = {
             totalCities: regional.filter(r => r.city !== 'Tidak Diketahui').length,
             totalCustomers: regional.reduce((s, r) => s + r.customerCount, 0),
-            totalSOs: soList.length,
+            totalSOs: filteredSOs.length,
             totalQty: regional.reduce((s, r) => s + r.totalQty, 0),
             totalOutstanding: regional.reduce((s, r) => s + r.totalOutstanding, 0),
             totalValue: regional.reduce((s, r) => s + r.totalValue, 0),
-            unmapped,
-            dateFrom,
-            dateTo,
+            unmapped, dateFrom, dateTo,
         };
 
         return NextResponse.json({ regional, summary });
