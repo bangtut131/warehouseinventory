@@ -1487,3 +1487,37 @@ export async function fetchCustomerCityMap(force = false): Promise<Map<string, C
   return map;
 }
 
+
+// --- Item Unit Conversion Map ---
+
+export interface ItemUnitInfo {
+  unitConversion: number;  // pcs per sales unit (0 = same unit)
+  salesUnitName: string;   // e.g. 'Box', 'Karung', 'Sak'
+}
+
+/**
+ * Load itemNo => { unitConversion, salesUnitName } from the most recent
+ * sales-cache-* DataCache entry (pre-computed during sync from invoice data).
+ */
+export async function fetchItemUnitMap(): Promise<Map<string, ItemUnitInfo>> {
+  const result = new Map<string, ItemUnitInfo>();
+  try {
+    const entries = await prisma.dataCache.findMany({
+      where: { key: { startsWith: 'sales-cache-' } },
+      orderBy: { updatedAt: 'desc' },
+      take: 1,
+    });
+    if (!entries.length) return result;
+    const data = (entries[0].data as any)?.data || {};
+    for (const [itemNo, entry] of Object.entries(data)) {
+      const e = entry as any;
+      if (e.unitConversion > 0 || e.salesUnitName) {
+        result.set(itemNo, { unitConversion: e.unitConversion || 0, salesUnitName: e.salesUnitName || '' });
+      }
+    }
+    console.log('[ItemUnitMap] ' + result.size + ' items with unit info from sales cache');
+  } catch (err: any) {
+    console.warn('[ItemUnitMap] Failed to load:', err.message);
+  }
+  return result;
+}
