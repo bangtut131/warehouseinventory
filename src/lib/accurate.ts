@@ -1239,16 +1239,30 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
 
       if (response.data?.s && response.data.d) {
         const d = response.data.d;
-        const detailItems: SODetailItem[] = (d.detailItem || []).map((di: any) => {
+        const detailItems: SODetailItem[] = (d.detailItem || []).map((di: any, idx: number) => {
           const qty = di.quantity || 0;
           const shipped = di.shipQuantity ?? 0;
+          // Try every possible unit field from Accurate API
+          const resolvedUnit =
+            di.itemUnit?.name ||
+            di.itemUnit?.unitName ||
+            di.unit?.name ||
+            di.itemUnitName ||
+            di.unitName ||
+            di.item?.unit2Name ||
+            di.item?.unitName ||
+            '';
+          // Debug: log first 2 items of first few SOs
+          if (idx < 2) {
+            console.log(`[SO Debug] ${d.number} item[${idx}]: resolvedUnit="${resolvedUnit}" | itemUnit=${JSON.stringify(di.itemUnit)} | itemUnitName=${di.itemUnitName} | unitName=${di.unitName} | unit=${JSON.stringify(di.unit)} | item.unit2Name=${di.item?.unit2Name}`);
+          }
           return {
             itemNo: di.item?.no || '',
             itemName: di.item?.name || '',
             quantity: qty,
             shipQuantity: shipped,
             outstanding: Math.max(0, qty - shipped),
-            unitName: di.itemUnit?.name || di.itemUnitName || di.unitName || '',
+            unitName: resolvedUnit,
             unitPrice: di.unitPrice || 0,
             totalPrice: di.totalPrice || 0,
           };
