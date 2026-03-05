@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { loadSOCache, fetchCustomerCityMap, fetchItemUnitMap } from '@/lib/accurate';
+import { loadSOCache, fetchAllSOData, fetchCustomerCityMap } from '@/lib/accurate';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -86,34 +86,37 @@ export async function GET(request: NextRequest) {
         const forceRefresh = searchParams.get('refresh') === 'true';
         const statusParam = searchParams.get('status') || 'menunggu,sebagian';
         const statusGroups = statusParam.split(',').map(s => s.trim().toLowerCase());
-        const fromParam = searchParams.get('from') || null;
-        const toParam = searchParams.get('to') || null;
 
-        // 1. Load SO cache
-        const soList = await loadSOCache();
+        // 1. Load SO data — when refresh=true, FORCE re-fetch from Accurate
+        let soList;
+        if (forceRefresh) {
+            console.log('[SO Regional] Force refresh: re-syncing SO data from Accurate...');
+            const result = await fetchAllSOData(true);
+            soList = result.soList;
+            console.log(`[SO Regional] Fresh SO data: ${soList.length} SOs fetched`);
+        } else {
+            soList = await loadSOCache();
+        }
+
         if (!soList || soList.length === 0) {
             return NextResponse.json({ error: 'Data SO belum di-sync.' }, { status: 404 });
         }
 
-        // 2. Load city map + item unit map in parallel
-        const [cityMap, unitMap] = await Promise.all([
-            fetchCustomerCityMap(forceRefresh),
-            fetchItemUnitMap(),
-        ]);
+        // Debug: log unitName from first SO's items to verify fix
+        if (soList.length > 0) {
+            const firstSO = soList[0];
+            console.log(`[SO Regional] Sample SO: ${firstSO.soNumber}, items: ${firstSO.detailItems.length}`);
+            firstSO.detailItems.slice(0, 3).forEach((item, i) => {
+                console.log(`  item[${i}]: ${item.itemName} | unitName="${item.unitName}" | qty=${item.quantity}`);
+            });
+        }
 
-        console.log(`[SO Regional] unitMap has ${unitMap.size} items with unit2 conversion`);
+        // 2. Load city map
+        const cityMap = await fetchCustomerCityMap(forceRefresh);
 
         // 3. Filter SOs
         const filteredSOs = soList.filter(so => {
             if (!matchStatus(so.statusName, statusGroups)) return false;
-            if (fromParam || toParam) {
-                const parts = (so.transDate || '').split('/');
-                if (parts.length === 3) {
-                    const iso = `${parts[2]}-${parts[1]}-${parts[0]}`;
-                    if (fromParam && iso < fromParam) return false;
-                    if (toParam && iso > toParam) return false;
-                }
-            }
             return true;
         });
 
@@ -131,6 +134,8 @@ export async function GET(request: NextRequest) {
         }
 
         // 5. Group by city with unit breakdown
+        // unitName comes DIRECTLY from SO detail (already "Box", "Btl", "Pcs" etc. from Accurate)
+        // No conversion needed — SO stores the actual sales unit
         type CityEntry = {
             city: string; province: string;
             customers: Map<string, { address: string; soCount: number; totalQty: number; totalOutstanding: number; totalValue: number; soNumbers: string[] }>;
@@ -175,35 +180,10 @@ export async function GET(request: NextRequest) {
                 cust.totalOutstanding += item.outstanding;
                 cust.totalValue += item.totalPrice;
 
-                // Determine effective unit for breakdown:
-                const unitInfo = unitMap.get(item.itemNo);
-                const soUnit = (item.unitName || '').trim();
-                let displayUnit: string;
-                let displayQty: number;
-                let displayOut: number;
-
-                if (soUnit && unitInfo && soUnit.toLowerCase() === (unitInfo.salesUnitName || '').toLowerCase()) {
-                    // Case 1: SO already in sales unit (e.g., Box) — use directly
-                    displayUnit = unitInfo.salesUnitName || soUnit;
-                    displayQty = item.quantity;
-                    displayOut = item.outstanding;
-                } else if (soUnit && unitInfo && unitInfo.unitConversion > 1 &&
-                    (soUnit.toLowerCase() === (unitInfo.baseUnitName || 'pcs').toLowerCase() || soUnit.toLowerCase() === 'pcs')) {
-                    // Case 2: SO in base unit (Pcs) and item has Box conversion — convert
-                    displayUnit = unitInfo.salesUnitName;
-                    displayQty = Math.ceil(item.quantity / unitInfo.unitConversion);
-                    displayOut = item.outstanding > 0 ? Math.ceil(item.outstanding / unitInfo.unitConversion) : 0;
-                } else if (!soUnit && unitInfo) {
-                    // Case 3: unitName is empty in SO cache (field not populated) — use salesUnitName from master
-                    displayUnit = unitInfo.salesUnitName || 'Pcs';
-                    displayQty = item.quantity;
-                    displayOut = item.outstanding;
-                } else {
-                    // Case 4: No unit info — use SO unitName or Pcs fallback
-                    displayUnit = soUnit || 'Pcs';
-                    displayQty = item.quantity;
-                    displayOut = item.outstanding;
-                }
+                // Use unitName directly from SO — already "Box", "Btl", "Sak", "Pcs" etc.
+                const displayUnit = (item.unitName || 'Pcs').trim();
+                const displayQty = item.quantity;
+                const displayOut = item.outstanding;
 
                 addToBreakdown(entry.unitBreakdown, displayUnit, displayQty);
                 if (item.outstanding > 0) addToBreakdown(entry.outstandingBreakdown, displayUnit, displayOut);
