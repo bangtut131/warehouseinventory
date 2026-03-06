@@ -244,8 +244,8 @@ export async function GET(request: NextRequest) {
             if (isSakUnit) {
                 // Convert stock from base unit (Kg) to Sak
                 quantity = parseFloat((quantity / sakConversion).toFixed(2));
-                // Adjust cost per Sak (cost_per_kg × kg_per_sak) to keep stockValue correct
-                effectiveCost = effectiveCost * sakConversion;
+                // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for Sak items
+                // is already per-Sak (same price for Kg and Sak), so no conversion needed
                 // Override display unit
                 unit = 'Sak';
             }
