@@ -238,20 +238,26 @@ export async function GET(request: NextRequest) {
             // Items sold in Sak (e.g. 1 Sak = 50 Kg): convert all qty to Sak
             // so demand metrics are accurate (avoids false "FAST" from base-unit qty)
             //
-            // Detection: check multiple sources for "Sak" unit name
+            // Detection: check multiple sources for "Sak" unit name (using includes for variations)
             const rawSalesUnit = (salesData.salesUnitName || '').toLowerCase();
             const rawUnit2 = (item.unit2Name || '').toLowerCase();
             const rawUnit1 = (item.unit1Name || '').toLowerCase();
             const sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
 
-            // Item is Sak if: salesUnitName='Sak' OR unit2Name='Sak' OR unit1Name='Sak'
-            const isSakUnit = (rawSalesUnit === 'sak' || rawUnit2 === 'sak' || rawUnit1 === 'sak') && sakConversion > 1;
-            // Special case: if unit1Name is already "Sak" (base unit IS Sak), no conversion needed
-            const isSakBaseUnit = rawUnit1 === 'sak';
+            // Debug: ALWAYS log unit fields for PK-008 to diagnose
+            if (item.no === 'PK-008' || rawSalesUnit.includes('sak') || rawUnit2.includes('sak') || rawUnit1.includes('sak')) {
+                console.log(`[UNIT DEBUG] ${item.no} "${item.name}" | unit1="${item.unit1Name}" unit2="${item.unit2Name}" ratio2=${item.ratio2} | salesUnit="${salesData.salesUnitName}" salesConv=${salesData.unitConversion} | totalQty=${salesData.totalQty} totalQtyBox=${salesData.totalQtyBox}`);
+            }
 
-            // Debug: log all unit fields for items with "sak" anywhere
-            if (rawSalesUnit === 'sak' || rawUnit2 === 'sak' || rawUnit1 === 'sak') {
-                console.log(`[SAK DEBUG] ${item.no} "${item.name}" | unit1="${item.unit1Name}" unit2="${item.unit2Name}" ratio2=${item.ratio2} | salesUnit="${salesData.salesUnitName}" conv=${salesData.unitConversion} | isSak=${isSakUnit} isSakBase=${isSakBaseUnit}`);
+            // Item is Sak if: any unit field contains 'sak' (case insensitive)
+            const hasSakUnit = rawSalesUnit.includes('sak') || rawUnit2.includes('sak') || rawUnit1.includes('sak');
+            const isSakUnit = hasSakUnit && sakConversion > 1;
+            // Special case: if unit1Name contains "Sak" (base unit IS already Sak), no conversion needed
+            const isSakBaseUnit = rawUnit1.includes('sak');
+
+            // Debug: log detection result
+            if (hasSakUnit) {
+                console.log(`[SAK DEBUG] ${item.no} | hasSak=${hasSakUnit} isSakUnit=${isSakUnit} isSakBase=${isSakBaseUnit} conv=${sakConversion}`);
             }
 
             if (isSakUnit && !isSakBaseUnit) {
