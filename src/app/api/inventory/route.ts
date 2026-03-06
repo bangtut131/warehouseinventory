@@ -237,22 +237,40 @@ export async function GET(request: NextRequest) {
             // ── SAK UNIT ADJUSTMENT ─────────────
             // Items sold in Sak (e.g. 1 Sak = 50 Kg): convert all qty to Sak
             // so demand metrics are accurate (avoids false "FAST" from base-unit qty)
-            const rawSalesUnit = salesData.salesUnitName || '';
+            //
+            // Detection: check multiple sources for "Sak" unit name
+            const rawSalesUnit = (salesData.salesUnitName || '').toLowerCase();
+            const rawUnit2 = (item.unit2Name || '').toLowerCase();
+            const rawUnit1 = (item.unit1Name || '').toLowerCase();
             const sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
-            const isSakUnit = rawSalesUnit.toLowerCase() === 'sak' && sakConversion > 1;
 
-            if (isSakUnit) {
+            // Item is Sak if: salesUnitName='Sak' OR unit2Name='Sak' OR unit1Name='Sak'
+            const isSakUnit = (rawSalesUnit === 'sak' || rawUnit2 === 'sak' || rawUnit1 === 'sak') && sakConversion > 1;
+            // Special case: if unit1Name is already "Sak" (base unit IS Sak), no conversion needed
+            const isSakBaseUnit = rawUnit1 === 'sak';
+
+            // Debug: log all unit fields for items with "sak" anywhere
+            if (rawSalesUnit === 'sak' || rawUnit2 === 'sak' || rawUnit1 === 'sak') {
+                console.log(`[SAK DEBUG] ${item.no} "${item.name}" | unit1="${item.unit1Name}" unit2="${item.unit2Name}" ratio2=${item.ratio2} | salesUnit="${salesData.salesUnitName}" conv=${salesData.unitConversion} | isSak=${isSakUnit} isSakBase=${isSakBaseUnit}`);
+            }
+
+            if (isSakUnit && !isSakBaseUnit) {
                 // Convert stock from base unit (Kg) to Sak
                 quantity = parseFloat((quantity / sakConversion).toFixed(2));
                 // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for Sak items
                 // is already per-Sak (same price for Kg and Sak), so no conversion needed
-                // Override display unit
+                unit = 'Sak';
+            } else if (isSakBaseUnit) {
+                // unit1 is already Sak — just use as-is (no conversion needed)
                 unit = 'Sak';
             }
 
+            // Should we use sales-unit quantities?
+            const useSakQty = isSakUnit || isSakBaseUnit;
+
             // ── Demand Metrics ──────────────────
             // For Sak items: use totalQtyBox (sales unit qty), otherwise totalQty (base unit)
-            const effectiveTotalQty = isSakUnit ? (salesData.totalQtyBox || 0) : salesData.totalQty;
+            const effectiveTotalQty = useSakQty ? (salesData.totalQtyBox || salesData.totalQty) : salesData.totalQty;
             const avgDailyUsage = parseFloat((effectiveTotalQty / daysSinceStart).toFixed(2));
             const avgMonthlyUsage = parseFloat((effectiveTotalQty / monthCount).toFixed(1));
 
@@ -260,7 +278,7 @@ export async function GET(request: NextRequest) {
             const monthlyQtys = dateHeaders.map(h => {
                 const d = salesData.monthlyData.get(h.key);
                 if (!d) return 0;
-                return isSakUnit ? (d.qtyBox || 0) : d.qty;
+                return useSakQty ? (d.qtyBox || d.qty) : d.qty;
             });
             const mean = monthlyQtys.reduce((a, b) => a + b, 0) / monthlyQtys.length;
             const variance = monthlyQtys.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / monthlyQtys.length;
@@ -274,7 +292,7 @@ export async function GET(request: NextRequest) {
 
             // ── PO Outstanding ──────────────────
             let poQty = poOutstandingMap?.get(item.no) || 0;
-            if (isSakUnit && poQty > 0) poQty = parseFloat((poQty / sakConversion).toFixed(2));
+            if (useSakQty && !isSakBaseUnit && poQty > 0) poQty = parseFloat((poQty / sakConversion).toFixed(2));
             const effectiveStock = quantity + poQty; // Stock on hand + PO on the way
 
             // ── Days of Supply (considers PO on the way) ──
@@ -337,7 +355,7 @@ export async function GET(request: NextRequest) {
                 return {
                     month: h.month,
                     year: h.year,
-                    qty: isSakUnit ? (data.qtyBox || 0) : data.qty,
+                    qty: useSakQty ? (data.qtyBox || data.qty) : data.qty,
                     qtyBox: data.qtyBox || 0,
                     revenue: data.revenue
                 };
@@ -349,8 +367,8 @@ export async function GET(request: NextRequest) {
             const stockValue = Math.round(quantity * effectiveCost);
 
             // Log Sak-adjusted items
-            if (isSakUnit) {
-                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | conv=${sakConversion} | stock=${quantity} Sak | avg=${avgDailyUsage}/day | demand=${demandCategory}`);
+            if (useSakQty) {
+                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | unit1="${item.unit1Name}" unit2="${item.unit2Name}" ratio2=${item.ratio2} | conv=${sakConversion} | stock=${quantity} Sak | avg=${avgDailyUsage}/day | demand=${demandCategory}`);
             }
 
             return {
@@ -381,8 +399,8 @@ export async function GET(request: NextRequest) {
                 totalSalesQtyBox: salesData.totalQtyBox || 0,
                 totalSalesRevenue: salesData.totalRevenue,
                 // Unit conversion: for Sak items, conversion already applied, set to 0
-                unitConversion: isSakUnit ? 0 : (salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0)),
-                salesUnitName: isSakUnit ? '' : (salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : '')),
+                unitConversion: (useSakQty && !isSakBaseUnit) ? 0 : (salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0)),
+                salesUnitName: (useSakQty && !isSakBaseUnit) ? '' : (salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : '')),
                 poOutstanding: poQty,
                 netShortage,
                 suggestedOrder,
