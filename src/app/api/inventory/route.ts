@@ -231,15 +231,37 @@ export async function GET(request: NextRequest) {
                 }
             }
             const price = item.unitPrice || 0;
-            const effectiveCost = item.cost > 0 ? item.cost : (price > 0 ? price * 0.7 : 0);
-            const unit = item.unit1Name || 'PCS';
+            let effectiveCost = item.cost > 0 ? item.cost : (price > 0 ? price * 0.7 : 0);
+            let unit = item.unit1Name || 'PCS';
+
+            // ── SAK UNIT ADJUSTMENT ─────────────
+            // Items sold in Sak (e.g. 1 Sak = 50 Kg): convert all qty to Sak
+            // so demand metrics are accurate (avoids false "FAST" from base-unit qty)
+            const rawSalesUnit = salesData.salesUnitName || '';
+            const sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
+            const isSakUnit = rawSalesUnit.toLowerCase() === 'sak' && sakConversion > 1;
+
+            if (isSakUnit) {
+                // Convert stock from base unit (Kg) to Sak
+                quantity = parseFloat((quantity / sakConversion).toFixed(2));
+                // Adjust cost per Sak (cost_per_kg × kg_per_sak) to keep stockValue correct
+                effectiveCost = effectiveCost * sakConversion;
+                // Override display unit
+                unit = 'Sak';
+            }
 
             // ── Demand Metrics ──────────────────
-            const avgDailyUsage = parseFloat((salesData.totalQty / daysSinceStart).toFixed(2));
-            const avgMonthlyUsage = parseFloat((salesData.totalQty / monthCount).toFixed(1));
+            // For Sak items: use totalQtyBox (sales unit qty), otherwise totalQty (base unit)
+            const effectiveTotalQty = isSakUnit ? (salesData.totalQtyBox || 0) : salesData.totalQty;
+            const avgDailyUsage = parseFloat((effectiveTotalQty / daysSinceStart).toFixed(2));
+            const avgMonthlyUsage = parseFloat((effectiveTotalQty / monthCount).toFixed(1));
 
-            // Standard Deviation (from monthly data)
-            const monthlyQtys = dateHeaders.map(h => salesData.monthlyData.get(h.key)?.qty || 0);
+            // Standard Deviation (from monthly data, in effective unit)
+            const monthlyQtys = dateHeaders.map(h => {
+                const d = salesData.monthlyData.get(h.key);
+                if (!d) return 0;
+                return isSakUnit ? (d.qtyBox || 0) : d.qty;
+            });
             const mean = monthlyQtys.reduce((a, b) => a + b, 0) / monthlyQtys.length;
             const variance = monthlyQtys.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / monthlyQtys.length;
             const stdDev = parseFloat(Math.sqrt(variance).toFixed(2));
@@ -251,7 +273,8 @@ export async function GET(request: NextRequest) {
             const maxStock = Math.ceil(reorderPoint * 2.5);
 
             // ── PO Outstanding ──────────────────
-            const poQty = poOutstandingMap?.get(item.no) || 0;
+            let poQty = poOutstandingMap?.get(item.no) || 0;
+            if (isSakUnit && poQty > 0) poQty = parseFloat((poQty / sakConversion).toFixed(2));
             const effectiveStock = quantity + poQty; // Stock on hand + PO on the way
 
             // ── Days of Supply (considers PO on the way) ──
@@ -281,7 +304,7 @@ export async function GET(request: NextRequest) {
 
             // ── Turnover Rate ───────────────────
             // Turnover = Annual COGS / Average Inventory Value
-            const annualCOGS = salesData.totalQty * effectiveCost * (12 / monthCount);
+            const annualCOGS = effectiveTotalQty * effectiveCost * (12 / monthCount);
             const avgInventoryValue = quantity * effectiveCost;
             const turnoverRate = avgInventoryValue > 0
                 ? parseFloat((annualCOGS / avgInventoryValue).toFixed(2))
@@ -314,14 +337,21 @@ export async function GET(request: NextRequest) {
                 return {
                     month: h.month,
                     year: h.year,
-                    qty: data.qty,
+                    qty: isSakUnit ? (data.qtyBox || 0) : data.qty,
                     qtyBox: data.qtyBox || 0,
                     revenue: data.revenue
                 };
             });
 
             // ── Stock Value ─────────────────────
+            // quantity and effectiveCost are already in Sak units if adjusted,
+            // so stockValue = qty_sak × cost_per_sak = qty_base × cost_base (same result)
             const stockValue = Math.round(quantity * effectiveCost);
+
+            // Log Sak-adjusted items
+            if (isSakUnit) {
+                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | conv=${sakConversion} | stock=${quantity} Sak | avg=${avgDailyUsage}/day | demand=${demandCategory}`);
+            }
 
             return {
                 id: item.id.toString(),
@@ -347,12 +377,12 @@ export async function GET(request: NextRequest) {
                 turnoverRate,
                 demandCategory,
                 stockAgeDays,
-                totalSalesQty: salesData.totalQty,
+                totalSalesQty: effectiveTotalQty,
                 totalSalesQtyBox: salesData.totalQtyBox || 0,
                 totalSalesRevenue: salesData.totalRevenue,
-                // Unit conversion: prefer sales data, fallback to master item data (ratio2 from list.do)
-                unitConversion: salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0),
-                salesUnitName: salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : ''),
+                // Unit conversion: for Sak items, conversion already applied, set to 0
+                unitConversion: isSakUnit ? 0 : (salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0)),
+                salesUnitName: isSakUnit ? '' : (salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : '')),
                 poOutstanding: poQty,
                 netShortage,
                 suggestedOrder,
