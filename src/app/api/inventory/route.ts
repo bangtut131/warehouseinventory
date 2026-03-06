@@ -234,45 +234,28 @@ export async function GET(request: NextRequest) {
             let effectiveCost = item.cost > 0 ? item.cost : (price > 0 ? price * 0.7 : 0);
             let unit = item.unit1Name || 'PCS';
 
-            // ── SAK UNIT ADJUSTMENT ─────────────
-            // Items sold in Sak (e.g. 1 Sak = 50 Kg): convert all qty to Sak
-            // so demand metrics are accurate (avoids false "FAST" from base-unit qty)
+            // ── SAK / BULK UNIT ADJUSTMENT ─────────────
+            // Items sold in bulk (Sak/Karung, e.g. 1 Sak = 50 Kg):
+            // convert all qty-based metrics to sales unit.
+            // Detection: ratio2 >= 25 indicates bulk item (Sak/Karung)
+            // (Box items typically have ratio2 of 6-24)
             //
-            // Detection: check multiple sources for "Sak" unit name (using includes for variations)
-            const rawSalesUnit = (salesData.salesUnitName || '').toLowerCase();
-            const rawUnit2 = (item.unit2Name || '').toLowerCase();
-            const rawUnit1 = (item.unit1Name || '').toLowerCase();
+            // Data from log: PK-008 unit1Name/unit2Name = "undefined" in Accurate,
+            // so we detect by conversion ratio, not unit name.
             const sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
+            const isBulkUnit = sakConversion >= 25 && salesData.totalQtyBox > 0;
 
-            // Debug: ALWAYS log unit fields for PK-008 to diagnose
-            if (item.no === 'PK-008' || rawSalesUnit.includes('sak') || rawUnit2.includes('sak') || rawUnit1.includes('sak')) {
-                console.log(`[UNIT DEBUG] ${item.no} "${item.name}" | unit1="${item.unit1Name}" unit2="${item.unit2Name}" ratio2=${item.ratio2} | salesUnit="${salesData.salesUnitName}" salesConv=${salesData.unitConversion} | totalQty=${salesData.totalQty} totalQtyBox=${salesData.totalQtyBox}`);
-            }
-
-            // Item is Sak if: any unit field contains 'sak' (case insensitive)
-            const hasSakUnit = rawSalesUnit.includes('sak') || rawUnit2.includes('sak') || rawUnit1.includes('sak');
-            const isSakUnit = hasSakUnit && sakConversion > 1;
-            // Special case: if unit1Name contains "Sak" (base unit IS already Sak), no conversion needed
-            const isSakBaseUnit = rawUnit1.includes('sak');
-
-            // Debug: log detection result
-            if (hasSakUnit) {
-                console.log(`[SAK DEBUG] ${item.no} | hasSak=${hasSakUnit} isSakUnit=${isSakUnit} isSakBase=${isSakBaseUnit} conv=${sakConversion}`);
-            }
-
-            if (isSakUnit && !isSakBaseUnit) {
-                // Convert stock from base unit (Kg) to Sak
+            if (isBulkUnit) {
+                // Convert stock from base unit (Kg) to sales unit (Sak)
                 quantity = parseFloat((quantity / sakConversion).toFixed(2));
-                // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for Sak items
+                // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for these items
                 // is already per-Sak (same price for Kg and Sak), so no conversion needed
                 unit = 'Sak';
-            } else if (isSakBaseUnit) {
-                // unit1 is already Sak — just use as-is (no conversion needed)
-                unit = 'Sak';
+                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | totalQtyBox=${salesData.totalQtyBox} | totalQty=${salesData.totalQty}`);
             }
 
-            // Should we use sales-unit quantities?
-            const useSakQty = isSakUnit || isSakBaseUnit;
+            // Should we use sales-unit quantities for demand calculations?
+            const useSakQty = isBulkUnit;
 
             // ── Demand Metrics ──────────────────
             // For Sak items: use totalQtyBox (sales unit qty), otherwise totalQty (base unit)
@@ -298,7 +281,7 @@ export async function GET(request: NextRequest) {
 
             // ── PO Outstanding ──────────────────
             let poQty = poOutstandingMap?.get(item.no) || 0;
-            if (useSakQty && !isSakBaseUnit && poQty > 0) poQty = parseFloat((poQty / sakConversion).toFixed(2));
+            if (useSakQty && poQty > 0) poQty = parseFloat((poQty / sakConversion).toFixed(2));
             const effectiveStock = quantity + poQty; // Stock on hand + PO on the way
 
             // ── Days of Supply (considers PO on the way) ──
@@ -372,10 +355,7 @@ export async function GET(request: NextRequest) {
             // so stockValue = qty_sak × cost_per_sak = qty_base × cost_base (same result)
             const stockValue = Math.round(quantity * effectiveCost);
 
-            // Log Sak-adjusted items
-            if (useSakQty) {
-                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | unit1="${item.unit1Name}" unit2="${item.unit2Name}" ratio2=${item.ratio2} | conv=${sakConversion} | stock=${quantity} Sak | avg=${avgDailyUsage}/day | demand=${demandCategory}`);
-            }
+
 
             return {
                 id: item.id.toString(),
@@ -405,8 +385,8 @@ export async function GET(request: NextRequest) {
                 totalSalesQtyBox: salesData.totalQtyBox || 0,
                 totalSalesRevenue: salesData.totalRevenue,
                 // Unit conversion: for Sak items, conversion already applied, set to 0
-                unitConversion: (useSakQty && !isSakBaseUnit) ? 0 : (salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0)),
-                salesUnitName: (useSakQty && !isSakBaseUnit) ? '' : (salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : '')),
+                unitConversion: useSakQty ? 0 : (salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0)),
+                salesUnitName: useSakQty ? '' : (salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : '')),
                 poOutstanding: poQty,
                 netShortage,
                 suggestedOrder,
