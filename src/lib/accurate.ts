@@ -1401,6 +1401,112 @@ export async function fetchAllSOData(
   return { soList: soData, soCount: soData.length };
 }
 
+// ─── SLA SO Cache (Lightweight list of ALL SOs for SLA Dashboard) ───
+
+const SLA_SO_CACHE_KEY = 'sla-so-list-cache';
+const SLA_SO_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+export interface SOSimpleItem {
+  id: number;
+  number: string;
+  transDate: string;
+  branchId?: number;
+  statusName: string;
+  customerName: string;
+}
+
+export async function loadSLASOCache(force = false): Promise<SOSimpleItem[]> {
+  // Try cache first
+  if (!force) {
+    try {
+      const cacheEntry = await prisma.dataCache.findUnique({ where: { key: SLA_SO_CACHE_KEY } });
+      if (cacheEntry?.data) {
+        const cached = cacheEntry.data as any;
+        const age = Date.now() - (cached.timestamp || 0);
+        if (age < SLA_SO_CACHE_TTL_MS && Array.isArray(cached.data)) {
+          console.log(`[Cache] SLA SO list loaded (${cached.data.length} entries, ${Math.round(age / 60000)}m old)`);
+          return cached.data as SOSimpleItem[];
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Cache] SLA SO list load error:', err.message);
+    }
+  }
+
+  // Fetch from Accurate API (no status filter to get all history)
+  console.log('[Accurate] SLA: Fetching simplified SO list for SLA...');
+  // We only fetch SOs from 2025 onwards to limit data size
+  const fromDate = '01/01/2025';
+
+  const allSOs: SOSimpleItem[] = [];
+  let page = 1;
+  const pageSize = 200;
+  let hasMore = true;
+  const EXCLUDE_STATUSES = ['draf', 'draft', 'ditutup', 'closed', 'void', 'batal'];
+
+  while (hasMore) {
+    try {
+      const params: Record<string, any> = {
+        fields: 'id,number,transDate,branchId,statusName,customerName',
+        'sp.page': page,
+        'sp.pageSize': pageSize,
+        'filter.transDate.op': 'GREATER_EQUAL',
+        'filter.transDate.val': fromDate
+      };
+
+      const response = await accurateClient.get('/sales-order/list.do', { params });
+
+      if (response.data?.s) {
+        const list = response.data.d || [];
+        if (list.length === 0) {
+          hasMore = false;
+        } else {
+          list.forEach((so: any) => {
+            const status = (so.statusName || '').toLowerCase().trim();
+            if (EXCLUDE_STATUSES.includes(status)) return;
+            allSOs.push({
+              id: so.id,
+              number: so.number,
+              transDate: so.transDate,
+              branchId: so.branchId,
+              statusName: so.statusName,
+              customerName: so.customerName,
+            });
+          });
+          if (page % 10 === 0) console.log(`[Accurate] SLA SO: Page ${page}, ${allSOs.length} SOs so far...`);
+          page++;
+          // Hard limit to prevent infinite loops (about 20,000 SOs max)
+          if (page > 100) hasMore = false;
+        }
+      } else {
+        console.error('[Accurate] SLA SO list API error on page', page, ':', response.data?.d);
+        hasMore = false;
+      }
+    } catch (err: any) {
+      console.error(`[Accurate] SLA SO list fetch error (page ${page}):`, err.message);
+      hasMore = false;
+    }
+  }
+
+  console.log(`[Accurate] SLA SO list complete: ${allSOs.length} items fetched.`);
+
+  // Save to cache
+  if (allSOs.length > 0) {
+    try {
+      await prisma.dataCache.upsert({
+        where: { key: SLA_SO_CACHE_KEY },
+        update: { data: { timestamp: Date.now(), data: allSOs } as any },
+        create: { key: SLA_SO_CACHE_KEY, data: { timestamp: Date.now(), data: allSOs } as any },
+      });
+    } catch (err: any) {
+      console.warn('[Cache] SLA SO list save error:', err.message);
+    }
+  }
+
+  return allSOs;
+}
+
+
 // â”€â”€â”€ Customer City Map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface CustomerCity {

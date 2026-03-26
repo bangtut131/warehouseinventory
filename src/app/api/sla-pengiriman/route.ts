@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchDOList, fetchDODetailsInBatch, loadSOCache } from '@/lib/accurate';
+import { fetchDOList, fetchDODetailsInBatch, loadSOCache, loadSLASOCache } from '@/lib/accurate';
 import { SLADetail, SLASummary } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
 
@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
         const fromParam = searchParams.get('from');  // yyyy-mm-dd
         const toParam = searchParams.get('to');      // yyyy-mm-dd
         const branchParam = searchParams.get('branch');
+        const forceRefresh = searchParams.get('force') === 'true';
 
         // Date objects for filtering
         const fromDateObj = parseUrlDate(fromParam, false);
@@ -80,26 +81,21 @@ export async function GET(request: NextRequest) {
         const toDateStr = formatToAccurateDate(toDateObj);
         const branchId = branchParam ? parseInt(branchParam) : undefined;
 
-        console.log(`[SLA] Fetching SLA data from=${fromDateStr} to=${toDateStr} branch=${branchId || 'all'}`);
+        console.log(`[SLA] Fetching SLA data from=${fromDateStr} to=${toDateStr} branch=${branchId || 'all'} (force=${forceRefresh})`);
 
-        // 1. Get SO data (from existing cache)
-        const soCache = await loadSOCache();
+        // 1. Get ALL SO data for SLA (using specialized lightweight cache)
+        const soCache = await loadSLASOCache(forceRefresh);
         if (!soCache || soCache.length === 0) {
             return NextResponse.json({
-                error: 'No SO data available. Please sync first.',
+                error: 'No SO data available.',
                 summary: { totalSO: 0, delivered: 0, onTime: 0, late: 0, pending: 0, avgLeadTime: 0, slaPercentage: 0 },
                 details: [],
             });
         }
 
         // Filter SOs: include all "active/approved" statuses
-        // SO cache already excludes: draf, draft, ditutup, closed, void, batal
-        // Valid statuses for SLA: disetujui, approved, terproses, menunggu diproses, diajukan
-        const excludeFromSLA = ['draf', 'draft', 'ditutup', 'closed', 'void', 'batal'];
-        let approvedSOs = soCache.filter(so => {
-            const status = (so.statusName || '').toLowerCase().trim();
-            return status.length > 0 && !excludeFromSLA.includes(status);
-        });
+        // The loadSLASOCache already excludes draf/batal/void
+        let approvedSOs = soCache;
 
         // Debug: log unique statuses found
         const uniqueStatuses = [...new Set(approvedSOs.map(so => so.statusName))];
@@ -221,7 +217,7 @@ export async function GET(request: NextRequest) {
         let pendingCount = 0;
 
         for (const so of approvedSOs) {
-            const doInfo = soToDO.get(so.soNumber);
+            const doInfo = soToDO.get(so.number);
             const soDateObj = parseDate(so.transDate);
 
             if (doInfo && doInfo.doDate) {
@@ -230,7 +226,7 @@ export async function GET(request: NextRequest) {
                 const status = leadTime <= SLA_TARGET_DAYS ? 'ON_TIME' : 'LATE';
 
                 slaDetails.push({
-                    soNumber: so.soNumber,
+                    soNumber: so.number,
                     soDate: so.transDate,
                     doNumber: doInfo.doNumber,
                     doDate: doInfo.doDate,
@@ -246,7 +242,7 @@ export async function GET(request: NextRequest) {
                 else lateCount++;
             } else {
                 slaDetails.push({
-                    soNumber: so.soNumber,
+                    soNumber: so.number,
                     soDate: so.transDate,
                     doNumber: null,
                     doDate: null,
