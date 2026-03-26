@@ -13,6 +13,7 @@ import { TopItemsView } from './views/TopItemsView';
 import { EOQView } from './views/EOQView';
 import { SOControlView } from './views/SOControlView';
 import { RegionalSOView } from './views/RegionalSOView';
+import { SLAPengirimanView } from './views/SLAPengirimanView';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { exportAllAnalysis } from '@/lib/exportExcel';
@@ -195,6 +196,7 @@ export default function InventoryDashboard() {
         { id: 'top', label: '🏆 Top Items', color: '' },
         { id: 'so', label: '📋 Kontrol SO', color: 'text-indigo-600 border-indigo-200 hover:bg-indigo-50' },
         { id: 'regional', label: '📍 Wilayah SO', color: 'text-teal-600 border-teal-200 hover:bg-teal-50' },
+        { id: 'sla', label: '🚚 SLA Pengiriman', color: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' },
     ];
 
     const renderContent = () => {
@@ -209,6 +211,7 @@ export default function InventoryDashboard() {
             case 'top': return <TopItemsView items={items} />;
             case 'so': return <SOControlView branches={branches} />;
             case 'regional': return <RegionalSOView />;
+            case 'sla': return <SLAPengirimanView branches={branches} />;
             default: return <DashboardView items={items} />;
         }
     };

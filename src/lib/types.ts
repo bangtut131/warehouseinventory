@@ -110,3 +110,34 @@ export interface SOData {
     totalOutstanding: number; // Sum of all outstanding items
 }
 
+// ─── SLA Pengiriman Types ─────────────────────────────────────
+
+export interface DeliveryOrderBasic {
+    id: number;
+    number: string;
+    transDate: string;         // dd/mm/yyyy
+    branchId?: number;
+    customerName: string;
+    soNumber?: string;         // Related SO number
+}
+
+export interface SLADetail {
+    soNumber: string;
+    soDate: string;            // dd/mm/yyyy
+    doNumber: string | null;
+    doDate: string | null;
+    customerName: string;
+    branchId?: number;
+    leadTimeDays: number | null;  // null = belum dikirim
+    status: 'ON_TIME' | 'LATE' | 'PENDING';
+}
+
+export interface SLASummary {
+    totalSO: number;
+    delivered: number;
+    onTime: number;
+    late: number;
+    pending: number;
+    avgLeadTime: number;
+    slaPercentage: number;     // (onTime / delivered) * 100
+}

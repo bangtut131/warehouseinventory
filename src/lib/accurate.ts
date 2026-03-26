@@ -1586,3 +1586,202 @@ export async function fetchItemUnitMap(force = false): Promise<Map<string, ItemU
 
   return result;
 }
+
+
+// ─── DELIVERY ORDER (SLA Pengiriman) ────────────────────────────
+
+const DO_CACHE_KEY = 'do-list-cache';
+const DO_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+export interface DOListItem {
+  id: number;
+  number: string;
+  transDate: string;        // dd/mm/yyyy
+  branchId?: number;
+  customerName: string;
+  statusName?: string;
+}
+
+interface CachedDOData {
+  timestamp: number;
+  fromDate: string;
+  toDate: string;
+  data: DOListItem[];
+}
+
+/**
+ * Fetch Delivery Order list from Accurate.
+ * Uses /delivery-order/list.do API.
+ */
+export async function fetchDOList(
+  fromDate?: string,    // dd/mm/yyyy
+  toDate?: string,      // dd/mm/yyyy
+  branchId?: number,
+  forceRefresh = false,
+): Promise<DOListItem[]> {
+  const cacheKey = `${DO_CACHE_KEY}${branchId ? '-b' + branchId : ''}`;
+
+  // Try cache first
+  if (!forceRefresh) {
+    try {
+      const cached = await prisma.dataCache.findUnique({ where: { key: cacheKey } });
+      if (cached?.data) {
+        const c = cached.data as unknown as CachedDOData;
+        const age = Date.now() - (c.timestamp || 0);
+        if (age < DO_CACHE_TTL_MS && c.data?.length > 0) {
+          console.log(`[DO Cache] Using cached DO data (${Math.round(age / 60000)} min old, ${c.data.length} DOs)`);
+          return c.data;
+        }
+      }
+    } catch { }
+  }
+
+  // Fetch from Accurate API
+  console.log(`[Accurate] DO: Fetching DO list${branchId ? ` branch=${branchId}` : ''}${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}...`);
+
+  const allDOs: DOListItem[] = [];
+  let page = 1;
+  const pageSize = 200;
+  let hasMore = true;
+  const MAX_PAGES = 300;
+
+  while (hasMore) {
+    try {
+      const params: Record<string, any> = {
+        fields: 'id,number,transDate,branchId,customerName,statusName',
+        'sp.page': page,
+        'sp.pageSize': pageSize,
+      };
+      if (branchId) {
+        params['filter.branchId.op'] = 'EQUAL';
+        params['filter.branchId.val'] = branchId;
+      }
+      if (fromDate) {
+        params['filter.transDate.op'] = 'GREATER_EQUAL';
+        params['filter.transDate.val'] = fromDate;
+      }
+      if (toDate) {
+        params['filter.transDate.op2'] = 'LESS_EQUAL';
+        params['filter.transDate.val2'] = toDate;
+      }
+
+      const response = await accurateClient.get('/delivery-order/list.do', { params });
+
+      if (response.data?.s) {
+        const list = response.data.d || [];
+        if (list.length === 0) {
+          hasMore = false;
+        } else {
+          list.forEach((doItem: any) => {
+            allDOs.push({
+              id: doItem.id,
+              number: doItem.number,
+              transDate: doItem.transDate,
+              branchId: doItem.branchId,
+              customerName: doItem.customerName || '',
+              statusName: doItem.statusName || '',
+            });
+          });
+          if (page % 20 === 0) {
+            console.log(`[Accurate] DO: Page ${page}, ${allDOs.length} DOs so far...`);
+          }
+          page++;
+          if (page > MAX_PAGES) {
+            console.log(`[Accurate] DO: Hit ${MAX_PAGES} pages, stopping at ${allDOs.length} DOs`);
+            hasMore = false;
+          }
+        }
+      } else {
+        console.warn('[Accurate] DO list API returned s=false:', response.data?.d);
+        hasMore = false;
+      }
+    } catch (error: any) {
+      console.error(`[Accurate] DO list page ${page} error:`, error.message);
+      hasMore = false;
+    }
+  }
+
+  console.log(`[Accurate] DO list done: ${allDOs.length} DOs found in ${page - 1} pages`);
+
+  // Save cache
+  try {
+    const cacheData: CachedDOData = {
+      timestamp: Date.now(),
+      fromDate: fromDate || '',
+      toDate: toDate || '',
+      data: allDOs,
+    };
+    await prisma.dataCache.upsert({
+      where: { key: cacheKey },
+      update: { data: cacheData as any },
+      create: { key: cacheKey, data: cacheData as any },
+    });
+    console.log(`[DO Cache] Saved ${allDOs.length} DOs to cache`);
+  } catch (err: any) {
+    console.warn(`[DO Cache] Save failed:`, err.message);
+  }
+
+  return allDOs;
+}
+
+/**
+ * Fetch DO detail to get related SO number.
+ * Uses /delivery-order/detail.do API.
+ */
+export async function fetchDODetail(doId: number, maxRetries = 3): Promise<{ soNumber: string; doNumber: string; doDate: string; customerName: string; branchId?: number } | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await accurateClient.get('/delivery-order/detail.do', {
+        params: { id: doId }
+      });
+
+      if (response.data?.s && response.data.d) {
+        const d = response.data.d;
+        // Try to extract SO number from detail
+        const soNumber = d.salesOrderNumber || d.soNumber ||
+          (d.detailItem?.[0]?.salesOrder?.number) ||
+          (d.detailItem?.[0]?.salesOrderNumber) || '';
+
+        return {
+          soNumber,
+          doNumber: d.number || '',
+          doDate: d.transDate || '',
+          customerName: d.customerName || d.customer?.name || '',
+          branchId: d.branchId,
+        };
+      }
+      return null;
+    } catch (err: any) {
+      if (attempt < maxRetries) {
+        const delay = 1000 * attempt;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error(`[Accurate] DO ${doId} FAILED after ${maxRetries} attempts: ${err.message}`);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch DO details in batches to get SO numbers.
+ * Similar to fetchSODetailsInBatch.
+ */
+export async function fetchDODetailsInBatch(
+  doIds: number[],
+  batchSize = 15,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ soNumber: string; doNumber: string; doDate: string; customerName: string; branchId?: number }[]> {
+  const results: { soNumber: string; doNumber: string; doDate: string; customerName: string; branchId?: number }[] = [];
+  const total = doIds.length;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = doIds.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(id => fetchDODetail(id)));
+    batchResults.forEach(r => { if (r) results.push(r); });
+    if (onProgress) onProgress(Math.min(i + batchSize, total), total);
+  }
+
+  return results;
+}
