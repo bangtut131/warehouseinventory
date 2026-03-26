@@ -3,21 +3,46 @@ import { fetchDOList, fetchDODetailsInBatch, loadSOCache } from '@/lib/accurate'
 import { SLADetail, SLASummary } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
 
-// Parse dd/mm/yyyy to Date
+// Parse dd/mm/yyyy from Accurate to Date (midnight local time)
 function parseDate(dateStr: string): Date {
     if (!dateStr) return new Date(0);
     const parts = dateStr.split('/');
     if (parts.length === 3) {
         return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
     }
-    // Try ISO format fallback
     return new Date(dateStr);
 }
 
-// Diff in calendar days
+// Parse yyyy-mm-dd from URL to Date (midnight local time)
+function parseUrlDate(dateStr: string | null, isEndDate: boolean = false): Date {
+    if (!dateStr) {
+        if (isEndDate) return new Date(); // now
+        return new Date(2025, 0, 1); // Jan 1, 2025 fallback
+    }
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        if (isEndDate) {
+            // Include the whole end day (23:59:59)
+            d.setHours(23, 59, 59, 999);
+        }
+        return d;
+    }
+    return new Date(dateStr);
+}
+
+// Format Date to dd/mm/yyyy for Accurate API
+function formatToAccurateDate(d: Date): string {
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+// Diff in calendar days (ignoring time)
 function daysBetween(dateA: Date, dateB: Date): number {
+    // Reset time to midnight for pure day comparison
+    const a = new Date(dateA.getFullYear(), dateA.getMonth(), dateA.getDate());
+    const b = new Date(dateB.getFullYear(), dateB.getMonth(), dateB.getDate());
     const msPerDay = 24 * 60 * 60 * 1000;
-    return Math.round((dateB.getTime() - dateA.getTime()) / msPerDay);
+    return Math.round((b.getTime() - a.getTime()) / msPerDay);
 }
 
 const SLA_TARGET_DAYS = 3;
@@ -46,16 +71,16 @@ export async function GET(request: NextRequest) {
         const toParam = searchParams.get('to');      // yyyy-mm-dd
         const branchParam = searchParams.get('branch');
 
-        // Convert to dd/mm/yyyy for Accurate API
-        const fromDate = fromParam
-            ? (() => { const d = new Date(fromParam); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; })()
-            : '01/01/2025';
-        const toDate = toParam
-            ? (() => { const d = new Date(toParam); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; })()
-            : undefined;
+        // Date objects for filtering
+        const fromDateObj = parseUrlDate(fromParam, false);
+        const toDateObj = parseUrlDate(toParam, true);
+
+        // Strings for Accurate DO API request
+        const fromDateStr = formatToAccurateDate(fromDateObj);
+        const toDateStr = formatToAccurateDate(toDateObj);
         const branchId = branchParam ? parseInt(branchParam) : undefined;
 
-        console.log(`[SLA] Fetching SLA data from=${fromDate} to=${toDate || 'now'} branch=${branchId || 'all'}`);
+        console.log(`[SLA] Fetching SLA data from=${fromDateStr} to=${toDateStr} branch=${branchId || 'all'}`);
 
         // 1. Get SO data (from existing cache)
         const soCache = await loadSOCache();
@@ -86,9 +111,8 @@ export async function GET(request: NextRequest) {
         }
 
         // Filter by date range
-        const fromDateObj = parseDate(fromDate);
-        const toDateObj = toDate ? parseDate(toDate) : new Date();
         approvedSOs = approvedSOs.filter(so => {
+            if (!so.transDate) return false;
             const soDateObj = parseDate(so.transDate);
             return soDateObj >= fromDateObj && soDateObj <= toDateObj;
         });
@@ -96,7 +120,7 @@ export async function GET(request: NextRequest) {
         console.log(`[SLA] Found ${approvedSOs.length} SOs in date range (after branch/date filter)`);
 
         // 2. Get DO data
-        const doList = await fetchDOList(fromDate, toDate, branchId);
+        const doList = await fetchDOList(fromDateStr, toDateStr, branchId);
         console.log(`[SLA] Got ${doList.length} DOs`);
 
         // 3. Get DO details (to match DO → SO)
