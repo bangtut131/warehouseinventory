@@ -1449,9 +1449,7 @@ export async function loadSLASOCache(force = false): Promise<SOSimpleItem[]> {
       const params: Record<string, any> = {
         fields: 'id,number,transDate,branchId,statusName,customerName',
         'sp.page': page,
-        'sp.pageSize': pageSize,
-        'filter.transDate.op': 'GREATER_EQUAL',
-        'filter.transDate.val': fromDate
+        'sp.pageSize': pageSize
       };
 
       const response = await accurateClient.get('/sales-order/list.do', { params });
