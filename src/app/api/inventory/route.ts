@@ -235,20 +235,25 @@ export async function GET(request: NextRequest) {
             let unit = item.unit1Name || 'PCS';
 
             // ── SAK / BULK UNIT ADJUSTMENT ─────────────
-            // Items sold in bulk (Sak/Karung, e.g. 1 Sak = 50 Kg):
-            // convert all qty-based metrics to sales unit.
-            // Detection: ratio2 >= 25 indicates bulk item (Sak/Karung)
-            // (Box items typically have ratio2 of 6-24)
+            // Items sold in Sak (e.g. "NPK Makrostar 50 kg" — 1 Sak = 50 Kg):
+            // convert all qty-based metrics to Sak unit.
             //
-            // Data from log: PK-008 unit1Name/unit2Name = "undefined" in Accurate,
-            // so we detect by conversion ratio, not unit name.
+            // Detection criteria (ALL must be true):
+            //   1. Item name contains "kg" (identifies weight-based items like pupuk)
+            //   2. Conversion ratio >= 25 (1 Sak = 25+ Kg)
+            //   3. Sales data has box qty (totalQtyBox > 0)
+            //
+            // This excludes pesticide bottles (ml) and sachets (gr) which also
+            // have high ratios (50-200 pcs/box) but are NOT sold per Sak.
             const sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
-            const isBulkUnit = sakConversion >= 25 && salesData.totalQtyBox > 0;
+            const itemNameLower = (item.name || '').toLowerCase();
+            const isKgItem = itemNameLower.includes('kg');
+            const isBulkUnit = isKgItem && sakConversion >= 25 && salesData.totalQtyBox > 0;
 
             if (isBulkUnit) {
-                // Convert stock from base unit (Kg) to sales unit (Sak)
+                // Convert stock from base unit (Kg) to Sak
                 quantity = parseFloat((quantity / sakConversion).toFixed(2));
-                // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for these items
+                // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for Sak items
                 // is already per-Sak (same price for Kg and Sak), so no conversion needed
                 unit = 'Sak';
                 console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | totalQtyBox=${salesData.totalQtyBox} | totalQty=${salesData.totalQty}`);
