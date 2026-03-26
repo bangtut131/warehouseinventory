@@ -1656,14 +1656,8 @@ export async function fetchDOList(
         params['filter.branchId.op'] = 'EQUAL';
         params['filter.branchId.val'] = branchId;
       }
-      if (fromDate) {
-        params['filter.transDate.op'] = 'GREATER_EQUAL';
-        params['filter.transDate.val'] = fromDate;
-      }
-      if (toDate) {
-        params['filter.transDate.op2'] = 'LESS_EQUAL';
-        params['filter.transDate.val2'] = toDate;
-      }
+      // NOTE: DO API does not support filter.transDate.op (returns error)
+      // Date filtering is done client-side in the SLA route
 
       const response = await accurateClient.get('/delivery-order/list.do', { params });
 
