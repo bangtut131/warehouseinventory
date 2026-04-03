@@ -18,6 +18,36 @@ const statusConfig = {
     NO_DATA: { label: '⬜ No Data', color: 'bg-gray-50 text-gray-500 border-gray-200' },
 };
 
+const MARGIN_HEALTHY = 15;
+const MARGIN_THIN = 5;
+
+function computeStatus(margin: number, hasData: boolean): keyof typeof statusConfig {
+    if (!hasData) return 'NO_DATA';
+    if (margin < MARGIN_THIN) return 'NEGATIVE';
+    if (margin < MARGIN_HEALTHY) return 'THIN';
+    return 'HEALTHY';
+}
+
+/** Compute dynamic margin for an item based on category filter */
+function getItemMargin(item: PriceAnalysisItem, catFilter: string): { margin: number; status: keyof typeof statusConfig } {
+    if (item.lastPurchasePrice <= 0) return { margin: 0, status: 'NO_DATA' };
+    const prices = item.categoryPrices?.filter(cp => cp.price > 0) || [];
+    if (prices.length === 0) return { margin: 0, status: 'NO_DATA' };
+
+    let margin: number;
+    if (catFilter !== 'all') {
+        // Specific category: use that category's margin
+        const cp = prices.find(c => c.categoryName === catFilter);
+        if (!cp) return { margin: 0, status: 'NO_DATA' };
+        margin = cp.marginVsLastPurchase;
+    } else {
+        // All categories: average margin
+        const sum = prices.reduce((s, cp) => s + cp.marginVsLastPurchase, 0);
+        margin = sum / prices.length;
+    }
+    return { margin: Math.round(margin * 100) / 100, status: computeStatus(margin, true) };
+}
+
 function MarginBadge({ margin, hasData }: { margin: number; hasData: boolean }) {
     if (!hasData) return <span className="text-xs text-gray-400">—</span>;
     const color = margin >= 15 ? 'text-green-700 bg-green-50' :
@@ -120,24 +150,25 @@ export function PriceAnalysisView() {
         return allCategories.filter(([name]) => name === categoryFilter);
     }, [allCategories, categoryFilter]);
 
-    // Summary KPIs
+    // Summary KPIs — dynamic based on category filter
     const summary = useMemo(() => {
-        const withData = items.filter(i => i.status !== 'NO_DATA');
+        const computed = items.map(i => getItemMargin(i, categoryFilter));
+        const withData = computed.filter(c => c.status !== 'NO_DATA');
         return {
             total: items.length,
             analyzed: withData.length,
-            healthy: items.filter(i => i.status === 'HEALTHY').length,
-            thin: items.filter(i => i.status === 'THIN').length,
-            negative: items.filter(i => i.status === 'NEGATIVE').length,
-            noData: items.filter(i => i.status === 'NO_DATA').length,
+            healthy: computed.filter(c => c.status === 'HEALTHY').length,
+            thin: computed.filter(c => c.status === 'THIN').length,
+            negative: computed.filter(c => c.status === 'NEGATIVE').length,
+            noData: computed.filter(c => c.status === 'NO_DATA').length,
             avgMargin: withData.length > 0
-                ? withData.reduce((s, i) => s + i.marginVsLastPurchase, 0) / withData.length
+                ? withData.reduce((s, c) => s + c.margin, 0) / withData.length
                 : 0,
             totalCategories: allCategories.length,
         };
-    }, [items, allCategories]);
+    }, [items, allCategories, categoryFilter]);
 
-    // Filtered & sorted items
+    // Filtered & sorted items — using dynamic margin/status
     const filtered = useMemo(() => {
         let list = [...items];
         if (search) {
@@ -148,14 +179,15 @@ export function PriceAnalysisView() {
             );
         }
         if (statusFilter !== 'all') {
-            list = list.filter(i => i.status === statusFilter);
+            // Filter by dynamic status (based on category filter)
+            list = list.filter(i => getItemMargin(i, categoryFilter).status === statusFilter);
         }
-        const statusOrder = { NEGATIVE: 0, THIN: 1, NO_DATA: 2, HEALTHY: 3 };
+        const statusOrder: Record<string, number> = { NEGATIVE: 0, THIN: 1, NO_DATA: 2, HEALTHY: 3 };
         list.sort((a, b) => {
             let diff = 0;
             switch (sortBy) {
-                case 'status': diff = statusOrder[a.status] - statusOrder[b.status]; break;
-                case 'margin': diff = a.marginVsLastPurchase - b.marginVsLastPurchase; break;
+                case 'status': diff = statusOrder[getItemMargin(a, categoryFilter).status] - statusOrder[getItemMargin(b, categoryFilter).status]; break;
+                case 'margin': diff = getItemMargin(a, categoryFilter).margin - getItemMargin(b, categoryFilter).margin; break;
                 case 'name': diff = a.itemName.localeCompare(b.itemName); break;
                 case 'sku': diff = a.itemNo.localeCompare(b.itemNo); break;
                 case 'lastBuy': diff = a.lastPurchasePrice - b.lastPurchasePrice; break;
@@ -163,7 +195,7 @@ export function PriceAnalysisView() {
             return sortDir === 'asc' ? diff : -diff;
         });
         return list;
-    }, [items, search, statusFilter, sortBy, sortDir]);
+    }, [items, search, statusFilter, sortBy, sortDir, categoryFilter]);
 
     useEffect(() => { setPage(1); }, [search, statusFilter, sortBy, sortDir, categoryFilter]);
 
@@ -429,9 +461,10 @@ export function PriceAnalysisView() {
                         </thead>
                         <tbody>
                             {paginatedItems.map((item) => {
-                                const sc = statusConfig[item.status];
-                                const bgRow = item.status === 'NEGATIVE' ? 'bg-red-50/40' :
-                                    item.status === 'THIN' ? 'bg-amber-50/30' : '';
+                                const { margin: dynMargin, status: dynStatus } = getItemMargin(item, categoryFilter);
+                                const sc = statusConfig[dynStatus];
+                                const bgRow = dynStatus === 'NEGATIVE' ? 'bg-red-50/40' :
+                                    dynStatus === 'THIN' ? 'bg-amber-50/30' : '';
 
                                 return (
                                     <tr key={item.itemNo} className={`border-b hover:bg-slate-50/80 transition-colors ${bgRow}`}>
@@ -517,15 +550,15 @@ export function PriceAnalysisView() {
                                             );
                                         })}
 
-                                        {/* Overall Margin */}
+                                        {/* Overall Margin — dynamic */}
                                         <td className="px-3 py-2 text-right">
                                             <MarginBadge
-                                                margin={item.marginVsLastPurchase}
-                                                hasData={item.status !== 'NO_DATA'}
+                                                margin={dynMargin}
+                                                hasData={dynStatus !== 'NO_DATA'}
                                             />
-                                            {item.status !== 'NO_DATA' && item.marginVsAvgPurchase !== item.marginVsLastPurchase && (
+                                            {dynStatus !== 'NO_DATA' && categoryFilter === 'all' && (
                                                 <div className="text-[10px] text-muted-foreground mt-0.5">
-                                                    avg: {item.marginVsAvgPurchase > 0 ? '+' : ''}{item.marginVsAvgPurchase.toFixed(1)}%
+                                                    avg semua kategori
                                                 </div>
                                             )}
                                         </td>
