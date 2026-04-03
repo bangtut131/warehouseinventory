@@ -2276,41 +2276,81 @@ export async function fetchAllPurchasePriceData(
 
 /**
  * Extract latest selling price per item per branch from Sales Invoice data.
+ * OPTIMIZED: Only fetches last 3 months (not all history) and caches results.
  * Returns Map: itemNo → Map: branchId → { price, priceRaw, unitName, ratio, date, invoiceNo }
  */
+
+const SELLING_PRICE_CACHE_KEY = 'selling-price-cache';
+
+interface CachedSellingPrice {
+  timestamp: number;
+  data: Record<string, Record<string, {
+    price: number; priceRaw: number; unitName: string; ratio: number;
+    date: string; invoiceNumber: string; inclusiveTax: boolean;
+  }>>;
+}
+
+type SellingPriceResult = Map<string, Map<number, {
+  price: number; priceRaw: number; unitName: string; ratio: number;
+  date: string; invoiceNumber: string; inclusiveTax: boolean;
+}>>;
+
 export async function fetchLatestSellingPrices(
   fromDate: Date,
   force = false,
   itemUnitMap?: Map<string, ItemUnitInfo>
-): Promise<Map<string, Map<number, {
-  price: number; priceRaw: number; unitName: string; ratio: number;
-  date: string; invoiceNumber: string; inclusiveTax: boolean;
-}>>> {
-  const result = new Map<string, Map<number, {
-    price: number; priceRaw: number; unitName: string; ratio: number;
-    date: string; invoiceNumber: string; inclusiveTax: boolean;
-  }>>();
+): Promise<SellingPriceResult> {
+  const result: SellingPriceResult = new Map();
 
-  // Fetch sales invoices (reuse existing infrastructure)
-  const invoiceList = await fetchInvoiceList(fromDate);
+  // Try cache first (valid for 2 hours)
+  if (!force) {
+    try {
+      const entry = await prisma.dataCache.findUnique({ where: { key: SELLING_PRICE_CACHE_KEY } });
+      if (entry?.data) {
+        const cached = entry.data as unknown as CachedSellingPrice;
+        const age = Date.now() - cached.timestamp;
+        const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
+        if (age < CACHE_TTL) {
+          console.log(`[PriceAnalysis] Using cached selling prices (${Math.round(age / 60000)} min old)`);
+          for (const [itemNo, branches] of Object.entries(cached.data)) {
+            const brMap = new Map<number, any>();
+            for (const [brId, val] of Object.entries(branches)) {
+              brMap.set(parseInt(brId), val);
+            }
+            result.set(itemNo, brMap);
+          }
+          return result;
+        }
+        console.log(`[PriceAnalysis] Selling price cache expired (${Math.round(age / 60000)} min old)`);
+      }
+    } catch {}
+  }
+
+  // OPTIMIZATION: Only fetch last 3 months for "latest" selling price
+  // No need to scan 21K+ invoices from Jan 2025
+  const recentDate = new Date();
+  recentDate.setMonth(recentDate.getMonth() - 3);
+  const effectiveFrom = recentDate > fromDate ? recentDate : fromDate;
+
+  console.log(`[PriceAnalysis] Fetching selling prices from ${effectiveFrom.toISOString().slice(0, 10)} (optimized: 3 months)`);
+
+  const invoiceList = await fetchInvoiceList(effectiveFrom);
   if (invoiceList.length === 0) return result;
 
   const invoiceIds = invoiceList.map(inv => inv.id);
-  console.log(`[PriceAnalysis] Fetching detail for ${invoiceIds.length} sales invoices for selling prices...`);
+  console.log(`[PriceAnalysis] Fetching detail for ${invoiceIds.length} recent sales invoices...`);
 
   // Build invoice → branch map
   const invBranchMap = new Map<number, number>();
   invoiceList.forEach(inv => { if (inv.branchId) invBranchMap.set(inv.id, inv.branchId); });
 
-  const invoices = await fetchDetailsInBatch(invoiceIds, 20, (done, total) => {
-    if (done % 200 === 0 || done === total) {
+  // Use smaller batch size (10 instead of 20) to reduce 429 errors
+  const invoices = await fetchDetailsInBatch(invoiceIds, 10, (done, total) => {
+    if (done % 500 === 0 || done === total) {
       console.log(`[PriceAnalysis] SI detail progress: ${done}/${total}`);
     }
   });
 
-  // For each sales invoice, we also need the header's inclusiveTax.
-  // The current fetchInvoiceDetail doesn't return it, so we assume same as PI (both true from probe).
-  // This is safe because probe confirmed SI_inclusiveTax = true.
   const defaultInclusiveTax = true;
 
   invoices.forEach(inv => {
@@ -2347,7 +2387,27 @@ export async function fetchLatestSellingPrices(
     });
   });
 
+  // Save to cache
+  try {
+    const cacheData: CachedSellingPrice['data'] = {};
+    result.forEach((brMap, itemNo) => {
+      cacheData[itemNo] = {};
+      brMap.forEach((val, brId) => {
+        cacheData[itemNo][brId.toString()] = val;
+      });
+    });
+    await prisma.dataCache.upsert({
+      where: { key: SELLING_PRICE_CACHE_KEY },
+      update: { data: { timestamp: Date.now(), data: cacheData } as any },
+      create: { key: SELLING_PRICE_CACHE_KEY, data: { timestamp: Date.now(), data: cacheData } as any },
+    });
+    console.log(`[PriceAnalysis] Selling price cache saved (${result.size} items)`);
+  } catch (err: any) {
+    console.warn(`[PriceAnalysis] Cache save failed:`, err.message);
+  }
+
   console.log(`[PriceAnalysis] Selling prices: ${result.size} items across branches`);
   return result;
 }
+
 
