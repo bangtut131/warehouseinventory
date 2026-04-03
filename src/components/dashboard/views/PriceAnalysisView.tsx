@@ -61,6 +61,8 @@ export function PriceAnalysisView() {
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [sortBy, setSortBy] = useState<string>('status');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 100;
 
     const fetchData = async (force = false) => {
         setLoading(true);
@@ -153,6 +155,15 @@ export function PriceAnalysisView() {
 
         return list;
     }, [items, search, statusFilter, sortBy, sortDir]);
+
+    // Reset page when filter/search changes
+    useEffect(() => { setPage(1); }, [search, statusFilter, sortBy, sortDir]);
+
+    // Pagination
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const paginatedItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const startIdx = (page - 1) * PAGE_SIZE + 1;
+    const endIdx = Math.min(page * PAGE_SIZE, filtered.length);
 
     const handleSort = (col: string) => {
         if (sortBy === col) {
@@ -264,7 +275,7 @@ export function PriceAnalysisView() {
                     {loading ? '⏳ Loading...' : '🔃 Force Sync'}
                 </Button>
                 <span className="text-xs text-muted-foreground ml-auto">
-                    {fmt(filtered.length)} item ditampilkan
+                    {fmt(filtered.length)} item · Hal {page}/{totalPages}
                 </span>
             </div>
 
@@ -304,7 +315,7 @@ export function PriceAnalysisView() {
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.slice(0, 200).map((item, idx) => {
+                            {paginatedItems.map((item, idx) => {
                                 const sc = statusConfig[item.status];
                                 const bgRow = item.status === 'NEGATIVE' ? 'bg-red-50/40' :
                                     item.status === 'THIN' ? 'bg-amber-50/30' : '';
@@ -415,11 +426,74 @@ export function PriceAnalysisView() {
                     </table>
                 </div>
 
-                {filtered.length > 200 && (
-                    <div className="p-3 text-center text-sm text-muted-foreground bg-slate-50 border-t">
-                        Menampilkan 200 dari {fmt(filtered.length)} item. Gunakan filter untuk mempersempit.
+                {/* Pagination Controls */}
+                <div className="px-4 py-3 bg-slate-50 border-t flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                        Menampilkan {fmt(startIdx)}-{fmt(endIdx)} dari {fmt(filtered.length)} item
+                    </span>
+                    <div className="flex items-center gap-1">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(1)}
+                            disabled={page === 1}
+                            className="h-8 px-2 text-xs"
+                        >
+                            ⟪
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="h-8 px-3 text-xs"
+                        >
+                            ← Prev
+                        </Button>
+                        {/* Page numbers */}
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                            .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+                            .reduce<(number | 'dots')[]>((acc, p, i, arr) => {
+                                if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('dots');
+                                acc.push(p);
+                                return acc;
+                            }, [])
+                            .map((p, i) => (
+                                p === 'dots' ? (
+                                    <span key={`dots-${i}`} className="px-1 text-muted-foreground">…</span>
+                                ) : (
+                                    <Button
+                                        key={p}
+                                        variant={p === page ? 'default' : 'outline'}
+                                        size="sm"
+                                        onClick={() => setPage(p)}
+                                        className={`h-8 w-8 p-0 text-xs ${p === page ? 'bg-slate-800 text-white' : ''}`}
+                                    >
+                                        {p}
+                                    </Button>
+                                )
+                            ))
+                        }
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="h-8 px-3 text-xs"
+                        >
+                            Next →
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(totalPages)}
+                            disabled={page === totalPages}
+                            className="h-8 px-2 text-xs"
+                        >
+                            ⟫
+                        </Button>
                     </div>
-                )}
+                </div>
             </div>
         </div>
     );
