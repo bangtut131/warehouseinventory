@@ -144,17 +144,19 @@ export interface SLASummary {
 
 // ─── Price Analysis Types ────────────────────────────────────
 
-export interface BranchPrice {
+/** Harga jual per kategori penjualan dari item master Accurate */
+export interface CategoryPrice {
+    categoryId: number;
+    categoryName: string;         // "CJ R1", "NTB R2", "Telemarketing", dll
     branchId: number;
-    branchName: string;
-    sellingPrice: number;          // Harga jual terbaru (per base unit, sudah konversi)
-    sellingPriceRaw: number;       // Harga asli di faktur (sebelum konversi)
-    saleUnitName: string;          // Satuan di faktur jual (Box/Pcs)
-    unitRatio: number;             // Rasio konversi yang dipakai
-    lastSaleDate: string;          // Tanggal penjualan terakhir
-    lastInvoiceNumber: string;     // No. faktur penjualan terakhir
-    marginVsLastPurchase: number;  // % margin per cabang (per base unit)
-    marginVsAvgPurchase: number;   // % margin per cabang (per base unit)
+    branchName: string;           // "Kantor Pusat SMG", "Semua Cabang"
+    price: number;                // Harga jual (per base unit, sudah konversi)
+    priceRaw: number;             // Harga asli di master (sebelum konversi)
+    unitName: string;             // Satuan di master (Box/Pcs)
+    unitRatio: number;            // Rasio konversi
+    effectiveDate: string;        // Tanggal berlaku
+    marginVsLastPurchase: number; // % margin vs harga beli terakhir
+    marginVsAvgPurchase: number;  // % margin vs harga beli rata-rata
 }
 
 export interface PriceAnalysisItem {
@@ -164,11 +166,11 @@ export interface PriceAnalysisItem {
 
     // Unit info
     baseUnitName: string;          // Satuan dasar (Pcs/Kg)
-    salesUnitName: string;         // Satuan jual (Box/Sak) - kosong jika sama
+    salesUnitName: string;         // Satuan jual kedua (Box/Sak) - kosong jika sama
     unitConversion: number;        // 1 salesUnit = N baseUnit (0 jika sama)
 
     // Master data
-    masterSellingPrice: number;    // Harga jual default dari item master
+    masterSellingPrice: number;    // Harga jual default dari item master (unitPrice)
     masterCost: number;            // HPP dari item master
 
     // Harga Beli (dari Purchase Invoice) — per base unit
@@ -185,11 +187,12 @@ export interface PriceAnalysisItem {
     // Tax info
     inclusiveTax: boolean;         // true = harga sudah termasuk PPN
 
-    // Harga Jual Per Cabang — per base unit
-    branchPrices: BranchPrice[];
+    // Harga Jual Per Kategori — dari item master (per base unit)
+    categoryPrices: CategoryPrice[];
 
-    // Computed margins (berdasarkan harga per base unit)
-    marginVsLastPurchase: number;  // % margin dari harga jual vs beli terakhir
-    marginVsAvgPurchase: number;   // % margin dari harga jual vs beli rata-rata
+    // Computed margins (rata-rata semua kategori vs harga beli)
+    marginVsLastPurchase: number;  // % margin dari avg harga jual vs beli terakhir
+    marginVsAvgPurchase: number;   // % margin dari avg harga jual vs beli rata-rata
     status: 'HEALTHY' | 'THIN' | 'NEGATIVE' | 'NO_DATA';
 }
+

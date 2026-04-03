@@ -2410,4 +2410,134 @@ export async function fetchLatestSellingPrices(
   return result;
 }
 
+
+// ─── ITEM MASTER SELLING PRICES ──────────────────────────────
+// Fetch detailSellingPrice from /item/detail.do for all items
+// with 24-hour cache and batch processing
+
+const MASTER_SP_CACHE_KEY = 'master-selling-price-cache';
+
+export interface MasterSellingPriceEntry {
+  categoryId: number;
+  categoryName: string;
+  branchId: number;
+  branchName: string;
+  price: number;           // Original price from master
+  unitName: string;        // Unit used for this price
+  effectiveDate: string;
+}
+
+export interface ItemMasterPrices {
+  itemNo: string;
+  ratio2: number;           // Unit 1→2 ratio (from item master)
+  unit1Name: string;        // Base unit
+  unit2Name: string;        // Second unit
+  prices: MasterSellingPriceEntry[];
+}
+
+export async function fetchItemMasterSellingPrices(
+  itemIds: number[],
+  force = false
+): Promise<Map<string, ItemMasterPrices>> {
+  const result = new Map<string, ItemMasterPrices>();
+
+  // Try cache first (valid for 24 hours)
+  if (!force) {
+    try {
+      const entry = await prisma.dataCache.findUnique({ where: { key: MASTER_SP_CACHE_KEY } });
+      if (entry?.data) {
+        const cached = entry.data as any;
+        const age = Date.now() - (cached.timestamp || 0);
+        const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+        if (age < CACHE_TTL) {
+          console.log(`[MasterSP] Using cached master selling prices (${Math.round(age / 60000)} min old, ${Object.keys(cached.data || {}).length} items)`);
+          for (const [itemNo, val] of Object.entries(cached.data || {})) {
+            result.set(itemNo, val as ItemMasterPrices);
+          }
+          return result;
+        }
+        console.log(`[MasterSP] Cache expired (${Math.round(age / 60000)} min old)`);
+      }
+    } catch {}
+  }
+
+  console.log(`[MasterSP] Fetching item details for ${itemIds.length} items...`);
+
+  // Batch fetch item details (10 concurrent to avoid 429)
+  const BATCH_SIZE = 10;
+  const DELAY_BETWEEN_BATCHES = 300; // ms
+  let done = 0;
+
+  for (let i = 0; i < itemIds.length; i += BATCH_SIZE) {
+    const batch = itemIds.slice(i, i + BATCH_SIZE);
+    const promises = batch.map(async (id) => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const res = await accurateClient.get('/item/detail.do', { params: { id } });
+          return res.data?.d || null;
+        } catch (err: any) {
+          if (err.response?.status === 429 && attempt < 3) {
+            await new Promise(r => setTimeout(r, 2000 * attempt));
+            continue;
+          }
+          if (attempt === 3) console.warn(`[MasterSP] Item ${id} failed:`, err.message);
+          return null;
+        }
+      }
+    });
+
+    const results = await Promise.all(promises);
+
+    results.forEach(item => {
+      if (!item || !item.no) return;
+
+      const sellingPrices: MasterSellingPriceEntry[] = [];
+      (item.detailSellingPrice || []).forEach((sp: any) => {
+        if (!sp.price || sp.price <= 0) return;
+        sellingPrices.push({
+          categoryId: sp.priceCategory?.id || 0,
+          categoryName: sp.priceCategory?.name || 'Default',
+          branchId: sp.branch?.id || 0,
+          branchName: sp.branch?.name || 'Semua Cabang',
+          price: sp.price,
+          unitName: sp.unit?.name || item.unit1Name || 'PCS',
+          effectiveDate: sp.effectiveDate || '',
+        });
+      });
+
+      result.set(item.no, {
+        itemNo: item.no,
+        ratio2: item.ratio2 || 0,
+        unit1Name: item.unit1Name || 'PCS',
+        unit2Name: item.unit2Name || '',
+        prices: sellingPrices,
+      });
+    });
+
+    done += batch.length;
+    if (done % 100 === 0 || done === itemIds.length) {
+      console.log(`[MasterSP] Progress: ${done}/${itemIds.length}`);
+    }
+
+    if (i + BATCH_SIZE < itemIds.length) {
+      await new Promise(r => setTimeout(r, DELAY_BETWEEN_BATCHES));
+    }
+  }
+
+  // Save to cache
+  try {
+    const cacheData: Record<string, ItemMasterPrices> = {};
+    result.forEach((val, key) => { cacheData[key] = val; });
+    await prisma.dataCache.upsert({
+      where: { key: MASTER_SP_CACHE_KEY },
+      update: { data: { timestamp: Date.now(), data: cacheData } as any },
+      create: { key: MASTER_SP_CACHE_KEY, data: { timestamp: Date.now(), data: cacheData } as any },
+    });
+    console.log(`[MasterSP] Cache saved (${result.size} items)`);
+  } catch (err: any) {
+    console.warn(`[MasterSP] Cache save failed:`, err.message);
+  }
+
+  return result;
+}
 

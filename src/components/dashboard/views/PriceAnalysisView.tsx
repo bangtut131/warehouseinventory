@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
-import { PriceAnalysisItem } from '@/lib/types';
+import * as XLSX from 'xlsx';
+import { PriceAnalysisItem, CategoryPrice } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -30,7 +31,6 @@ function MarginBadge({ margin, hasData }: { margin: number; hasData: boolean }) 
     );
 }
 
-// Tooltip for price conversion detail
 function PriceCell({ price, rawPrice, unitName, ratio, baseUnit }: {
     price: number; rawPrice: number; unitName: string; ratio: number; baseUnit: string;
 }) {
@@ -42,7 +42,7 @@ function PriceCell({ price, rawPrice, unitName, ratio, baseUnit }: {
             {isConverted && (
                 <div className="absolute z-50 hidden group-hover:block bottom-full left-0 mb-1 p-2 bg-slate-800 text-white text-[11px] rounded-lg shadow-lg whitespace-nowrap min-w-[200px]">
                     <div className="font-medium mb-1">📦 Detail Konversi</div>
-                    <div>Harga faktur: {fmtRp(rawPrice)}/{unitName}</div>
+                    <div>Harga master: {fmtRp(rawPrice)}/{unitName}</div>
                     <div>Konversi: 1 {unitName} = {ratio} {baseUnit}</div>
                     <div className="border-t border-slate-600 mt-1 pt-1 font-medium">
                         = {fmtRp(price)}/{baseUnit}
@@ -53,12 +53,26 @@ function PriceCell({ price, rawPrice, unitName, ratio, baseUnit }: {
     );
 }
 
+// Auto-fit column widths
+function autoWidth(ws: XLSX.WorkSheet, data: Record<string, any>[]) {
+    if (data.length === 0) return;
+    const keys = Object.keys(data[0]);
+    ws['!cols'] = keys.map(key => {
+        const maxLen = Math.max(
+            key.length,
+            ...data.map(row => String(row[key] ?? '').length)
+        );
+        return { wch: Math.min(maxLen + 2, 45) };
+    });
+}
+
 export function PriceAnalysisView() {
     const [items, setItems] = useState<PriceAnalysisItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [categoryFilter, setCategoryFilter] = useState<string>('all');
     const [sortBy, setSortBy] = useState<string>('status');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [page, setPage] = useState(1);
@@ -86,6 +100,26 @@ export function PriceAnalysisView() {
 
     useEffect(() => { fetchData(); }, []);
 
+    // All unique categories across all items
+    const allCategories = useMemo(() => {
+        const catSet = new Map<string, number>();
+        items.forEach(item => {
+            item.categoryPrices?.forEach(cp => {
+                if (!catSet.has(cp.categoryName)) {
+                    catSet.set(cp.categoryName, cp.categoryId);
+                }
+            });
+        });
+        return Array.from(catSet.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]));
+    }, [items]);
+
+    // Filtered categories to display as columns
+    const displayCategories = useMemo(() => {
+        if (categoryFilter === 'all') return allCategories;
+        return allCategories.filter(([name]) => name === categoryFilter);
+    }, [allCategories, categoryFilter]);
+
     // Summary KPIs
     const summary = useMemo(() => {
         const withData = items.filter(i => i.status !== 'NO_DATA');
@@ -99,26 +133,13 @@ export function PriceAnalysisView() {
             avgMargin: withData.length > 0
                 ? withData.reduce((s, i) => s + i.marginVsLastPurchase, 0) / withData.length
                 : 0,
+            totalCategories: allCategories.length,
         };
-    }, [items]);
-
-    // All branch names from data
-    const allBranches = useMemo(() => {
-        const branchSet = new Map<number, string>();
-        items.forEach(item => {
-            item.branchPrices.forEach(bp => {
-                branchSet.set(bp.branchId, bp.branchName);
-            });
-        });
-        return Array.from(branchSet.entries())
-            .sort((a, b) => a[1].localeCompare(b[1]));
-    }, [items]);
+    }, [items, allCategories]);
 
     // Filtered & sorted items
     const filtered = useMemo(() => {
         let list = [...items];
-
-        // Search
         if (search) {
             const q = search.toLowerCase();
             list = list.filter(i =>
@@ -126,52 +147,34 @@ export function PriceAnalysisView() {
                 i.itemName.toLowerCase().includes(q)
             );
         }
-
-        // Status filter
         if (statusFilter !== 'all') {
             list = list.filter(i => i.status === statusFilter);
         }
-
-        // Sort
         const statusOrder = { NEGATIVE: 0, THIN: 1, NO_DATA: 2, HEALTHY: 3 };
         list.sort((a, b) => {
             let diff = 0;
             switch (sortBy) {
-                case 'status':
-                    diff = statusOrder[a.status] - statusOrder[b.status];
-                    break;
-                case 'margin':
-                    diff = a.marginVsLastPurchase - b.marginVsLastPurchase;
-                    break;
-                case 'name':
-                    diff = a.itemName.localeCompare(b.itemName);
-                    break;
-                case 'lastBuy':
-                    diff = a.lastPurchasePrice - b.lastPurchasePrice;
-                    break;
+                case 'status': diff = statusOrder[a.status] - statusOrder[b.status]; break;
+                case 'margin': diff = a.marginVsLastPurchase - b.marginVsLastPurchase; break;
+                case 'name': diff = a.itemName.localeCompare(b.itemName); break;
+                case 'sku': diff = a.itemNo.localeCompare(b.itemNo); break;
+                case 'lastBuy': diff = a.lastPurchasePrice - b.lastPurchasePrice; break;
             }
             return sortDir === 'asc' ? diff : -diff;
         });
-
         return list;
     }, [items, search, statusFilter, sortBy, sortDir]);
 
-    // Reset page when filter/search changes
-    useEffect(() => { setPage(1); }, [search, statusFilter, sortBy, sortDir]);
+    useEffect(() => { setPage(1); }, [search, statusFilter, sortBy, sortDir, categoryFilter]);
 
-    // Pagination
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     const paginatedItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
     const startIdx = (page - 1) * PAGE_SIZE + 1;
     const endIdx = Math.min(page * PAGE_SIZE, filtered.length);
 
     const handleSort = (col: string) => {
-        if (sortBy === col) {
-            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortBy(col);
-            setSortDir('asc');
-        }
+        if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        else { setSortBy(col); setSortDir('asc'); }
     };
 
     const SortIcon = ({ col }: { col: string }) => {
@@ -179,12 +182,100 @@ export function PriceAnalysisView() {
         return <span className="ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span>;
     };
 
+    // ─── EXPORT TO EXCEL ────────────────────────────────────
+    const exportToExcel = () => {
+        const wb = XLSX.utils.book_new();
+
+        // Sheet 1: Price Analysis (semua data)
+        const rows = filtered.map((item, idx) => {
+            const row: Record<string, any> = {
+                'No': idx + 1,
+                'SKU': item.itemNo,
+                'Nama Barang': item.itemName,
+                'Kategori': item.category,
+                'Satuan Dasar': item.baseUnitName,
+                'Satuan Jual': item.salesUnitName || '-',
+                'Konversi': item.unitConversion || '-',
+                'Beli Terakhir (per base)': item.lastPurchasePrice || '-',
+                'Tgl Beli Terakhir': item.lastPurchaseDate || '-',
+                'No Faktur Beli': item.lastPurchaseInvoice || '-',
+                'Beli Rata² (per base)': item.avgPurchasePrice || '-',
+                'Jml Faktur Beli': item.purchaseInvoiceCount || 0,
+            };
+            // Add each category price
+            allCategories.forEach(([catName]) => {
+                const cp = item.categoryPrices?.find(c => c.categoryName === catName);
+                row[`Jual: ${catName}`] = cp ? cp.price : '-';
+                row[`Margin: ${catName}`] = cp && item.lastPurchasePrice > 0
+                    ? `${cp.marginVsLastPurchase.toFixed(1)}%` : '-';
+            });
+            row['Status'] = item.status;
+            row['Margin Min'] = item.marginVsLastPurchase !== 0 ? `${item.marginVsLastPurchase.toFixed(1)}%` : '-';
+            return row;
+        });
+        const ws1 = XLSX.utils.json_to_sheet(rows);
+        autoWidth(ws1, rows);
+        XLSX.utils.book_append_sheet(wb, ws1, 'Analisa Harga');
+
+        // Sheet 2: Summary
+        const summaryRows = [
+            { 'Metrik': 'Total SKU', 'Nilai': summary.total },
+            { 'Metrik': 'SKU Teranalisa', 'Nilai': summary.analyzed },
+            { 'Metrik': 'Margin Sehat (>15%)', 'Nilai': summary.healthy },
+            { 'Metrik': 'Margin Tipis (5-15%)', 'Nilai': summary.thin },
+            { 'Metrik': 'Margin Negatif (<5%)', 'Nilai': summary.negative },
+            { 'Metrik': 'Tanpa Data', 'Nilai': summary.noData },
+            { 'Metrik': 'Rata² Margin', 'Nilai': `${summary.avgMargin.toFixed(1)}%` },
+            { 'Metrik': 'Jumlah Kategori Harga', 'Nilai': summary.totalCategories },
+        ];
+        const ws2 = XLSX.utils.json_to_sheet(summaryRows);
+        autoWidth(ws2, summaryRows);
+        XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
+
+        // Sheet 3: Items yang perlu perhatian (NEGATIVE + THIN)
+        const alertRows = filtered
+            .filter(i => i.status === 'NEGATIVE' || i.status === 'THIN')
+            .map((item, idx) => {
+                const row: Record<string, any> = {
+                    'No': idx + 1,
+                    'Status': item.status === 'NEGATIVE' ? '🔴 RUGI' : '⚠️ TIPIS',
+                    'SKU': item.itemNo,
+                    'Nama Barang': item.itemName,
+                    'Beli Terakhir': item.lastPurchasePrice,
+                    'Beli Rata²': item.avgPurchasePrice,
+                };
+                // Show lowest selling price and which category
+                const sorted = [...(item.categoryPrices || [])].filter(c => c.price > 0)
+                    .sort((a, b) => a.price - b.price);
+                if (sorted.length > 0) {
+                    row['Harga Jual Terendah'] = sorted[0].price;
+                    row['Kategori Terendah'] = sorted[0].categoryName;
+                    row['Margin Terendah'] = `${sorted[0].marginVsLastPurchase.toFixed(1)}%`;
+                }
+                if (sorted.length > 1) {
+                    row['Harga Jual Tertinggi'] = sorted[sorted.length - 1].price;
+                    row['Kategori Tertinggi'] = sorted[sorted.length - 1].categoryName;
+                    row['Margin Tertinggi'] = `${sorted[sorted.length - 1].marginVsLastPurchase.toFixed(1)}%`;
+                }
+                return row;
+            });
+        if (alertRows.length > 0) {
+            const ws3 = XLSX.utils.json_to_sheet(alertRows);
+            autoWidth(ws3, alertRows);
+            XLSX.utils.book_append_sheet(wb, ws3, 'Perlu Perhatian');
+        }
+
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+        XLSX.writeFile(wb, `Analisa_Harga_${dateStr}.xlsx`);
+    };
+
     if (loading && items.length === 0) {
         return (
             <div className="p-12 text-center">
                 <div className="inline-block w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
                 <p className="text-muted-foreground text-lg">Mengambil data harga dari Accurate...</p>
-                <p className="text-sm text-muted-foreground mt-1">Purchase Invoice + Sales Invoice</p>
+                <p className="text-sm text-muted-foreground mt-1">Purchase Invoice + Item Master Selling Prices</p>
             </div>
         );
     }
@@ -194,9 +285,7 @@ export function PriceAnalysisView() {
             <div className="p-8 text-center">
                 <p className="text-red-600 text-lg mb-2">❌ Gagal mengambil data</p>
                 <p className="text-sm text-muted-foreground mb-4">{error}</p>
-                <Button variant="outline" onClick={() => fetchData(true)}>
-                    🔄 Coba Lagi
-                </Button>
+                <Button variant="outline" onClick={() => fetchData(true)}>🔄 Coba Lagi</Button>
             </div>
         );
     }
@@ -230,26 +319,26 @@ export function PriceAnalysisView() {
                     <div className="text-2xl font-bold text-blue-700">{summary.avgMargin.toFixed(1)}%</div>
                     <div className="text-xs text-blue-600">vs harga beli terakhir</div>
                 </div>
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs text-gray-500 mb-1">⬜ Tanpa Data</div>
-                    <div className="text-2xl font-bold text-gray-600">{fmt(summary.noData)}</div>
-                    <div className="text-xs text-gray-400">belum ada transaksi</div>
+                <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs text-purple-600 mb-1">🏷️ Kategori Harga</div>
+                    <div className="text-2xl font-bold text-purple-700">{fmt(summary.totalCategories)}</div>
+                    <div className="text-xs text-purple-600">dari item master</div>
                 </div>
             </div>
 
-            {/* Tax info banner */}
+            {/* Info banner */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 flex items-center gap-2 text-sm">
                 <span>💡</span>
                 <span className="text-blue-700">
-                    Semua harga <strong>sudah termasuk PPN</strong> (inclusive tax). Harga sudah dinormalisasi ke <strong>per satuan dasar</strong> (Pcs/Kg).
-                    Hover pada harga untuk melihat detail konversi.
+                    Harga jual diambil dari <strong>Master Item Accurate</strong> (per kategori penjualan).
+                    Harga sudah dinormalisasi ke <strong>per satuan dasar</strong>. Hover untuk detail konversi.
                 </span>
             </div>
 
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-3">
                 <Input
-                    placeholder="🔍 Cari item..."
+                    placeholder="🔍 Cari SKU / nama item..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-64"
@@ -265,6 +354,16 @@ export function PriceAnalysisView() {
                     <option value="HEALTHY">✅ Margin Sehat</option>
                     <option value="NO_DATA">⬜ Tanpa Data</option>
                 </select>
+                <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="bg-white border rounded-lg px-3 py-2 text-sm"
+                >
+                    <option value="all">Semua Kategori ({allCategories.length})</option>
+                    {allCategories.map(([name, id]) => (
+                        <option key={id} value={name}>{name}</option>
+                    ))}
+                </select>
                 <Button
                     variant="outline"
                     size="sm"
@@ -273,6 +372,15 @@ export function PriceAnalysisView() {
                     className="border-orange-300 text-orange-700 hover:bg-orange-50"
                 >
                     {loading ? '⏳ Loading...' : '🔃 Force Sync'}
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportToExcel}
+                    disabled={items.length === 0}
+                    className="border-green-300 text-green-700 hover:bg-green-50"
+                >
+                    📥 Export Excel
                 </Button>
                 <span className="text-xs text-muted-foreground ml-auto">
                     {fmt(filtered.length)} item · Hal {page}/{totalPages}
@@ -285,24 +393,29 @@ export function PriceAnalysisView() {
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="bg-slate-50 border-b">
-                                <th className="px-3 py-2.5 text-left font-medium text-xs text-muted-foreground sticky left-0 bg-slate-50 z-10 min-w-[80px]">
+                                <th className="px-3 py-2.5 text-left font-medium text-xs text-muted-foreground sticky left-0 bg-slate-50 z-10 min-w-[70px]">
+                                    <button onClick={() => handleSort('sku')} className="flex items-center hover:text-foreground">
+                                        SKU <SortIcon col="sku" />
+                                    </button>
+                                </th>
+                                <th className="px-3 py-2.5 text-left font-medium text-xs text-muted-foreground min-w-[150px]">
                                     <button onClick={() => handleSort('name')} className="flex items-center hover:text-foreground">
-                                        Item <SortIcon col="name" />
+                                        Nama Barang <SortIcon col="name" />
                                     </button>
                                 </th>
                                 <th className="px-3 py-2.5 text-left font-medium text-xs text-muted-foreground min-w-[60px]">Satuan</th>
-                                <th className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[130px]">
+                                <th className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[120px]">
                                     <button onClick={() => handleSort('lastBuy')} className="flex items-center justify-end hover:text-foreground">
                                         Beli Terakhir <SortIcon col="lastBuy" />
                                     </button>
                                 </th>
-                                <th className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[130px]">Beli Rata²</th>
-                                {allBranches.map(([brId, brName]) => (
-                                    <th key={brId} className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[130px]">
-                                        🏢 {brName.replace('Cabang ', '').replace('PT. GAMA AGRO SEJATI ', '')}
+                                <th className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[120px]">Beli Rata²</th>
+                                {displayCategories.map(([catName, catId]) => (
+                                    <th key={catId} className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[120px]">
+                                        🏷️ {catName}
                                     </th>
                                 ))}
-                                <th className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[90px]">
+                                <th className="px-3 py-2.5 text-right font-medium text-xs text-muted-foreground min-w-[80px]">
                                     <button onClick={() => handleSort('margin')} className="flex items-center justify-end hover:text-foreground">
                                         Margin <SortIcon col="margin" />
                                     </button>
@@ -315,17 +428,21 @@ export function PriceAnalysisView() {
                             </tr>
                         </thead>
                         <tbody>
-                            {paginatedItems.map((item, idx) => {
+                            {paginatedItems.map((item) => {
                                 const sc = statusConfig[item.status];
                                 const bgRow = item.status === 'NEGATIVE' ? 'bg-red-50/40' :
                                     item.status === 'THIN' ? 'bg-amber-50/30' : '';
 
                                 return (
                                     <tr key={item.itemNo} className={`border-b hover:bg-slate-50/80 transition-colors ${bgRow}`}>
-                                        {/* Item */}
+                                        {/* SKU */}
                                         <td className="px-3 py-2 sticky left-0 bg-white z-10">
-                                            <div className="font-medium text-xs">{item.itemNo}</div>
-                                            <div className="text-[11px] text-muted-foreground truncate max-w-[200px]" title={item.itemName}>
+                                            <div className="font-mono text-xs font-medium">{item.itemNo}</div>
+                                        </td>
+
+                                        {/* Nama Barang */}
+                                        <td className="px-3 py-2">
+                                            <div className="text-xs truncate max-w-[250px]" title={item.itemName}>
                                                 {item.itemName}
                                             </div>
                                         </td>
@@ -340,7 +457,7 @@ export function PriceAnalysisView() {
                                             )}
                                         </td>
 
-                                        {/* Harga Beli Terakhir */}
+                                        {/* Beli Terakhir */}
                                         <td className="px-3 py-2 text-right">
                                             {item.lastPurchasePrice > 0 ? (
                                                 <PriceCell
@@ -358,7 +475,7 @@ export function PriceAnalysisView() {
                                             )}
                                         </td>
 
-                                        {/* Harga Beli Rata2 */}
+                                        {/* Beli Rata2 */}
                                         <td className="px-3 py-2 text-right">
                                             {item.avgPurchasePrice > 0 ? (
                                                 <div>
@@ -373,26 +490,26 @@ export function PriceAnalysisView() {
                                             )}
                                         </td>
 
-                                        {/* Branch Selling Prices */}
-                                        {allBranches.map(([brId]) => {
-                                            const bp = item.branchPrices.find(b => b.branchId === brId);
-                                            if (!bp) return (
-                                                <td key={brId} className="px-3 py-2 text-right">
+                                        {/* Category Selling Prices */}
+                                        {displayCategories.map(([catName, catId]) => {
+                                            const cp = item.categoryPrices?.find(c => c.categoryName === catName);
+                                            if (!cp || cp.price <= 0) return (
+                                                <td key={catId} className="px-3 py-2 text-right">
                                                     <span className="text-xs text-gray-400">—</span>
                                                 </td>
                                             );
                                             return (
-                                                <td key={brId} className="px-3 py-2 text-right">
+                                                <td key={catId} className="px-3 py-2 text-right">
                                                     <PriceCell
-                                                        price={bp.sellingPrice}
-                                                        rawPrice={bp.sellingPriceRaw}
-                                                        unitName={bp.saleUnitName}
-                                                        ratio={bp.unitRatio}
+                                                        price={cp.price}
+                                                        rawPrice={cp.priceRaw}
+                                                        unitName={cp.unitName}
+                                                        ratio={cp.unitRatio}
                                                         baseUnit={item.baseUnitName}
                                                     />
                                                     <div className="flex items-center justify-end gap-1 mt-0.5">
                                                         <MarginBadge
-                                                            margin={bp.marginVsLastPurchase}
+                                                            margin={cp.marginVsLastPurchase}
                                                             hasData={item.lastPurchasePrice > 0}
                                                         />
                                                     </div>
@@ -426,31 +543,14 @@ export function PriceAnalysisView() {
                     </table>
                 </div>
 
-                {/* Pagination Controls */}
+                {/* Pagination */}
                 <div className="px-4 py-3 bg-slate-50 border-t flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">
                         Menampilkan {fmt(startIdx)}-{fmt(endIdx)} dari {fmt(filtered.length)} item
                     </span>
                     <div className="flex items-center gap-1">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPage(1)}
-                            disabled={page === 1}
-                            className="h-8 px-2 text-xs"
-                        >
-                            ⟪
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPage(p => Math.max(1, p - 1))}
-                            disabled={page === 1}
-                            className="h-8 px-3 text-xs"
-                        >
-                            ← Prev
-                        </Button>
-                        {/* Page numbers */}
+                        <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1} className="h-8 px-2 text-xs">⟪</Button>
+                        <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="h-8 px-3 text-xs">← Prev</Button>
                         {Array.from({ length: totalPages }, (_, i) => i + 1)
                             .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
                             .reduce<(number | 'dots')[]>((acc, p, i, arr) => {
@@ -462,36 +562,13 @@ export function PriceAnalysisView() {
                                 p === 'dots' ? (
                                     <span key={`dots-${i}`} className="px-1 text-muted-foreground">…</span>
                                 ) : (
-                                    <Button
-                                        key={p}
-                                        variant={p === page ? 'default' : 'outline'}
-                                        size="sm"
-                                        onClick={() => setPage(p)}
-                                        className={`h-8 w-8 p-0 text-xs ${p === page ? 'bg-slate-800 text-white' : ''}`}
-                                    >
-                                        {p}
-                                    </Button>
+                                    <Button key={p} variant={p === page ? 'default' : 'outline'} size="sm" onClick={() => setPage(p)}
+                                        className={`h-8 w-8 p-0 text-xs ${p === page ? 'bg-slate-800 text-white' : ''}`}>{p}</Button>
                                 )
                             ))
                         }
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                            disabled={page === totalPages}
-                            className="h-8 px-3 text-xs"
-                        >
-                            Next →
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPage(totalPages)}
-                            disabled={page === totalPages}
-                            className="h-8 px-2 text-xs"
-                        >
-                            ⟫
-                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="h-8 px-3 text-xs">Next →</Button>
+                        <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={page === totalPages} className="h-8 px-2 text-xs">⟫</Button>
                     </div>
                 </div>
             </div>

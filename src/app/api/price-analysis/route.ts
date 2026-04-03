@@ -1,25 +1,12 @@
 import { NextResponse } from 'next/server';
 import {
   fetchAllPurchasePriceData,
-  fetchLatestSellingPrices,
   fetchItemUnitMap,
   fetchAllInventory,
-  PurchasePriceMap,
+  fetchItemMasterSellingPrices,
+  ItemMasterPrices,
 } from '@/lib/accurate';
-import { PriceAnalysisItem, BranchPrice } from '@/lib/types';
-
-// Branch name map (we'll fetch this alongside)
-async function getBranchNames(): Promise<Map<number, string>> {
-  try {
-    const { accurateClient } = await import('@/lib/accurate');
-    const res = await accurateClient.get('/branch/list.do', { params: { 'sp.pageSize': 100 } });
-    const map = new Map<number, string>();
-    (res.data?.d || []).forEach((b: any) => { map.set(b.id, b.name); });
-    return map;
-  } catch {
-    return new Map();
-  }
-}
+import { PriceAnalysisItem, CategoryPrice } from '@/lib/types';
 
 // Margin thresholds
 const MARGIN_HEALTHY = 15;  // > 15% = healthy
@@ -37,6 +24,33 @@ function getStatus(margin: number, hasData: boolean): PriceAnalysisItem['status'
   return 'HEALTHY';
 }
 
+/**
+ * Normalize a selling price to per-base-unit.
+ * If the price is in Box (unit2) and ratio2 > 1, divide by ratio2.
+ */
+function normalizeToBaseUnit(
+  price: number,
+  priceUnitName: string,
+  baseUnitName: string,
+  ratio2: number,
+  unit2Name: string
+): { normalized: number; ratio: number } {
+  // If price unit matches base unit, no conversion needed
+  if (priceUnitName.toLowerCase() === baseUnitName.toLowerCase()) {
+    return { normalized: price, ratio: 1 };
+  }
+  // If price unit matches second unit and we have a ratio
+  if (ratio2 > 1 && priceUnitName.toLowerCase() === unit2Name.toLowerCase()) {
+    return { normalized: price / ratio2, ratio: ratio2 };
+  }
+  // If we have ratio2 and price unit is different from base, try conversion
+  if (ratio2 > 1) {
+    return { normalized: price / ratio2, ratio: ratio2 };
+  }
+  // No conversion possible
+  return { normalized: price, ratio: 1 };
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -49,72 +63,78 @@ export async function GET(request: Request) {
 
     console.log(`[PriceAnalysis] Starting... from=${fromParam} force=${forceParam}`);
 
-    // Parallel fetch all data sources
-    const [itemUnitMap, branchNames, items] = await Promise.all([
-      fetchItemUnitMap(),
-      getBranchNames(),
-      fetchAllInventory(),
-    ]);
+    // Fetch items first to get IDs
+    const items = await fetchAllInventory();
+    const itemIds = items.map(i => i.id);
 
-    // Fetch purchase and selling prices (these may take time)
-    const [purchaseResult, sellingPriceMap] = await Promise.all([
-      fetchAllPurchasePriceData(fromDate, forceParam, itemUnitMap),
-      fetchLatestSellingPrices(fromDate, forceParam, itemUnitMap),
+    // Parallel fetch all data sources
+    const [itemUnitMap, purchaseResult, masterPrices] = await Promise.all([
+      fetchItemUnitMap(),
+      fetchAllPurchasePriceData(fromDate, forceParam, undefined),
+      fetchItemMasterSellingPrices(itemIds, forceParam),
     ]);
 
     const { priceMap } = purchaseResult;
 
-    console.log(`[PriceAnalysis] Data loaded: ${items.length} items, ${priceMap.size} purchase prices, ${sellingPriceMap.size} selling prices, ${branchNames.size} branches`);
+    console.log(`[PriceAnalysis] Data loaded: ${items.length} items, ${priceMap.size} purchase prices, ${masterPrices.size} master prices`);
 
     // Build result array
     const result: PriceAnalysisItem[] = [];
 
-    // Collect all branch IDs that have selling prices
-    const allBranchIds = new Set<number>();
-    sellingPriceMap.forEach(brMap => {
-      brMap.forEach((_, brId) => allBranchIds.add(brId));
-    });
-
     for (const item of items) {
       const itemNo = item.no;
       const purchase = priceMap.get(itemNo);
-      const sellingByBranch = sellingPriceMap.get(itemNo);
+      const masterSP = masterPrices.get(itemNo);
 
       const lastPurchasePrice = purchase?.lastPrice || 0;
       const avgPurchasePrice = purchase && purchase.totalQtyBase > 0
         ? purchase.totalCost / purchase.totalQtyBase
         : 0;
 
-      // Build branch prices
-      const branchPrices: BranchPrice[] = [];
+      const baseUnit = item.unit1Name || 'Pcs';
+      const unit2Name = item.unit2Name || '';
+      const ratio2 = masterSP?.ratio2 || item.ratio2 || 0;
 
-      if (sellingByBranch) {
-        sellingByBranch.forEach((sp, brId) => {
-          const marginLast = computeMargin(sp.price, lastPurchasePrice);
-          const marginAvg = computeMargin(sp.price, avgPurchasePrice);
+      // Build category prices (normalized to base unit)
+      const categoryPrices: CategoryPrice[] = [];
 
-          branchPrices.push({
-            branchId: brId,
-            branchName: branchNames.get(brId) || `Branch ${brId}`,
-            sellingPrice: Math.round(sp.price),
-            sellingPriceRaw: Math.round(sp.priceRaw),
-            saleUnitName: sp.unitName,
-            unitRatio: sp.ratio,
-            lastSaleDate: sp.date,
-            lastInvoiceNumber: sp.invoiceNumber,
+      if (masterSP?.prices) {
+        for (const sp of masterSP.prices) {
+          const { normalized, ratio } = normalizeToBaseUnit(
+            sp.price, sp.unitName, baseUnit, ratio2, unit2Name
+          );
+
+          const marginLast = computeMargin(normalized, lastPurchasePrice);
+          const marginAvg = computeMargin(normalized, avgPurchasePrice);
+
+          categoryPrices.push({
+            categoryId: sp.categoryId,
+            categoryName: sp.categoryName,
+            branchId: sp.branchId,
+            branchName: sp.branchName,
+            price: Math.round(normalized),
+            priceRaw: sp.price,
+            unitName: sp.unitName,
+            unitRatio: ratio,
+            effectiveDate: sp.effectiveDate,
             marginVsLastPurchase: Math.round(marginLast * 100) / 100,
             marginVsAvgPurchase: Math.round(marginAvg * 100) / 100,
           });
-        });
+        }
       }
 
-      // Sort branches by name
-      branchPrices.sort((a, b) => a.branchName.localeCompare(b.branchName));
+      // Sort by category name then branch name
+      categoryPrices.sort((a, b) =>
+        a.categoryName.localeCompare(b.categoryName) ||
+        a.branchName.localeCompare(b.branchName)
+      );
 
-      // Overall margin: use first branch with selling price, or average
+      // Overall margin: average of all category prices (normalized) vs purchase
       let overallSellingPrice = 0;
-      if (branchPrices.length > 0) {
-        overallSellingPrice = branchPrices.reduce((sum, bp) => sum + bp.sellingPrice, 0) / branchPrices.length;
+      const pricesWithValue = categoryPrices.filter(cp => cp.price > 0);
+      if (pricesWithValue.length > 0) {
+        // Use the lowest selling price for margin calculation (worst case)
+        overallSellingPrice = Math.min(...pricesWithValue.map(cp => cp.price));
       }
 
       const overallMarginLast = computeMargin(overallSellingPrice, lastPurchasePrice);
@@ -125,9 +145,9 @@ export async function GET(request: Request) {
         itemNo,
         itemName: item.name,
         category: item.itemType || '',
-        baseUnitName: item.unit1Name || 'Pcs',
-        salesUnitName: item.unit2Name || '',
-        unitConversion: item.ratio2 || 0,
+        baseUnitName: baseUnit,
+        salesUnitName: unit2Name,
+        unitConversion: ratio2,
         masterSellingPrice: item.unitPrice || 0,
         masterCost: item.cost || 0,
         lastPurchasePrice: Math.round(lastPurchasePrice),
@@ -140,7 +160,7 @@ export async function GET(request: Request) {
         totalPurchaseQtyBase: Math.round(purchase?.totalQtyBase || 0),
         purchaseInvoiceCount: purchase?.invoiceCount || 0,
         inclusiveTax: purchase?.inclusiveTax ?? true,
-        branchPrices,
+        categoryPrices,
         marginVsLastPurchase: Math.round(overallMarginLast * 100) / 100,
         marginVsAvgPurchase: Math.round(overallMarginAvg * 100) / 100,
         status: getStatus(overallMarginLast, hasData),
