@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
 import {
   fetchAllPurchasePriceData,
-  fetchItemUnitMap,
   fetchAllInventory,
   fetchItemMasterSellingPrices,
-  ItemMasterPrices,
 } from '@/lib/accurate';
 import { PriceAnalysisItem, CategoryPrice } from '@/lib/types';
 
@@ -24,33 +22,6 @@ function getStatus(margin: number, hasData: boolean): PriceAnalysisItem['status'
   return 'HEALTHY';
 }
 
-/**
- * Normalize a selling price to per-base-unit.
- * If the price is in Box (unit2) and ratio2 > 1, divide by ratio2.
- */
-function normalizeToBaseUnit(
-  price: number,
-  priceUnitName: string,
-  baseUnitName: string,
-  ratio2: number,
-  unit2Name: string
-): { normalized: number; ratio: number } {
-  // If price unit matches base unit, no conversion needed
-  if (priceUnitName.toLowerCase() === baseUnitName.toLowerCase()) {
-    return { normalized: price, ratio: 1 };
-  }
-  // If price unit matches second unit and we have a ratio
-  if (ratio2 > 1 && priceUnitName.toLowerCase() === unit2Name.toLowerCase()) {
-    return { normalized: price / ratio2, ratio: ratio2 };
-  }
-  // If we have ratio2 and price unit is different from base, try conversion
-  if (ratio2 > 1) {
-    return { normalized: price / ratio2, ratio: ratio2 };
-  }
-  // No conversion possible
-  return { normalized: price, ratio: 1 };
-}
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -68,8 +39,7 @@ export async function GET(request: Request) {
     const itemIds = items.map(i => i.id);
 
     // Parallel fetch all data sources
-    const [itemUnitMap, purchaseResult, masterPrices] = await Promise.all([
-      fetchItemUnitMap(),
+    const [purchaseResult, masterPrices] = await Promise.all([
       fetchAllPurchasePriceData(fromDate, forceParam, undefined),
       fetchItemMasterSellingPrices(itemIds, forceParam),
     ]);
@@ -95,27 +65,23 @@ export async function GET(request: Request) {
       const unit2Name = item.unit2Name || '';
       const ratio2 = masterSP?.ratio2 || item.ratio2 || 0;
 
-      // Build category prices (normalized to base unit)
+      // Build category prices — already in base unit from accurate.ts
       const categoryPrices: CategoryPrice[] = [];
 
       if (masterSP?.prices) {
         for (const sp of masterSP.prices) {
-          const { normalized, ratio } = normalizeToBaseUnit(
-            sp.price, sp.unitName, baseUnit, ratio2, unit2Name
-          );
-
-          const marginLast = computeMargin(normalized, lastPurchasePrice);
-          const marginAvg = computeMargin(normalized, avgPurchasePrice);
+          const marginLast = computeMargin(sp.price, lastPurchasePrice);
+          const marginAvg = computeMargin(sp.price, avgPurchasePrice);
 
           categoryPrices.push({
             categoryId: sp.categoryId,
             categoryName: sp.categoryName,
             branchId: sp.branchId,
             branchName: sp.branchName,
-            price: Math.round(normalized),
+            price: Math.round(sp.price),
             priceRaw: sp.price,
             unitName: sp.unitName,
-            unitRatio: ratio,
+            unitRatio: 1,
             effectiveDate: sp.effectiveDate,
             marginVsLastPurchase: Math.round(marginLast * 100) / 100,
             marginVsAvgPurchase: Math.round(marginAvg * 100) / 100,

@@ -2492,8 +2492,13 @@ export async function fetchItemMasterSellingPrices(
       if (!item || !item.no) return;
 
       const sellingPrices: MasterSellingPriceEntry[] = [];
+      const baseUnitName = (item.unit1Name || 'PCS').toLowerCase();
       (item.detailSellingPrice || []).forEach((sp: any) => {
         if (!sp.price || sp.price <= 0) return;
+        const spUnit = (sp.unit?.name || '').toLowerCase();
+        // Only keep base unit prices — skip Box/Sak/unit2 entries
+        // Each category has 2 entries (Btl + Box), we only want Btl
+        if (spUnit && spUnit !== baseUnitName) return;
         sellingPrices.push({
           categoryId: sp.priceCategory?.id || 0,
           categoryName: sp.priceCategory?.name || 'Default',
