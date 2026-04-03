@@ -1882,4 +1882,472 @@ export async function fetchDODetailsInBatch(
   }
 
   return results;
-}
+}
+
+
+// ─── PURCHASE INVOICE (Price Analysis) ──────────────────────────
+
+export interface AccuratePurchaseInvoiceItem {
+  item: { id: number; no: string; name: string };
+  quantity: number;          // qty dalam satuan transaksi (Box/Sak/Pcs)
+  quantityInBase: number;    // qty dalam satuan dasar (Pcs)
+  unitRatio: number;         // konversi: 1 unit transaksi = unitRatio base unit
+  unitPrice: number;         // harga per unit transaksi (bisa include PPN)
+  totalPrice: number;
+  itemUnitName: string;      // satuan di faktur (Box/Pcs/Sak)
+  useTax1: boolean;          // apakah item kena PPN
+}
+
+export interface AccuratePurchaseInvoice {
+  id: number;
+  number: string;
+  transDate: string;         // DD/MM/YYYY
+  branchId?: number;
+  inclusiveTax: boolean;     // true = harga sudah termasuk PPN
+  taxable: boolean;
+  detailItem: AccuratePurchaseInvoiceItem[];
+}
+
+/**
+ * Per-item purchase price tracking
+ */
+export interface ItemPurchasePriceData {
+  // Last purchase (most recent invoice)
+  lastPrice: number;            // harga per base unit (sudah dikonversi)
+  lastPriceRaw: number;         // harga asli di faktur
+  lastDate: string;             // DD/MM/YYYY
+  lastInvoiceNumber: string;
+  lastUnitName: string;         // satuan di faktur terakhir
+  lastUnitRatio: number;        // rasio konversi terakhir
+  // Weighted average
+  totalCost: number;            // sum(qty_base * price_per_base)
+  totalQtyBase: number;         // total qty in base unit
+  invoiceCount: number;
+  // Tax
+  inclusiveTax: boolean;
+}
+
+/** Map: itemNo → ItemPurchasePriceData */
+export type PurchasePriceMap = Map<string, ItemPurchasePriceData>;
+
+// Cache
+const PURCHASE_PRICE_CACHE_KEY = 'purchase-price-cache';
+
+interface CachedPurchasePrice {
+  timestamp: number;
+  data: Record<string, ItemPurchasePriceData>;
+}
+
+/**
+ * Normalize unit price to per-base-unit (Pcs/Kg).
+ * Uses 3-level fallback: unitRatio → qty calculation → item master ratio2.
+ */
+function normalizePricePerBase(
+  unitPrice: number,
+  unitRatio: number,
+  quantity: number,
+  quantityInBase: number,
+  totalPrice: number,
+  itemNo: string,
+  itemUnitMap?: Map<string, ItemUnitInfo>
+): { pricePerBase: number; effectiveRatio: number } {
+  // Method 1: unitRatio from the invoice detail
+  if (unitRatio > 1) {
+    return { pricePerBase: unitPrice / unitRatio, effectiveRatio: unitRatio };
+  }
+
+  // Method 2: Calculate from qty fields
+  if (quantityInBase > 0 && quantity > 0 && quantityInBase !== quantity) {
+    const calcRatio = quantityInBase / quantity;
+    if (calcRatio > 1) {
+      return { pricePerBase: unitPrice / calcRatio, effectiveRatio: calcRatio };
+    }
+  }
+
+  // Method 3: totalPrice / quantityInBase
+  if (totalPrice > 0 && quantityInBase > 0) {
+    const ppb = totalPrice / quantityInBase;
+    const ratio = quantity > 0 ? quantityInBase / quantity : 1;
+    return { pricePerBase: ppb, effectiveRatio: ratio > 1 ? ratio : 1 };
+  }
+
+  // Method 4: Lookup from item master
+  if (itemUnitMap) {
+    const unitInfo = itemUnitMap.get(itemNo);
+    if (unitInfo && unitInfo.unitConversion > 1) {
+      return { pricePerBase: unitPrice / unitInfo.unitConversion, effectiveRatio: unitInfo.unitConversion };
+    }
+  }
+
+  // Default: already per base unit
+  return { pricePerBase: unitPrice, effectiveRatio: 1 };
+}
+
+/**
+ * Fetch Purchase Invoice list with date filter.
+ */
+async function fetchPurchaseInvoiceList(
+  fromDate: Date,
+  branchId?: number
+): Promise<{ id: number; transDate: string; branchId?: number }[]> {
+  const allPIs: { id: number; transDate: string; branchId?: number }[] = [];
+  let page = 1;
+  const pageSize = 100;
+  let hasMore = true;
+
+  const fromStr = `${String(fromDate.getDate()).padStart(2, '0')}/${String(fromDate.getMonth() + 1).padStart(2, '0')}/${fromDate.getFullYear()}`;
+  const now = new Date();
+  const toStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+  console.log(`[Accurate] PI: Fetching purchase invoice list (${fromStr} → ${toStr})${branchId ? ` branch=${branchId}` : ''}...`);
+
+  while (hasMore) {
+    const params: Record<string, any> = {
+      fields: 'id,transDate,branchId',
+      'filter.transDate.op': 'BETWEEN',
+      'filter.transDate.val[0]': fromStr,
+      'filter.transDate.val[1]': toStr,
+      'sp.page': page,
+      'sp.pageSize': pageSize,
+    };
+    if (branchId) {
+      params['filter.branchId.op'] = 'EQUAL';
+      params['filter.branchId.val'] = branchId;
+    }
+
+    let success = false;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        const response = await accurateClient.get('/purchase-invoice/list.do', { params });
+        if (response.data?.s) {
+          const list = response.data.d || [];
+          if (list.length === 0) {
+            hasMore = false;
+          } else {
+            list.forEach((pi: any) => {
+              allPIs.push({ id: pi.id, transDate: pi.transDate, branchId: pi.branchId });
+            });
+            if (page % 50 === 0) {
+              console.log(`[Accurate] PI: page ${page}, ${allPIs.length} invoices so far`);
+            }
+            page++;
+            if (page > 500) { hasMore = false; }
+          }
+          success = true;
+          break;
+        } else {
+          hasMore = false; success = true; break;
+        }
+      } catch (error: any) {
+        const status = error.response?.status;
+        if (status === 429 && attempt < 5) {
+          const delay = 3000 * Math.pow(2, attempt - 1);
+          console.warn(`[Accurate] PI page ${page}: HTTP 429, waiting ${delay / 1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+        } else {
+          console.error(`[Accurate] PI list page ${page} error:`, error.message);
+          hasMore = false; success = true; break;
+        }
+      }
+    }
+    if (!success) { hasMore = false; }
+    if (hasMore) await new Promise(r => setTimeout(r, 200));
+  }
+
+  console.log(`[Accurate] PI list done: ${allPIs.length} purchase invoices`);
+  return allPIs;
+}
+
+/**
+ * Fetch detail for a single Purchase Invoice.
+ */
+async function fetchPurchaseInvoiceDetail(
+  piId: number,
+  maxRetries = 3
+): Promise<AccuratePurchaseInvoice | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await accurateClient.get('/purchase-invoice/detail.do', {
+        params: { id: piId }
+      });
+
+      if (response.data?.s && response.data.d) {
+        const d = response.data.d;
+        return {
+          id: d.id,
+          number: d.number,
+          transDate: d.transDate,
+          branchId: d.branchId || undefined,
+          inclusiveTax: d.inclusiveTax ?? false,
+          taxable: d.taxable ?? false,
+          detailItem: (d.detailItem || []).map((di: any) => ({
+            item: di.item ? { id: di.item.id, no: di.item.no, name: di.item.name } : { id: 0, no: '', name: '' },
+            quantity: di.quantity || 0,
+            quantityInBase: di.quantityInBase || (di.quantity * (di.unitRatio || 1)) || 0,
+            unitRatio: di.unitRatio || 1,
+            unitPrice: di.unitPrice || 0,
+            totalPrice: di.totalPrice || 0,
+            itemUnitName: di.itemUnitName || di.unitName || '',
+            useTax1: di.useTax1 ?? false,
+          })),
+        };
+      }
+      return null;
+    } catch (err: any) {
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+      } else {
+        console.error(`[Accurate] PI ${piId} FAILED after ${maxRetries} attempts: ${err.message}`);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch PI details in parallel batches.
+ */
+async function fetchPIDetailsInBatch(
+  piIds: number[],
+  batchSize = 20,
+  onProgress?: (done: number, total: number) => void
+): Promise<AccuratePurchaseInvoice[]> {
+  const results: AccuratePurchaseInvoice[] = [];
+  const failedIds: number[] = [];
+  const total = piIds.length;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = piIds.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(id => fetchPurchaseInvoiceDetail(id)));
+    batch.forEach((id, idx) => {
+      if (batchResults[idx]) results.push(batchResults[idx]!);
+      else failedIds.push(id);
+    });
+    if (onProgress) onProgress(Math.min(i + batchSize, total), total);
+  }
+
+  // Retry failed
+  if (failedIds.length > 0) {
+    console.warn(`[Accurate] PI: ${failedIds.length} failed. Retrying...`);
+    for (const id of failedIds) {
+      await new Promise(r => setTimeout(r, 500));
+      const result = await fetchPurchaseInvoiceDetail(id, 3);
+      if (result) results.push(result);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Save purchase price cache.
+ */
+async function savePurchasePriceCache(priceMap: PurchasePriceMap): Promise<void> {
+  try {
+    const data: Record<string, ItemPurchasePriceData> = {};
+    priceMap.forEach((val, key) => { data[key] = val; });
+    const cached: CachedPurchasePrice = { timestamp: Date.now(), data };
+    await prisma.dataCache.upsert({
+      where: { key: PURCHASE_PRICE_CACHE_KEY },
+      update: { data: cached as any },
+      create: { key: PURCHASE_PRICE_CACHE_KEY, data: cached as any },
+    });
+    console.log(`[Cache] Purchase price data saved (${priceMap.size} items)`);
+  } catch (err: any) {
+    console.warn(`[Cache] Purchase price save failed:`, err.message);
+  }
+}
+
+/**
+ * Load purchase price cache.
+ */
+export async function loadPurchasePriceCache(): Promise<PurchasePriceMap | null> {
+  try {
+    const entry = await prisma.dataCache.findUnique({ where: { key: PURCHASE_PRICE_CACHE_KEY } });
+    if (!entry?.data) return null;
+    const cached = entry.data as unknown as CachedPurchasePrice;
+    const age = Date.now() - cached.timestamp;
+    console.log(`[Cache] Purchase price cache is ${Math.round(age / 60000)} min old`);
+    const map: PurchasePriceMap = new Map();
+    for (const [itemNo, d] of Object.entries(cached.data)) {
+      map.set(itemNo, d);
+    }
+    return map;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Main: Fetch all purchase price data and aggregate.
+ * Returns Map of itemNo → ItemPurchasePriceData (prices normalized to per-base-unit).
+ */
+export async function fetchAllPurchasePriceData(
+  fromDate: Date,
+  force = false,
+  itemUnitMap?: Map<string, ItemUnitInfo>,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ priceMap: PurchasePriceMap; piCount: number }> {
+  // Try cache
+  if (!force) {
+    const cached = await loadPurchasePriceCache();
+    if (cached) return { priceMap: cached, piCount: -1 };
+  }
+
+  // Phase 1: List
+  const piList = await fetchPurchaseInvoiceList(fromDate);
+  if (piList.length === 0) {
+    const empty: PurchasePriceMap = new Map();
+    await savePurchasePriceCache(empty);
+    return { priceMap: empty, piCount: 0 };
+  }
+
+  // Phase 2: Details
+  const piIds = piList.map(pi => pi.id);
+  console.log(`[Accurate] PI Phase 2: Fetching detail for ${piIds.length} purchase invoices...`);
+
+  const invoices = await fetchPIDetailsInBatch(piIds, 20, (done, total) => {
+    if (onProgress) onProgress(done, total);
+    if (done % 200 === 0 || done === total) {
+      console.log(`[Accurate] PI detail progress: ${done}/${total}`);
+    }
+  });
+
+  // Phase 3: Aggregate per item
+  const priceMap: PurchasePriceMap = new Map();
+
+  invoices.forEach(inv => {
+    const invDate = parseAccurateDate(inv.transDate);
+
+    inv.detailItem.forEach(di => {
+      const itemNo = di.item?.no;
+      if (!itemNo || di.unitPrice <= 0) return;
+
+      // Normalize price to per-base-unit
+      const { pricePerBase, effectiveRatio } = normalizePricePerBase(
+        di.unitPrice, di.unitRatio, di.quantity, di.quantityInBase,
+        di.totalPrice, itemNo, itemUnitMap
+      );
+
+      const qtyBase = di.quantityInBase || (di.quantity * (di.unitRatio || 1));
+      const lineCost = pricePerBase * qtyBase;
+
+      const existing = priceMap.get(itemNo);
+
+      if (!existing) {
+        priceMap.set(itemNo, {
+          lastPrice: pricePerBase,
+          lastPriceRaw: di.unitPrice,
+          lastDate: inv.transDate,
+          lastInvoiceNumber: inv.number,
+          lastUnitName: di.itemUnitName || '',
+          lastUnitRatio: effectiveRatio,
+          totalCost: lineCost,
+          totalQtyBase: qtyBase,
+          invoiceCount: 1,
+          inclusiveTax: inv.inclusiveTax,
+        });
+      } else {
+        // Update "last" if this invoice is newer
+        const existingDate = parseAccurateDate(existing.lastDate);
+        if (invDate > existingDate) {
+          existing.lastPrice = pricePerBase;
+          existing.lastPriceRaw = di.unitPrice;
+          existing.lastDate = inv.transDate;
+          existing.lastInvoiceNumber = inv.number;
+          existing.lastUnitName = di.itemUnitName || '';
+          existing.lastUnitRatio = effectiveRatio;
+          existing.inclusiveTax = inv.inclusiveTax;
+        }
+        // Accumulate for weighted average
+        existing.totalCost += lineCost;
+        existing.totalQtyBase += qtyBase;
+        existing.invoiceCount += 1;
+      }
+    });
+  });
+
+  console.log(`[Accurate] PI done: ${priceMap.size} items with purchase price data from ${invoices.length} invoices`);
+
+  await savePurchasePriceCache(priceMap);
+  return { priceMap, piCount: invoices.length };
+}
+
+/**
+ * Extract latest selling price per item per branch from Sales Invoice data.
+ * Returns Map: itemNo → Map: branchId → { price, priceRaw, unitName, ratio, date, invoiceNo }
+ */
+export async function fetchLatestSellingPrices(
+  fromDate: Date,
+  force = false,
+  itemUnitMap?: Map<string, ItemUnitInfo>
+): Promise<Map<string, Map<number, {
+  price: number; priceRaw: number; unitName: string; ratio: number;
+  date: string; invoiceNumber: string; inclusiveTax: boolean;
+}>>> {
+  const result = new Map<string, Map<number, {
+    price: number; priceRaw: number; unitName: string; ratio: number;
+    date: string; invoiceNumber: string; inclusiveTax: boolean;
+  }>>();
+
+  // Fetch sales invoices (reuse existing infrastructure)
+  const invoiceList = await fetchInvoiceList(fromDate);
+  if (invoiceList.length === 0) return result;
+
+  const invoiceIds = invoiceList.map(inv => inv.id);
+  console.log(`[PriceAnalysis] Fetching detail for ${invoiceIds.length} sales invoices for selling prices...`);
+
+  // Build invoice → branch map
+  const invBranchMap = new Map<number, number>();
+  invoiceList.forEach(inv => { if (inv.branchId) invBranchMap.set(inv.id, inv.branchId); });
+
+  const invoices = await fetchDetailsInBatch(invoiceIds, 20, (done, total) => {
+    if (done % 200 === 0 || done === total) {
+      console.log(`[PriceAnalysis] SI detail progress: ${done}/${total}`);
+    }
+  });
+
+  // For each sales invoice, we also need the header's inclusiveTax.
+  // The current fetchInvoiceDetail doesn't return it, so we assume same as PI (both true from probe).
+  // This is safe because probe confirmed SI_inclusiveTax = true.
+  const defaultInclusiveTax = true;
+
+  invoices.forEach(inv => {
+    const branchId = inv.branchId || invBranchMap.get(inv.id);
+    if (!branchId) return;
+
+    const invDate = parseAccurateDate(inv.transDate);
+
+    (inv.detailItem || []).forEach(di => {
+      const itemNo = di.item?.no;
+      if (!itemNo || di.unitPrice <= 0) return;
+
+      const { pricePerBase, effectiveRatio } = normalizePricePerBase(
+        di.unitPrice, di.unitRatio, di.quantity,
+        di.quantityInBase, di.totalPrice || 0,
+        itemNo, itemUnitMap
+      );
+
+      if (!result.has(itemNo)) result.set(itemNo, new Map());
+      const branchMap = result.get(itemNo)!;
+
+      const existing = branchMap.get(branchId);
+      if (!existing || invDate > parseAccurateDate(existing.date)) {
+        branchMap.set(branchId, {
+          price: pricePerBase,
+          priceRaw: di.unitPrice,
+          unitName: di.itemUnitName || '',
+          ratio: effectiveRatio,
+          date: inv.transDate,
+          invoiceNumber: inv.number,
+          inclusiveTax: defaultInclusiveTax,
+        });
+      }
+    });
+  });
+
+  console.log(`[PriceAnalysis] Selling prices: ${result.size} items across branches`);
+  return result;
+}
+

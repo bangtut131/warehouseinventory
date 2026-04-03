@@ -141,3 +141,55 @@ export interface SLASummary {
     avgLeadTime: number;
     slaPercentage: number;     // (onTime / delivered) * 100
 }
+
+// ─── Price Analysis Types ────────────────────────────────────
+
+export interface BranchPrice {
+    branchId: number;
+    branchName: string;
+    sellingPrice: number;          // Harga jual terbaru (per base unit, sudah konversi)
+    sellingPriceRaw: number;       // Harga asli di faktur (sebelum konversi)
+    saleUnitName: string;          // Satuan di faktur jual (Box/Pcs)
+    unitRatio: number;             // Rasio konversi yang dipakai
+    lastSaleDate: string;          // Tanggal penjualan terakhir
+    lastInvoiceNumber: string;     // No. faktur penjualan terakhir
+    marginVsLastPurchase: number;  // % margin per cabang (per base unit)
+    marginVsAvgPurchase: number;   // % margin per cabang (per base unit)
+}
+
+export interface PriceAnalysisItem {
+    itemNo: string;
+    itemName: string;
+    category: string;
+
+    // Unit info
+    baseUnitName: string;          // Satuan dasar (Pcs/Kg)
+    salesUnitName: string;         // Satuan jual (Box/Sak) - kosong jika sama
+    unitConversion: number;        // 1 salesUnit = N baseUnit (0 jika sama)
+
+    // Master data
+    masterSellingPrice: number;    // Harga jual default dari item master
+    masterCost: number;            // HPP dari item master
+
+    // Harga Beli (dari Purchase Invoice) — per base unit
+    lastPurchasePrice: number;     // Harga beli terakhir (per base unit)
+    lastPurchaseDate: string;      // Tanggal pembelian terakhir
+    lastPurchaseInvoice: string;   // No. faktur pembelian terakhir
+    lastPurchaseUnit: string;      // Satuan di faktur beli terakhir (Box/Pcs)
+    lastPurchaseRawPrice: number;  // Harga asli di faktur (sebelum konversi)
+    lastPurchaseRatio: number;     // Rasio konversi yang dipakai
+    avgPurchasePrice: number;      // Harga beli rata-rata (weighted, per base unit)
+    totalPurchaseQtyBase: number;  // Total qty pembelian (dalam base unit)
+    purchaseInvoiceCount: number;  // Jumlah faktur pembelian
+
+    // Tax info
+    inclusiveTax: boolean;         // true = harga sudah termasuk PPN
+
+    // Harga Jual Per Cabang — per base unit
+    branchPrices: BranchPrice[];
+
+    // Computed margins (berdasarkan harga per base unit)
+    marginVsLastPurchase: number;  // % margin dari harga jual vs beli terakhir
+    marginVsAvgPurchase: number;   // % margin dari harga jual vs beli rata-rata
+    status: 'HEALTHY' | 'THIN' | 'NEGATIVE' | 'NO_DATA';
+}
