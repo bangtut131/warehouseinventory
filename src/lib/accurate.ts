@@ -2195,6 +2195,20 @@ export async function fetchAllPurchasePriceData(
     if (cached) return { priceMap: cached, piCount: -1 };
   }
 
+  // Ambil config PPN Rate dari setting (default 11 jika tidak ada)
+  let ppnRateConfig = 11;
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: 'price_sync_config' },
+    });
+    if (setting?.value && typeof (setting.value as any).ppnRate === 'number') {
+      ppnRateConfig = (setting.value as any).ppnRate;
+    }
+  } catch (err) {
+    console.warn('[Accurate] Failed to read PPN rate config, using default 11%');
+  }
+  const currentPpnRate = ppnRateConfig / 100;
+
   // Phase 1: List
   const piList = await fetchPurchaseInvoiceList(fromDate);
   if (piList.length === 0) {
@@ -2225,10 +2239,29 @@ export async function fetchAllPurchasePriceData(
       if (!itemNo || di.unitPrice <= 0) return;
 
       // Normalize price to per-base-unit
-      const { pricePerBase, effectiveRatio } = normalizePricePerBase(
+      let { pricePerBase, effectiveRatio } = normalizePricePerBase(
         di.unitPrice, di.unitRatio, di.quantity, di.quantityInBase,
         di.totalPrice, itemNo, itemUnitMap
       );
+
+      // --- PPN Adjustment (Margin Standardization) ---
+      // PPN Rate diambil dinamis dari config (currentPpnRate)
+      const isExcludeItem = itemNo.includes('-NN-') || itemNo.includes('-BB-');
+      const isTaxable = di.useTax1 || inv.taxable;
+
+      if (!isExcludeItem) {
+        // Target: INCLUDE PPN
+        // Jika pembelian eksklusif PPN tapi barang kena pajak, tambahkan PPN agar setara dengan harga jual
+        if (!inv.inclusiveTax && isTaxable) {
+          pricePerBase = pricePerBase * (1 + currentPpnRate);
+        }
+      } else {
+        // Target: EXCLUDE PPN (Untuk item -NN- dan -BB-)
+        // Jika pembelian inklusif PPN dan kena pajak, keluarkan/buang PPN
+        if (inv.inclusiveTax && isTaxable) {
+          pricePerBase = pricePerBase / (1 + currentPpnRate);
+        }
+      }
 
       const qtyBase = di.quantityInBase || (di.quantity * (di.unitRatio || 1));
       const lineCost = pricePerBase * qtyBase;

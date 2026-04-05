@@ -15,9 +15,11 @@ export interface PriceSyncConfig {
   cronExpression: string;
   intervalLabel: string;
   fromDate: string;
-  // WA Report config (separate from broadcast)
+  // WA Report config
   waReportEnabled: boolean;
   waReportTargets: string[];
+  // Calculation settings
+  ppnRate: number;
 }
 
 const DEFAULT_CONFIG: PriceSyncConfig = {
@@ -27,6 +29,7 @@ const DEFAULT_CONFIG: PriceSyncConfig = {
   fromDate: '2025-01-01',
   waReportEnabled: false,
   waReportTargets: [],
+  ppnRate: 11,
 };
 
 const CONFIG_KEY = 'price_sync_config';

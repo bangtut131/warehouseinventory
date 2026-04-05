@@ -12,6 +12,7 @@ interface PriceSyncConfig {
     fromDate: string;
     waReportEnabled: boolean;
     waReportTargets: string[];
+    ppnRate: number;
 }
 
 interface PriceSyncHistoryEntry {
@@ -108,6 +109,7 @@ export function PriceSyncPanel() {
     const [selectedHours, setSelectedHours] = useState<number[]>([6]);
     const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
     const [waTargetNumbers, setWaTargetNumbers] = useState('');
+    const [ppnRate, setPpnRate] = useState<number>(11);
 
     const fetchStatus = useCallback(async () => {
         setError(null);
@@ -120,6 +122,7 @@ export function PriceSyncPanel() {
                 const parsed = parseCronToCustom(cfg.cronExpression);
                 setSelectedHours(parsed.hours);
                 setSelectedDays(parsed.days);
+                if (cfg.ppnRate !== undefined) setPpnRate(cfg.ppnRate);
             }
             if (cfg?.waReportTargets?.length) {
                 setWaTargetNumbers(cfg.waReportTargets.join(', '));
@@ -363,6 +366,35 @@ export function PriceSyncPanel() {
                                 className="text-xs bg-amber-600 hover:bg-amber-700"
                             >
                                 {updating ? '⏳ Saving...' : '✓ Terapkan'}
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Calculation Settings */}
+                    <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm">🧮</span>
+                            <span className="text-xs font-semibold text-blue-800">Pengaturan Kalkulasi</span>
+                        </div>
+                        <p className="text-[10px] text-blue-700 mb-2">
+                            Konfigurasi penyesuaian PPN untuk normalisasi Harga Beli (otomatis exclude/include).
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-blue-800">PPN Rate (%):</span>
+                            <input
+                                type="number"
+                                value={ppnRate}
+                                onChange={(e) => setPpnRate(parseFloat(e.target.value) || 0)}
+                                className="w-20 text-xs border rounded px-2 py-1.5 bg-white"
+                            />
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updating}
+                                onClick={() => updateConfig({ ppnRate })}
+                                className="text-[10px] h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                            >
+                                💾 Simpan
                             </Button>
                         </div>
                     </div>
