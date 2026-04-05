@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { exportAllAnalysis } from '@/lib/exportExcel';
 import { SchedulerPanel } from './SchedulerPanel';
 import { BroadcastPanel } from './BroadcastPanel';
+import { PriceSyncPanel } from './PriceSyncPanel';
 
 function formatDateParam(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -424,6 +425,9 @@ export default function InventoryDashboard() {
 
             {/* WA Broadcast Panel */}
             <BroadcastPanel branches={branches} warehouses={warehouses} />
+
+            {/* Price Analysis Auto-Sync Panel */}
+            <PriceSyncPanel />
 
             {/* Tabs */}
             <div className="flex flex-wrap gap-1.5">

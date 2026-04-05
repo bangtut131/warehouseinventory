@@ -17,5 +17,13 @@ export async function register() {
         } catch (err) {
             console.error('[Instrumentation] Failed to start keep-alive:', err);
         }
+
+        // Price Analysis auto-sync scheduler
+        try {
+            const { startPriceSyncScheduler } = await import('@/lib/price-sync-scheduler');
+            await startPriceSyncScheduler();
+        } catch (err) {
+            console.error('[Instrumentation] Failed to start price sync scheduler:', err);
+        }
     }
 }

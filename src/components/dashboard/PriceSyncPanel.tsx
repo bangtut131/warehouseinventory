@@ -1,0 +1,467 @@
+'use client';
+
+import React, { useEffect, useState, useCallback } from 'react';
+import axios from 'axios';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+
+interface PriceSyncConfig {
+    enabled: boolean;
+    cronExpression: string;
+    intervalLabel: string;
+    fromDate: string;
+    waReportEnabled: boolean;
+    waReportTargets: string[];
+}
+
+interface PriceSyncHistoryEntry {
+    id: number;
+    startedAt: string;
+    completedAt: string | null;
+    status: 'success' | 'error' | 'running';
+    durationSec: number | null;
+    message: string | null;
+    trigger: string;
+}
+
+interface PriceSyncStatus {
+    config: PriceSyncConfig;
+    cronActive: boolean;
+    isSyncing: boolean;
+    history: PriceSyncHistoryEntry[];
+}
+
+const DAYS_OF_WEEK = [
+    { label: 'Sen', value: 1 },
+    { label: 'Sel', value: 2 },
+    { label: 'Rab', value: 3 },
+    { label: 'Kam', value: 4 },
+    { label: 'Jum', value: 5 },
+    { label: 'Sab', value: 6 },
+    { label: 'Min', value: 0 },
+];
+
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+function parseCronToCustom(cronExpr: string): { hours: number[]; days: number[] } {
+    try {
+        const parts = cronExpr.split(' ');
+        if (parts.length !== 5) return { hours: [6], days: [1, 2, 3, 4, 5] };
+
+        const [, hourPart, , , dayPart] = parts;
+
+        let hours: number[] = [];
+        if (hourPart === '*') {
+            hours = [...HOURS];
+        } else if (hourPart.startsWith('*/')) {
+            const interval = parseInt(hourPart.slice(2));
+            hours = HOURS.filter(h => h % interval === 0);
+        } else {
+            hourPart.split(',').forEach(h => {
+                const num = parseInt(h.trim());
+                if (!isNaN(num) && num >= 0 && num <= 23) hours.push(num);
+            });
+        }
+        if (hours.length === 0) hours = [6];
+
+        let days: number[] = [];
+        if (dayPart === '*') {
+            days = [0, 1, 2, 3, 4, 5, 6];
+        } else {
+            dayPart.split(',').forEach(d => {
+                const num = parseInt(d.trim());
+                if (!isNaN(num) && num >= 0 && num <= 6) days.push(num);
+            });
+        }
+        if (days.length === 0) days = [1, 2, 3, 4, 5];
+
+        return { hours, days };
+    } catch {
+        return { hours: [6], days: [1, 2, 3, 4, 5] };
+    }
+}
+
+function buildCustomCron(hours: number[], days: number[]): string {
+    const hourStr = hours.length === 24 ? '*' : hours.sort((a, b) => a - b).join(',');
+    const dayStr = days.length === 7 ? '*' : days.sort((a, b) => a - b).join(',');
+    return `0 ${hourStr} * * ${dayStr}`;
+}
+
+function buildCustomLabel(hours: number[], days: number[]): string {
+    const dayLabels = days.length === 7
+        ? 'Setiap Hari'
+        : days.map(d => DAYS_OF_WEEK.find(dw => dw.value === d)?.label || '').join(', ');
+    const hourLabels = hours.length === 24
+        ? 'Setiap Jam'
+        : hours.map(h => `${String(h).padStart(2, '0')}:00`).join(', ');
+    return `${dayLabels} @ ${hourLabels}`;
+}
+
+export function PriceSyncPanel() {
+    const [status, setStatus] = useState<PriceSyncStatus | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [updating, setUpdating] = useState(false);
+    const [expanded, setExpanded] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // Custom schedule state
+    const [selectedHours, setSelectedHours] = useState<number[]>([6]);
+    const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
+    const [waTargetNumbers, setWaTargetNumbers] = useState('');
+
+    const fetchStatus = useCallback(async () => {
+        setError(null);
+        try {
+            const res = await axios.get('/api/price-analysis/scheduler');
+            setStatus(res.data);
+
+            const cfg = res.data?.config;
+            if (cfg) {
+                const parsed = parseCronToCustom(cfg.cronExpression);
+                setSelectedHours(parsed.hours);
+                setSelectedDays(parsed.days);
+            }
+            if (cfg?.waReportTargets?.length) {
+                setWaTargetNumbers(cfg.waReportTargets.join(', '));
+            }
+        } catch (err: any) {
+            console.error('Failed to fetch price sync status', err);
+            setError(err.response?.data?.error || err.message || 'Gagal memuat status');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchStatus();
+        const timer = setInterval(fetchStatus, 30000);
+        return () => clearInterval(timer);
+    }, [fetchStatus]);
+
+    const updateConfig = async (updates: Partial<PriceSyncConfig>) => {
+        setUpdating(true);
+        try {
+            await axios.post('/api/price-analysis/scheduler', updates);
+            await fetchStatus();
+        } catch (err: any) {
+            console.error('Failed to update price sync config', err);
+            alert('Gagal update config: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setUpdating(false);
+        }
+    };
+
+    const toggleEnabled = () => {
+        if (!status) return;
+        updateConfig({ enabled: !status.config.enabled });
+    };
+
+    const toggleHour = (hour: number) => {
+        setSelectedHours(prev => {
+            const next = prev.includes(hour) ? prev.filter(h => h !== hour) : [...prev, hour];
+            return next.length === 0 ? [hour] : next;
+        });
+    };
+
+    const toggleDay = (day: number) => {
+        setSelectedDays(prev => {
+            const next = prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day];
+            return next.length === 0 ? [day] : next;
+        });
+    };
+
+    const applySchedule = () => {
+        const cronExpr = buildCustomCron(selectedHours, selectedDays);
+        const label = buildCustomLabel(selectedHours, selectedDays);
+        updateConfig({ cronExpression: cronExpr, intervalLabel: label });
+    };
+
+    const triggerManualSync = async () => {
+        try {
+            await axios.post('/api/price-analysis/scheduler?action=trigger');
+            await fetchStatus();
+        } catch (err) {
+            console.error('Failed to trigger manual price sync', err);
+        }
+    };
+
+    const formatDate = (iso: string) => {
+        const d = new Date(iso);
+        return d.toLocaleString('id-ID', {
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
+    };
+
+    const formatDuration = (sec: number | null) => {
+        if (!sec) return '-';
+        const min = Math.floor(sec / 60);
+        const s = sec % 60;
+        return min > 0 ? `${min}m ${s}s` : `${s}s`;
+    };
+
+    if (loading && !status && !error) return null; // silent loading
+
+    if (error && !status) {
+        return (
+            <div className="border rounded-lg p-4 bg-red-50 border-red-200">
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-red-600">⚠️</span>
+                    <span className="text-sm font-semibold text-red-700">Gagal Memuat Scheduler Harga</span>
+                </div>
+                <p className="text-xs text-red-600 mb-3">{error}</p>
+                <Button size="sm" variant="outline" onClick={fetchStatus} className="text-xs border-red-300 text-red-700 hover:bg-red-100">
+                    Coba Lagi
+                </Button>
+            </div>
+        );
+    }
+
+    if (!status) return null;
+
+    const { config, cronActive, isSyncing, history } = status;
+    const lastSuccess = history.find(h => h.status === 'success');
+
+    return (
+        <div className="border rounded-lg overflow-hidden">
+            {/* Header — always visible */}
+            <div
+                className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-amber-50 to-orange-50 cursor-pointer hover:from-amber-100 hover:to-orange-100 transition-colors"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <div className="flex items-center gap-3">
+                    <span className="text-base">💰</span>
+                    <span className="text-sm font-semibold text-gray-700">Auto-Sync Analisa Harga</span>
+                    {config.enabled ? (
+                        <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px] px-1.5 py-0">
+                            ● Aktif — {config.intervalLabel}
+                        </Badge>
+                    ) : (
+                        <Badge variant="outline" className="text-gray-500 text-[10px] px-1.5 py-0">
+                            Nonaktif
+                        </Badge>
+                    )}
+                    {isSyncing && (
+                        <div className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-[10px] text-amber-600 font-medium">Syncing...</span>
+                        </div>
+                    )}
+                    {lastSuccess && !isSyncing && (
+                        <span className="text-[10px] text-gray-400">
+                            Terakhir: {formatDate(lastSuccess.completedAt!)}
+                        </span>
+                    )}
+                </div>
+                <span className="text-xs text-gray-400">{expanded ? '▲' : '▼'}</span>
+            </div>
+
+            {/* Expanded Settings */}
+            {expanded && (
+                <div className="px-4 py-3 bg-white border-t space-y-3">
+                    {/* Row 1: Toggle + Run Now */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                            variant={config.enabled ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={toggleEnabled}
+                            disabled={updating}
+                            className={config.enabled
+                                ? 'bg-green-600 hover:bg-green-700 text-white text-xs'
+                                : 'text-xs'
+                            }
+                        >
+                            {config.enabled ? '✅ Enabled' : '⬜ Disabled'}
+                        </Button>
+
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={triggerManualSync}
+                            disabled={isSyncing || updating}
+                            className="text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                        >
+                            {isSyncing ? '⏳ Syncing...' : '▶ Sync & Report Sekarang'}
+                        </Button>
+                    </div>
+
+                    {/* Custom Schedule Builder */}
+                    <div className="space-y-2.5 bg-gray-50 rounded-lg p-3 border">
+                        {/* Day Selector */}
+                        <div>
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-xs font-medium text-gray-600">📅 Hari:</span>
+                                <button
+                                    onClick={() => setSelectedDays([0, 1, 2, 3, 4, 5, 6])}
+                                    className="text-[10px] text-amber-600 hover:underline"
+                                >
+                                    Semua
+                                </button>
+                                <span className="text-[10px] text-gray-300">|</span>
+                                <button
+                                    onClick={() => setSelectedDays([1, 2, 3, 4, 5])}
+                                    className="text-[10px] text-amber-600 hover:underline"
+                                >
+                                    Senin-Jumat
+                                </button>
+                            </div>
+                            <div className="flex gap-1">
+                                {DAYS_OF_WEEK.map(day => (
+                                    <button
+                                        key={day.value}
+                                        onClick={() => toggleDay(day.value)}
+                                        className={`w-9 h-7 text-[11px] rounded-md border transition-all font-medium ${selectedDays.includes(day.value)
+                                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                            : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300 hover:text-amber-600'
+                                            }`}
+                                    >
+                                        {day.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Hour Selector */}
+                        <div>
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-xs font-medium text-gray-600">🕐 Jam:</span>
+                                <span className="text-[10px] text-gray-400">
+                                    ({selectedHours.length} jam dipilih)
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-12 gap-1">
+                                {HOURS.map(hour => (
+                                    <button
+                                        key={hour}
+                                        onClick={() => toggleHour(hour)}
+                                        className={`h-7 text-[10px] rounded-md border transition-all font-medium ${selectedHours.includes(hour)
+                                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                            : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300 hover:text-amber-600'
+                                            }`}
+                                    >
+                                        {String(hour).padStart(2, '0')}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Preview + Apply */}
+                        <div className="flex items-center justify-between pt-1">
+                            <div className="text-[10px] text-gray-500">
+                                <span className="font-medium">Preview:</span>{' '}
+                                <code className="bg-white px-1.5 py-0.5 rounded text-amber-700 border text-[10px]">
+                                    {buildCustomCron(selectedHours, selectedDays)}
+                                </code>
+                                <span className="ml-2 text-gray-400">
+                                    = {buildCustomLabel(selectedHours, selectedDays)}
+                                </span>
+                            </div>
+                            <Button
+                                size="sm"
+                                onClick={applySchedule}
+                                disabled={updating}
+                                className="text-xs bg-amber-600 hover:bg-amber-700"
+                            >
+                                {updating ? '⏳ Saving...' : '✓ Terapkan'}
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* WA Report Config */}
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm">📱</span>
+                                <span className="text-xs font-semibold text-green-800">WA Sync Report (Harga)</span>
+                            </div>
+                            <Button
+                                variant={config.waReportEnabled ? 'default' : 'outline'}
+                                size="sm"
+                                onClick={() => updateConfig({ waReportEnabled: !config.waReportEnabled })}
+                                disabled={updating}
+                                className={`text-[10px] h-6 px-2 ${config.waReportEnabled
+                                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                                    : 'text-green-700 border-green-300'
+                                    }`}
+                            >
+                                {config.waReportEnabled ? '✅ Aktif' : '⬜ Nonaktif'}
+                            </Button>
+                        </div>
+                        <p className="text-[10px] text-green-700 mb-2">
+                            Kirim status sync harga ke WA setiap selesai (berhasil/gagal). Menggunakan koneksi WAHA dari Broadcast.
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="text"
+                                value={waTargetNumbers}
+                                onChange={(e) => setWaTargetNumbers(e.target.value)}
+                                placeholder="08123456789, 08198765432"
+                                className="flex-1 text-xs border rounded px-2 py-1.5 bg-white"
+                            />
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updating}
+                                onClick={() => {
+                                    const targets = waTargetNumbers.split(',').map(n => n.trim()).filter(Boolean);
+                                    updateConfig({ waReportTargets: targets });
+                                }}
+                                className="text-[10px] h-7 px-2 border-green-300 text-green-700 hover:bg-green-100"
+                            >
+                                💾 Simpan
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Sync History */}
+                    {history.length > 0 && (
+                        <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-1.5">📋 Riwayat Sync Harga (terakhir 10)</p>
+                            <div className="max-h-[200px] overflow-y-auto">
+                                <table className="w-full text-xs">
+                                    <thead>
+                                        <tr className="border-b text-left text-gray-400">
+                                            <th className="py-1 pr-2">Waktu</th>
+                                            <th className="py-1 pr-2">Status</th>
+                                            <th className="py-1 pr-2">Durasi</th>
+                                            <th className="py-1 pr-2">Detail</th>
+                                            <th className="py-1">Trigger</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {history.slice(0, 10).map(entry => (
+                                            <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50">
+                                                <td className="py-1.5 pr-2 text-gray-600">{formatDate(entry.startedAt)}</td>
+                                                <td className="py-1.5 pr-2">
+                                                    {entry.status === 'success' && <span className="text-green-600">✅ Sukses</span>}
+                                                    {entry.status === 'error' && (
+                                                        <span className="text-red-600" title={entry.message || ''}>❌ Gagal</span>
+                                                    )}
+                                                    {entry.status === 'running' && (
+                                                        <span className="text-blue-600">🔄 Berjalan</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-1.5 pr-2 text-gray-500">{formatDuration(entry.durationSec)}</td>
+                                                <td className="py-1.5 pr-2 text-gray-500 max-w-[200px] truncate" title={entry.message || ''}>
+                                                    {entry.message || '-'}
+                                                </td>
+                                                <td className="py-1.5">
+                                                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${entry.trigger === 'scheduled'
+                                                        ? 'bg-purple-50 text-purple-600 border-purple-200'
+                                                        : 'bg-blue-50 text-blue-600 border-blue-200'
+                                                        }`}>
+                                                        {entry.trigger === 'scheduled' ? '⏰ Auto' : '👤 Manual'}
+                                                    </Badge>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
