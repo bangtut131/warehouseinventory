@@ -245,6 +245,12 @@ export function PriceAnalysisView() {
     const [page, setPage] = useState(1);
     const PAGE_SIZE = 100;
 
+    // Refs untuk sinkronisasi scroll horizontal
+    const topScrollRef = useRef<HTMLDivElement>(null);
+    const tableScrollRef = useRef<HTMLDivElement>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
+    const [tableWidth, setTableWidth] = useState(0);
+
     const fetchData = async (force = false) => {
         setLoading(true);
         setError('');
@@ -266,6 +272,18 @@ export function PriceAnalysisView() {
     };
 
     useEffect(() => { fetchData(); }, []);
+
+    // Effect untuk mengatur dummy width dari top scrollbar
+    useEffect(() => {
+        if (!tableRef.current) return;
+        const resizeObserver = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                setTableWidth(entry.contentRect.width);
+            }
+        });
+        resizeObserver.observe(tableRef.current);
+        return () => resizeObserver.disconnect();
+    }, [items]);
 
     // All unique categories across all items
     const allCategories = useMemo(() => {
@@ -551,10 +569,35 @@ export function PriceAnalysisView() {
                 </span>
             </div>
 
+            {/* Top Scrollbar for Table (Synced) */}
+            <div
+                ref={topScrollRef}
+                className="overflow-x-auto overflow-y-hidden border rounded-t-xl border-b-0 bg-slate-50"
+                onScroll={() => {
+                    if (tableScrollRef.current && topScrollRef.current) {
+                        if (Math.abs(tableScrollRef.current.scrollLeft - topScrollRef.current.scrollLeft) > 1) {
+                            tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+                        }
+                    }
+                }}
+            >
+                <div style={{ width: tableWidth || '100%', height: '1px' }}></div>
+            </div>
+
             {/* Main Table */}
-            <div className="border rounded-xl overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+            <div className="border rounded-b-xl overflow-hidden shadow-sm">
+                <div 
+                    ref={tableScrollRef}
+                    className="overflow-x-auto"
+                    onScroll={() => {
+                        if (tableScrollRef.current && topScrollRef.current) {
+                            if (Math.abs(topScrollRef.current.scrollLeft - tableScrollRef.current.scrollLeft) > 1) {
+                                topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
+                            }
+                        }
+                    }}
+                >
+                    <table ref={tableRef} className="w-full text-sm">
                         <thead>
                             <tr className="bg-slate-50 border-b">
                                 <th className="px-3 py-2.5 text-left font-medium text-xs text-muted-foreground sticky left-0 bg-slate-50 z-10 min-w-[70px]">
