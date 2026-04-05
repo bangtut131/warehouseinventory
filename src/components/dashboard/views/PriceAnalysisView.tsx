@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { PriceAnalysisItem, CategoryPrice } from '@/lib/types';
@@ -28,18 +28,19 @@ function computeStatus(margin: number, hasData: boolean): keyof typeof statusCon
     return 'HEALTHY';
 }
 
-/** Compute dynamic margin for an item based on category filter */
-function getItemMargin(item: PriceAnalysisItem, catFilter: string): { margin: number; status: keyof typeof statusConfig } {
+/** Compute dynamic margin for an item based on category filter (supports multiple) */
+function getItemMargin(item: PriceAnalysisItem, catFilter: string[]): { margin: number; status: keyof typeof statusConfig } {
     if (item.lastPurchasePrice <= 0) return { margin: 0, status: 'NO_DATA' };
     const prices = item.categoryPrices?.filter(cp => cp.price > 0) || [];
     if (prices.length === 0) return { margin: 0, status: 'NO_DATA' };
 
     let margin: number;
-    if (catFilter !== 'all') {
-        // Specific category: use that category's margin
-        const cp = prices.find(c => c.categoryName === catFilter);
-        if (!cp) return { margin: 0, status: 'NO_DATA' };
-        margin = cp.marginVsLastPurchase;
+    if (catFilter.length > 0) {
+        // Specific categories: average margin of selected
+        const selected = prices.filter(c => catFilter.includes(c.categoryName));
+        if (selected.length === 0) return { margin: 0, status: 'NO_DATA' };
+        const sum = selected.reduce((s, cp) => s + cp.marginVsLastPurchase, 0);
+        margin = sum / selected.length;
     } else {
         // All categories: average margin
         const sum = prices.reduce((s, cp) => s + cp.marginVsLastPurchase, 0);
@@ -96,13 +97,149 @@ function autoWidth(ws: XLSX.WorkSheet, data: Record<string, any>[]) {
     });
 }
 
+/** Multi-select dropdown for category filter */
+function CategoryMultiSelect({ allCategories, selected, onChange }: {
+    allCategories: [string, number][];
+    selected: string[];
+    onChange: (val: string[]) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [catSearch, setCatSearch] = useState('');
+    const ref = useRef<HTMLDivElement>(null);
+
+    // Close on click outside
+    useEffect(() => {
+        function handleClick(e: MouseEvent) {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        }
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    const isAllSelected = selected.length === 0; // empty = all
+    const filteredCats = catSearch
+        ? allCategories.filter(([name]) => name.toLowerCase().includes(catSearch.toLowerCase()))
+        : allCategories;
+
+    const toggleCategory = (name: string) => {
+        if (selected.includes(name)) {
+            onChange(selected.filter(s => s !== name));
+        } else {
+            onChange([...selected, name]);
+        }
+    };
+
+    const selectAll = () => onChange([]);
+    const deselectAll = () => onChange(allCategories.map(([name]) => name));
+    const label = isAllSelected
+        ? `Semua Kategori (${allCategories.length})`
+        : selected.length === 1
+            ? selected[0]
+            : `${selected.length} Kategori dipilih`;
+
+    return (
+        <div ref={ref} className="relative">
+            <button
+                type="button"
+                onClick={() => setOpen(o => !o)}
+                className="bg-white border rounded-lg px-3 py-2 text-sm flex items-center gap-2 min-w-[200px] hover:border-slate-400 transition-colors"
+            >
+                <span className="flex-1 text-left truncate">{label}</span>
+                {!isAllSelected && (
+                    <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                        {selected.length}
+                    </span>
+                )}
+                <span className="text-muted-foreground text-xs">{open ? '▲' : '▼'}</span>
+            </button>
+
+            {open && (
+                <div className="absolute top-full left-0 mt-1 bg-white border rounded-xl shadow-xl z-50 w-[300px] max-h-[380px] flex flex-col overflow-hidden">
+                    {/* Search */}
+                    <div className="p-2 border-b">
+                        <input
+                            type="text"
+                            placeholder="🔍 Cari kategori..."
+                            value={catSearch}
+                            onChange={e => setCatSearch(e.target.value)}
+                            className="w-full border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+                            autoFocus
+                        />
+                    </div>
+
+                    {/* Quick actions */}
+                    <div className="flex gap-1 px-2 py-1.5 border-b bg-slate-50">
+                        <button
+                            onClick={selectAll}
+                            className={`text-[11px] px-2 py-1 rounded-md transition-colors ${
+                                isAllSelected
+                                    ? 'bg-amber-100 text-amber-800 font-medium'
+                                    : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            ✅ Semua
+                        </button>
+                        <button
+                            onClick={deselectAll}
+                            className="text-[11px] px-2 py-1 rounded-md text-slate-600 hover:bg-slate-100 transition-colors"
+                        >
+                            ☐ Pilih Manual
+                        </button>
+                        {!isAllSelected && selected.length > 0 && (
+                            <button
+                                onClick={() => onChange([])}
+                                className="text-[11px] px-2 py-1 rounded-md text-red-600 hover:bg-red-50 ml-auto transition-colors"
+                            >
+                                ✕ Reset
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Category list */}
+                    <div className="overflow-y-auto flex-1">
+                        {filteredCats.map(([name, id]) => {
+                            const isChecked = isAllSelected || selected.includes(name);
+                            return (
+                                <label
+                                    key={id}
+                                    className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-amber-50/60 transition-colors text-sm border-b border-slate-50 ${
+                                        isChecked && !isAllSelected ? 'bg-amber-50/40' : ''
+                                    }`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {
+                                            if (isAllSelected) {
+                                                // Switching from 'all' to manual: select only this one
+                                                onChange([name]);
+                                            } else {
+                                                toggleCategory(name);
+                                            }
+                                        }}
+                                        className="w-3.5 h-3.5 rounded accent-amber-600"
+                                    />
+                                    <span className="truncate">{name}</span>
+                                </label>
+                            );
+                        })}
+                        {filteredCats.length === 0 && (
+                            <div className="px-3 py-4 text-center text-sm text-muted-foreground">Tidak ditemukan</div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function PriceAnalysisView() {
     const [items, setItems] = useState<PriceAnalysisItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
-    const [categoryFilter, setCategoryFilter] = useState<string>('all');
+    const [categoryFilter, setCategoryFilter] = useState<string[]>([]);  // empty = all
     const [sortBy, setSortBy] = useState<string>('status');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [page, setPage] = useState(1);
@@ -146,8 +283,8 @@ export function PriceAnalysisView() {
 
     // Filtered categories to display as columns
     const displayCategories = useMemo(() => {
-        if (categoryFilter === 'all') return allCategories;
-        return allCategories.filter(([name]) => name === categoryFilter);
+        if (categoryFilter.length === 0) return allCategories;
+        return allCategories.filter(([name]) => categoryFilter.includes(name));
     }, [allCategories, categoryFilter]);
 
     // Summary KPIs — dynamic based on category filter
@@ -386,16 +523,11 @@ export function PriceAnalysisView() {
                     <option value="HEALTHY">✅ Margin Sehat</option>
                     <option value="NO_DATA">⬜ Tanpa Data</option>
                 </select>
-                <select
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="bg-white border rounded-lg px-3 py-2 text-sm"
-                >
-                    <option value="all">Semua Kategori ({allCategories.length})</option>
-                    {allCategories.map(([name, id]) => (
-                        <option key={id} value={name}>{name}</option>
-                    ))}
-                </select>
+                <CategoryMultiSelect
+                    allCategories={allCategories}
+                    selected={categoryFilter}
+                    onChange={setCategoryFilter}
+                />
                 <Button
                     variant="outline"
                     size="sm"
@@ -556,9 +688,14 @@ export function PriceAnalysisView() {
                                                 margin={dynMargin}
                                                 hasData={dynStatus !== 'NO_DATA'}
                                             />
-                                            {dynStatus !== 'NO_DATA' && categoryFilter === 'all' && (
+                                            {dynStatus !== 'NO_DATA' && (
                                                 <div className="text-[10px] text-muted-foreground mt-0.5">
-                                                    avg semua kategori
+                                                    {categoryFilter.length === 0
+                                                        ? 'avg semua kategori'
+                                                        : categoryFilter.length === 1
+                                                            ? categoryFilter[0]
+                                                            : `avg ${categoryFilter.length} kategori`
+                                                    }
                                                 </div>
                                             )}
                                         </td>
