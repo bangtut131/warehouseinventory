@@ -6,19 +6,16 @@ import {
 } from '@/lib/accurate';
 import { PriceAnalysisItem, CategoryPrice } from '@/lib/types';
 
-// Margin thresholds
-const MARGIN_HEALTHY = 15;  // > 15% = healthy
-const MARGIN_THIN = 5;      // 5-15% = thin
-
 function computeMargin(sellPrice: number, buyPrice: number): number {
   if (buyPrice <= 0 || sellPrice <= 0) return 0;
   return ((sellPrice - buyPrice) / buyPrice) * 100;
 }
 
-function getStatus(margin: number, hasData: boolean): PriceAnalysisItem['status'] {
+// getStatus takes dynamic thresholds now
+function getStatus(margin: number, hasData: boolean, marginHealthy: number, marginThin: number): PriceAnalysisItem['status'] {
   if (!hasData) return 'NO_DATA';
-  if (margin < MARGIN_THIN) return 'NEGATIVE';
-  if (margin < MARGIN_HEALTHY) return 'THIN';
+  if (margin < marginThin) return 'NEGATIVE';
+  if (margin < marginHealthy) return 'THIN';
   return 'HEALTHY';
 }
 
@@ -47,6 +44,18 @@ export async function GET(request: Request) {
     const { priceMap } = purchaseResult;
 
     console.log(`[PriceAnalysis] Data loaded: ${items.length} items, ${priceMap.size} purchase prices, ${masterPrices.size} master prices`);
+
+    // Fetch settings to get margins
+    let marginHealthy = 15;
+    let marginThin = 5;
+    try {
+      const { loadPriceSyncConfig } = await import('@/lib/price-sync-scheduler');
+      const cfg = await loadPriceSyncConfig();
+      if (cfg.marginHealthy !== undefined) marginHealthy = cfg.marginHealthy;
+      if (cfg.marginThin !== undefined) marginThin = cfg.marginThin;
+    } catch (err) {
+      console.warn('[PriceAnalysis] Failed to load config, using default margin thresholds');
+    }
 
     // Build result array
     const result: PriceAnalysisItem[] = [];
@@ -129,7 +138,7 @@ export async function GET(request: Request) {
         categoryPrices,
         marginVsLastPurchase: Math.round(overallMarginLast * 100) / 100,
         marginVsAvgPurchase: Math.round(overallMarginAvg * 100) / 100,
-        status: getStatus(overallMarginLast, hasData),
+        status: getStatus(overallMarginLast, hasData, marginHealthy, marginThin),
       });
     }
 
@@ -139,7 +148,13 @@ export async function GET(request: Request) {
 
     console.log(`[PriceAnalysis] Done: ${result.length} items analyzed`);
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      data: result,
+      config: {
+        marginHealthy,
+        marginThin
+      }
+    });
   } catch (error: any) {
     console.error('[PriceAnalysis] Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });

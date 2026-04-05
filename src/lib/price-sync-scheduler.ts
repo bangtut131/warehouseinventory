@@ -18,8 +18,10 @@ export interface PriceSyncConfig {
   // WA Report config
   waReportEnabled: boolean;
   waReportTargets: string[];
-  // Calculation settings
+  // Calculation & UI settings
   ppnRate: number;
+  marginHealthy: number;
+  marginThin: number;
 }
 
 const DEFAULT_CONFIG: PriceSyncConfig = {
@@ -30,6 +32,8 @@ const DEFAULT_CONFIG: PriceSyncConfig = {
   waReportEnabled: false,
   waReportTargets: [],
   ppnRate: 11,
+  marginHealthy: 15,
+  marginThin: 5,
 };
 
 const CONFIG_KEY = 'price_sync_config';

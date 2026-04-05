@@ -18,18 +18,15 @@ const statusConfig = {
     NO_DATA: { label: '⬜ No Data', color: 'bg-gray-50 text-gray-500 border-gray-200' },
 };
 
-const MARGIN_HEALTHY = 15;
-const MARGIN_THIN = 5;
-
-function computeStatus(margin: number, hasData: boolean): keyof typeof statusConfig {
+function computeStatus(margin: number, hasData: boolean, marginHealthy: number, marginThin: number): keyof typeof statusConfig {
     if (!hasData) return 'NO_DATA';
-    if (margin < MARGIN_THIN) return 'NEGATIVE';
-    if (margin < MARGIN_HEALTHY) return 'THIN';
+    if (margin < marginThin) return 'NEGATIVE';
+    if (margin < marginHealthy) return 'THIN';
     return 'HEALTHY';
 }
 
 /** Compute dynamic margin for an item based on category filter (supports multiple) */
-function getItemMargin(item: PriceAnalysisItem, catFilter: string[]): { margin: number; status: keyof typeof statusConfig } {
+function getItemMargin(item: PriceAnalysisItem, catFilter: string[], marginHealthy: number, marginThin: number): { margin: number; status: keyof typeof statusConfig } {
     if (item.lastPurchasePrice <= 0) return { margin: 0, status: 'NO_DATA' };
     const prices = item.categoryPrices?.filter(cp => cp.price > 0) || [];
     if (prices.length === 0) return { margin: 0, status: 'NO_DATA' };
@@ -46,13 +43,13 @@ function getItemMargin(item: PriceAnalysisItem, catFilter: string[]): { margin: 
         const sum = prices.reduce((s, cp) => s + cp.marginVsLastPurchase, 0);
         margin = sum / prices.length;
     }
-    return { margin: Math.round(margin * 100) / 100, status: computeStatus(margin, true) };
+    return { margin: Math.round(margin * 100) / 100, status: computeStatus(margin, true, marginHealthy, marginThin) };
 }
 
-function MarginBadge({ margin, hasData }: { margin: number; hasData: boolean }) {
+function MarginBadge({ margin, hasData, healthy, thin }: { margin: number; hasData: boolean; healthy: number; thin: number }) {
     if (!hasData) return <span className="text-xs text-gray-400">—</span>;
-    const color = margin >= 15 ? 'text-green-700 bg-green-50' :
-        margin >= 5 ? 'text-amber-700 bg-amber-50' :
+    const color = margin >= healthy ? 'text-green-700 bg-green-50' :
+        margin >= thin ? 'text-amber-700 bg-amber-50' :
             margin >= 0 ? 'text-orange-700 bg-orange-50' :
                 'text-red-700 bg-red-50 font-bold';
     return (
@@ -245,6 +242,9 @@ export function PriceAnalysisView() {
     const [page, setPage] = useState(1);
     const PAGE_SIZE = 100;
 
+    // Config margin dari backend
+    const [marginThresholds, setMarginThresholds] = useState({ healthy: 15, thin: 5 });
+
     // Refs untuk sinkronisasi scroll horizontal
     const topScrollRef = useRef<HTMLDivElement>(null);
     const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -259,7 +259,18 @@ export function PriceAnalysisView() {
             params.set('from', '2025-01-01');
             if (force) params.set('force', 'true');
             const res = await axios.get(`/api/price-analysis?${params}`);
-            if (Array.isArray(res.data)) {
+            
+            // Handle res.data if it has data & config format
+            if (res.data && Array.isArray(res.data.data)) {
+                setItems(res.data.data);
+                if (res.data.config) {
+                    setMarginThresholds({
+                        healthy: res.data.config.marginHealthy ?? 15,
+                        thin: res.data.config.marginThin ?? 5,
+                    });
+                }
+            } else if (Array.isArray(res.data)) {
+                // Fallback if structured differently
                 setItems(res.data);
             } else {
                 setError(res.data?.error || 'Unknown error');
@@ -307,7 +318,7 @@ export function PriceAnalysisView() {
 
     // Summary KPIs — dynamic based on category filter
     const summary = useMemo(() => {
-        const computed = items.map(i => getItemMargin(i, categoryFilter));
+        const computed = items.map(i => getItemMargin(i, categoryFilter, marginThresholds.healthy, marginThresholds.thin));
         const withData = computed.filter(c => c.status !== 'NO_DATA');
         return {
             total: items.length,
@@ -321,7 +332,7 @@ export function PriceAnalysisView() {
                 : 0,
             totalCategories: allCategories.length,
         };
-    }, [items, allCategories, categoryFilter]);
+    }, [items, allCategories, categoryFilter, marginThresholds]);
 
     // Filtered & sorted items — using dynamic margin/status
     const filtered = useMemo(() => {
@@ -335,14 +346,14 @@ export function PriceAnalysisView() {
         }
         if (statusFilter !== 'all') {
             // Filter by dynamic status (based on category filter)
-            list = list.filter(i => getItemMargin(i, categoryFilter).status === statusFilter);
+            list = list.filter(i => getItemMargin(i, categoryFilter, marginThresholds.healthy, marginThresholds.thin).status === statusFilter);
         }
         const statusOrder: Record<string, number> = { NEGATIVE: 0, THIN: 1, NO_DATA: 2, HEALTHY: 3 };
         list.sort((a, b) => {
             let diff = 0;
             switch (sortBy) {
-                case 'status': diff = statusOrder[getItemMargin(a, categoryFilter).status] - statusOrder[getItemMargin(b, categoryFilter).status]; break;
-                case 'margin': diff = getItemMargin(a, categoryFilter).margin - getItemMargin(b, categoryFilter).margin; break;
+                case 'status': diff = statusOrder[getItemMargin(a, categoryFilter, marginThresholds.healthy, marginThresholds.thin).status] - statusOrder[getItemMargin(b, categoryFilter, marginThresholds.healthy, marginThresholds.thin).status]; break;
+                case 'margin': diff = getItemMargin(a, categoryFilter, marginThresholds.healthy, marginThresholds.thin).margin - getItemMargin(b, categoryFilter, marginThresholds.healthy, marginThresholds.thin).margin; break;
                 case 'name': diff = a.itemName.localeCompare(b.itemName); break;
                 case 'sku': diff = a.itemNo.localeCompare(b.itemNo); break;
                 case 'lastBuy': diff = a.lastPurchasePrice - b.lastPurchasePrice; break;
@@ -350,7 +361,7 @@ export function PriceAnalysisView() {
             return sortDir === 'asc' ? diff : -diff;
         });
         return list;
-    }, [items, search, statusFilter, sortBy, sortDir, categoryFilter]);
+    }, [items, search, statusFilter, sortBy, sortDir, categoryFilter, marginThresholds]);
 
     useEffect(() => { setPage(1); }, [search, statusFilter, sortBy, sortDir, categoryFilter]);
 
@@ -489,17 +500,17 @@ export function PriceAnalysisView() {
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4 shadow-sm">
                     <div className="text-xs text-green-600 mb-1">✅ Margin Sehat</div>
                     <div className="text-2xl font-bold text-green-700">{fmt(summary.healthy)}</div>
-                    <div className="text-xs text-green-600">&gt;15% margin</div>
+                    <div className="text-xs text-green-600">&gt;={marginThresholds.healthy}% margin</div>
                 </div>
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 shadow-sm">
                     <div className="text-xs text-amber-600 mb-1">⚠️ Margin Tipis</div>
                     <div className="text-2xl font-bold text-amber-700">{fmt(summary.thin)}</div>
-                    <div className="text-xs text-amber-600">5-15% margin</div>
+                    <div className="text-xs text-amber-600">{marginThresholds.thin}-{marginThresholds.healthy}% margin</div>
                 </div>
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm">
                     <div className="text-xs text-red-600 mb-1">🔴 Margin Negatif</div>
                     <div className="text-2xl font-bold text-red-700">{fmt(summary.negative)}</div>
-                    <div className="text-xs text-red-600">&lt;5% atau rugi</div>
+                    <div className="text-xs text-red-600">&lt;{marginThresholds.thin}% atau rugi</div>
                 </div>
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 shadow-sm">
                     <div className="text-xs text-blue-600 mb-1">📈 Avg Margin</div>
@@ -636,7 +647,7 @@ export function PriceAnalysisView() {
                         </thead>
                         <tbody>
                             {paginatedItems.map((item) => {
-                                const { margin: dynMargin, status: dynStatus } = getItemMargin(item, categoryFilter);
+                                const { margin: dynMargin, status: dynStatus } = getItemMargin(item, categoryFilter, marginThresholds.healthy, marginThresholds.thin);
                                 const sc = statusConfig[dynStatus];
                                 const bgRow = dynStatus === 'NEGATIVE' ? 'bg-red-50/40' :
                                     dynStatus === 'THIN' ? 'bg-amber-50/30' : '';
@@ -719,6 +730,8 @@ export function PriceAnalysisView() {
                                                         <MarginBadge
                                                             margin={cp.marginVsLastPurchase}
                                                             hasData={item.lastPurchasePrice > 0}
+                                                            healthy={marginThresholds.healthy}
+                                                            thin={marginThresholds.thin}
                                                         />
                                                     </div>
                                                 </td>
@@ -730,6 +743,8 @@ export function PriceAnalysisView() {
                                             <MarginBadge
                                                 margin={dynMargin}
                                                 hasData={dynStatus !== 'NO_DATA'}
+                                                healthy={marginThresholds.healthy}
+                                                thin={marginThresholds.thin}
                                             />
                                             {dynStatus !== 'NO_DATA' && (
                                                 <div className="text-[10px] text-muted-foreground mt-0.5">

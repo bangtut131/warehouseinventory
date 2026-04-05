@@ -13,6 +13,8 @@ interface PriceSyncConfig {
     waReportEnabled: boolean;
     waReportTargets: string[];
     ppnRate: number;
+    marginHealthy: number;
+    marginThin: number;
 }
 
 interface PriceSyncHistoryEntry {
@@ -110,6 +112,8 @@ export function PriceSyncPanel() {
     const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
     const [waTargetNumbers, setWaTargetNumbers] = useState('');
     const [ppnRate, setPpnRate] = useState<number>(11);
+    const [marginHealthy, setMarginHealthy] = useState<number>(15);
+    const [marginThin, setMarginThin] = useState<number>(5);
 
     const fetchStatus = useCallback(async () => {
         setError(null);
@@ -123,6 +127,8 @@ export function PriceSyncPanel() {
                 setSelectedHours(parsed.hours);
                 setSelectedDays(parsed.days);
                 if (cfg.ppnRate !== undefined) setPpnRate(cfg.ppnRate);
+                if (cfg.marginHealthy !== undefined) setMarginHealthy(cfg.marginHealthy);
+                if (cfg.marginThin !== undefined) setMarginThin(cfg.marginThin);
             }
             if (cfg?.waReportTargets?.length) {
                 setWaTargetNumbers(cfg.waReportTargets.join(', '));
@@ -379,22 +385,47 @@ export function PriceSyncPanel() {
                         <p className="text-[10px] text-blue-700 mb-2">
                             Konfigurasi penyesuaian PPN untuk normalisasi Harga Beli (otomatis exclude/include).
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mb-3">
                             <span className="text-xs font-medium text-blue-800">PPN Rate (%):</span>
                             <input
                                 type="number"
                                 value={ppnRate}
                                 onChange={(e) => setPpnRate(parseFloat(e.target.value) || 0)}
-                                className="w-20 text-xs border rounded px-2 py-1.5 bg-white"
+                                className="w-16 text-xs border rounded px-2 py-1.5 bg-white"
                             />
+                            <div className="flex-1"></div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 mb-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-green-700">✅ Batas Sehat (%):</span>
+                                <input
+                                    type="number"
+                                    value={marginHealthy}
+                                    onChange={(e) => setMarginHealthy(parseFloat(e.target.value) || 0)}
+                                    className="w-16 text-xs border border-green-200 rounded px-2 py-1.5 bg-white"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-red-700">🔴 Batas Rugi (%):</span>
+                                <input
+                                    type="number"
+                                    value={marginThin}
+                                    onChange={(e) => setMarginThin(parseFloat(e.target.value) || 0)}
+                                    className="w-16 text-xs border border-red-200 rounded px-2 py-1.5 bg-white"
+                                />
+                            </div>
+                        </div>
+                        
+                        <div className="flex justify-end">
                             <Button
                                 size="sm"
                                 variant="outline"
                                 disabled={updating}
-                                onClick={() => updateConfig({ ppnRate })}
+                                onClick={() => updateConfig({ ppnRate, marginHealthy, marginThin })}
                                 className="text-[10px] h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
                             >
-                                💾 Simpan
+                                💾 Simpan Semua Pengaturan
                             </Button>
                         </div>
                     </div>
