@@ -49,12 +49,12 @@ export async function fetchSpreadsheetOrders(): Promise<SheetOrder[]> {
         // Let's do exact match or includes based on common terms.
         // For DO, user said "di spreadsheet menggunakan data nama DO", so header might just be "Nama DO".
         // Let's search broadly just in case.
-        const headerLower = headers.map(h => h.toLowerCase().trim());
+        const headerLower = headers.map(h => h ? String(h).toLowerCase().trim() : '');
         
-        let idxDO = headerLower.findIndex(h => h === 'nama do' || h === 'no do' || h === 'do');
+        let idxDO = headerLower.findIndex(h => h === 'nama do' || h === 'no do' || h === 'do' || h === 'nomor tugas');
         if (idxDO === -1) {
              // Fallback
-             idxDO = headerLower.findIndex(h => h.includes('do'));
+             idxDO = headerLower.findIndex(h => h.includes('do') || h.includes('tugas'));
         }
 
         const idxTime = headerLower.findIndex(h => h === 'waktu tugas diselesaikan' || h.includes('waktu tugas diselesaikan'));
