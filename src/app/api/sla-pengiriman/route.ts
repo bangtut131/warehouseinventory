@@ -80,9 +80,13 @@ export async function GET(request: NextRequest) {
         // Strings for Accurate DO API request
         const fromDateStr = formatToAccurateDate(fromDateObj);
         const toDateStr = formatToAccurateDate(toDateObj);
-        const branchId = branchParam ? parseInt(branchParam) : undefined;
+        // Parse multiple branches (if separated by comma)
+        let branchIds: number[] = [];
+        if (branchParam && branchParam.trim() !== '') {
+            branchIds = branchParam.split(',').map(b => parseInt(b.trim())).filter(b => !isNaN(b));
+        }
 
-        console.log(`[SLA] Fetching SLA data from=${fromDateStr} to=${toDateStr} branch=${branchId || 'all'} (force=${forceRefresh})`);
+        console.log(`[SLA] Fetching SLA data from=${fromDateStr} to=${toDateStr} branches=${branchIds.join(',')} (force=${forceRefresh})`);
 
         // 1. Get ALL SO data for SLA (using specialized lightweight cache)
         const soCache = await loadSLASOCache(forceRefresh);
@@ -103,8 +107,8 @@ export async function GET(request: NextRequest) {
         console.log(`[SLA] SO statuses found: ${uniqueStatuses.join(', ')} (total ${soCache.length} SOs in cache)`);
 
         // Filter by branch if specified
-        if (branchId) {
-            approvedSOs = approvedSOs.filter(so => so.branchId === branchId);
+        if (branchIds.length > 0) {
+            approvedSOs = approvedSOs.filter(so => so.branchId !== undefined && branchIds.includes(so.branchId));
         }
 
         // Filter by date range
@@ -116,8 +120,11 @@ export async function GET(request: NextRequest) {
 
         console.log(`[SLA] Found ${approvedSOs.length} SOs in date range (after branch/date filter)`);
 
-        // 2. Get DO data
-        const doList = await fetchDOList(fromDateStr, toDateStr, branchId);
+        // 2. Get DO data (fetch all then filter to avoid multiple API calls that overwhelm rate limits)
+        let doList = await fetchDOList(fromDateStr, toDateStr, undefined);
+        if (branchIds.length > 0) {
+            doList = doList.filter(d => d.branchId !== undefined && branchIds.includes(d.branchId));
+        }
         console.log(`[SLA] Got ${doList.length} DOs`);
 
         // 3. Get DO details (to match DO → SO)
@@ -189,19 +196,19 @@ export async function GET(request: NextRequest) {
         }
 
         // 4. Build SO → DO mapping
-        const soToDO = new Map<string, { doNumber: string; doDate: string }>();
+        const soToDO = new Map<string, { doNumber: string; doDate: string; customerName: string }>();
         for (const [doNumber, detail] of doDetailMap) {
             if (detail.soNumber) {
                 // A SO can have multiple DOs, take the FIRST (earliest) DO date
                 const existing = soToDO.get(detail.soNumber);
                 if (!existing) {
-                    soToDO.set(detail.soNumber, { doNumber, doDate: detail.doDate });
+                    soToDO.set(detail.soNumber, { doNumber, doDate: detail.doDate, customerName: detail.customerName || '' });
                 } else {
                     // Compare dates — keep the earliest DO
                     const existingDate = parseDate(existing.doDate);
                     const thisDate = parseDate(detail.doDate);
                     if (thisDate < existingDate) {
-                        soToDO.set(detail.soNumber, { doNumber, doDate: detail.doDate });
+                        soToDO.set(detail.soNumber, { doNumber, doDate: detail.doDate, customerName: detail.customerName || '' });
                     }
                 }
             }
@@ -251,6 +258,11 @@ export async function GET(request: NextRequest) {
             const doInfo = soToDO.get(so.number);
             const soDateObj = parseDate(so.transDate);
 
+            // Resolve customer name (prioritize SO, fallback to DO)
+            const resolvedCustomerName = (!so.customerName || so.customerName === 'Unknown') && doInfo?.customerName 
+                ? doInfo.customerName 
+                : so.customerName || 'Unknown';
+
             if (doInfo && doInfo.doDate) {
                 // DO was created in Accurate. Check if it's in Spreadsheet.
                 const sheetCompletedAt = sheetOrderMap.get(doInfo.doNumber.toLowerCase());
@@ -266,9 +278,10 @@ export async function GET(request: NextRequest) {
                         soDate: so.transDate,
                         doNumber: doInfo.doNumber,
                         doDate: doInfo.doDate,
-                        customerName: so.customerName,
+                        customerName: resolvedCustomerName,
                         branchId: so.branchId,
                         leadTimeDays: leadTime,
+                        receivedDate: sheetCompletedAt,
                         status,
                     });
 
@@ -283,9 +296,10 @@ export async function GET(request: NextRequest) {
                         soDate: so.transDate,
                         doNumber: doInfo.doNumber,
                         doDate: doInfo.doDate,
-                        customerName: so.customerName,
+                        customerName: resolvedCustomerName,
                         branchId: so.branchId,
                         leadTimeDays: null,
+                        receivedDate: null,
                         status: 'IN_TRANSIT',
                     });
                     inTransitCount++;
@@ -297,9 +311,10 @@ export async function GET(request: NextRequest) {
                     soDate: so.transDate,
                     doNumber: null,
                     doDate: null,
-                    customerName: so.customerName,
+                    customerName: resolvedCustomerName,
                     branchId: so.branchId,
                     leadTimeDays: null,
+                    receivedDate: null,
                     status: 'PENDING',
                 });
                 pendingCount++;

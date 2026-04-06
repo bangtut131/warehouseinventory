@@ -129,6 +129,7 @@ export interface SLADetail {
     customerName: string;
     branchId?: number;
     leadTimeDays: number | null;  // null = belum dikirim
+    receivedDate: string | null;  // murni format date sheets/iso atau as string
     status: 'ON_TIME' | 'LATE' | 'PENDING' | 'IN_TRANSIT';
 }
 

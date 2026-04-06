@@ -1447,7 +1447,7 @@ export async function loadSLASOCache(force = false): Promise<SOSimpleItem[]> {
   while (hasMore) {
     try {
       const params: Record<string, any> = {
-        fields: 'id,number,transDate,branchId,statusName,customerName',
+        fields: 'id,number,transDate,branchId,statusName,customer.name',
         'sp.page': page,
         'sp.pageSize': pageSize
       };
@@ -1468,7 +1468,7 @@ export async function loadSLASOCache(force = false): Promise<SOSimpleItem[]> {
               transDate: so.transDate,
               branchId: so.branchId,
               statusName: so.statusName,
-              customerName: so.customerName,
+              customerName: so.customer?.name || so.customerName || 'Unknown',
             });
           });
           if (page % 10 === 0) console.log(`[Accurate] SLA SO: Page ${page}, ${allSOs.length} SOs so far...`);

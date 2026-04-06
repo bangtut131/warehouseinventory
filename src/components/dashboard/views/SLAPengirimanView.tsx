@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ interface SLADetail {
     customerName: string;
     branchId?: number;
     leadTimeDays: number | null;
+    receivedDate: string | null;
     status: 'ON_TIME' | 'LATE' | 'PENDING' | 'IN_TRANSIT';
 }
 
@@ -44,14 +46,19 @@ function formatDateDisplay(dateStr: string | null): string {
     if (!dateStr) return '-';
     // dd/mm/yyyy → dd MMM yyyy
     const parts = dateStr.split('/');
-    if (parts.length !== 3) return dateStr;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    return `${parts[0]} ${months[parseInt(parts[1]) - 1]} ${parts[2]}`;
-}
-
-function formatDateParam(date: string): string {
-    // Already yyyy-mm-dd, return as-is
-    return date;
+    if (parts.length === 3) {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        return `${parts[0]} ${months[parseInt(parts[1]) - 1]} ${parts[2]}`;
+    }
+    // Try to format fallback
+    try {
+        const d = new Date(dateStr);
+        if(!isNaN(d.getTime())) {
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+        }
+    } catch {}
+    return dateStr;
 }
 
 // ─── Component ────────────────────────────────────────────────
@@ -68,7 +75,11 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     });
-    const [selectedBranch, setSelectedBranch] = useState('');
+    
+    // Multiple Branch Selection
+    const [selectedBranches, setSelectedBranches] = useState<number[]>([]);
+    const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
+    
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [search, setSearch] = useState('');
 
@@ -83,7 +94,11 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
             const params = new URLSearchParams();
             if (fromDate) params.set('from', fromDate);
             if (toDate) params.set('to', toDate);
-            if (selectedBranch) params.set('branch', selectedBranch);
+            if (selectedBranches.length > 0) {
+                params.set('branch', selectedBranches.join(','));
+            }
+            // Use force parameter? We can add a force refetch if needed, but standard is fine
+            
             const res = await axios.get(`/api/sla-pengiriman?${params.toString()}`);
             if (res.data.error) {
                 setError(res.data.error);
@@ -96,7 +111,7 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
         } finally {
             setLoading(false);
         }
-    }, [fromDate, toDate, selectedBranch]);
+    }, [fromDate, toDate, selectedBranches]);
 
     useEffect(() => {
         fetchData();
@@ -155,6 +170,13 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
         return sortDir === 'asc' ? '↑' : '↓';
     };
 
+    const toggleBranch = (e: React.MouseEvent, id: number) => {
+        e.stopPropagation();
+        setSelectedBranches(prev => 
+            prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]
+        );
+    };
+
     // SLA gauge color
     const getSLAColor = (pct: number) => {
         if (pct >= 90) return 'text-green-600';
@@ -171,6 +193,58 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
         }
     };
 
+    // Export to Excel
+    const handleExportExcel = () => {
+        // Prepare data with proper date formatting
+        const parseDateObj = (dStr: string | null) => {
+            if (!dStr) return null;
+            // dd/mm/yyyy
+            const parts = dStr.split('/');
+            if (parts.length === 3) {
+                return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+            }
+            // fallback for sheet format like "4/1/2026 12:00:00"
+            const d = new Date(dStr);
+            if (!isNaN(d.getTime())) return d;
+            return dStr;
+        };
+
+        const exportData = filteredDetails.map((item, index) => {
+            return {
+                'No': index + 1,
+                'No SO': item.soNumber,
+                'Tgl SO (Approved)': parseDateObj(item.soDate),
+                'No DO': item.doNumber || '-',
+                'Tgl DO': parseDateObj(item.doDate),
+                'Tgl Terkirim': item.receivedDate ? parseDateObj(item.receivedDate.split(' ')[0]) : null,
+                'Customer': item.customerName,
+                'Lead Time (Hari)': item.leadTimeDays !== null ? item.leadTimeDays : 'Pending',
+                'Status': item.status === 'ON_TIME' ? 'Diterima (On Time)' : 
+                          item.status === 'LATE' ? 'Diterima (Terlambat)' : 
+                          item.status === 'IN_TRANSIT' ? 'Dalam Perjalanan' : 'Belum Diproses'
+            };
+        });
+
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.json_to_sheet(exportData, { cellDates: true });
+        
+        // Auto-size columns slightly
+        worksheet['!cols'] = [
+            { wch: 5 },  // No
+            { wch: 15 }, // No SO
+            { wch: 15 }, // Tgl SO
+            { wch: 15 }, // No DO
+            { wch: 15 }, // Tgl DO
+            { wch: 15 }, // Tgl Terkirim
+            { wch: 35 }, // Customer
+            { wch: 15 }, // Lead Time
+            { wch: 20 }, // Status
+        ];
+
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'SLA Pengiriman');
+        XLSX.writeFile(workbook, `SLA_Pengiriman_Export.xlsx`);
+    };
+
     return (
         <div className="space-y-4">
             {/* Header */}
@@ -180,6 +254,16 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                     <p className="text-sm text-muted-foreground">Target SLA: ≤3 hari dari SO Approved hingga Delivery Order</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Button
+                        title="Export Filtered Data to Excel"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleExportExcel}
+                        disabled={loading || details.length === 0}
+                        className="text-green-700 border-green-200 hover:bg-green-50"
+                    >
+                        📥 Export Excel
+                    </Button>
                     <Button
                         variant="outline"
                         size="sm"
@@ -209,19 +293,55 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                         className="bg-transparent text-sm border rounded px-2 py-1 w-[130px]"
                     />
                 </div>
-                <div className="flex items-center gap-2">
+                
+                {/* Cabang Multi Select */}
+                <div className="flex items-center gap-2 relative">
                     <span className="text-xs font-medium text-muted-foreground">🏢</span>
-                    <select
-                        value={selectedBranch}
-                        onChange={e => setSelectedBranch(e.target.value)}
-                        className="bg-transparent text-sm border rounded px-2 py-1 min-w-[120px]"
+                    <div 
+                        className="bg-transparent text-sm border rounded px-3 py-1.5 min-w-[150px] cursor-pointer flex justify-between items-center bg-white"
+                        onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
                     >
-                        <option value="">Semua Cabang</option>
-                        {branches.map(b => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                        ))}
-                    </select>
+                        <span className="truncate max-w-[150px]">
+                            {selectedBranches.length === 0 
+                                ? 'Semua Cabang' 
+                                : `${selectedBranches.length} Cabang Terpilih`}
+                        </span>
+                        <span className="text-xs ml-2">▼</span>
+                    </div>
+
+                    {isBranchDropdownOpen && (
+                        <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsBranchDropdownOpen(false)}></div>
+                            <div className="absolute top-full left-[28px] mt-1 w-64 bg-white border shadow-xl rounded-md z-50 max-h-64 overflow-y-auto">
+                                <div 
+                                    className="px-3 py-2 hover:bg-slate-100 cursor-pointer text-sm border-b"
+                                    onClick={() => {
+                                        setSelectedBranches([]);
+                                        setIsBranchDropdownOpen(false);
+                                    }}
+                                >
+                                    <span className={selectedBranches.length === 0 ? 'font-bold text-blue-600' : ''}>Semua Cabang</span>
+                                </div>
+                                {branches.map(b => (
+                                    <div 
+                                        key={b.id} 
+                                        className="px-3 py-2 hover:bg-slate-100 cursor-pointer flex items-center gap-2 text-sm"
+                                        onClick={(e) => toggleBranch(e, b.id)}
+                                    >
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedBranches.includes(b.id)} 
+                                            readOnly 
+                                            className="pointer-events-none rounded sm:w-4 sm:h-4 text-blue-600 focus:ring-blue-500" 
+                                        />
+                                        <span className="truncate">{b.name}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </div>
+
                 <Button variant="default" size="sm" onClick={fetchData} disabled={loading}>
                     🔍 Tampilkan
                 </Button>
@@ -389,56 +509,68 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                 <option value="PENDING">⏳ Belum Diproses</option>
                             </select>
                             <span className="text-xs text-muted-foreground ml-auto">
-                                {filteredDetails.length.toLocaleString()} item
+                                Menampilkan {filteredDetails.length.toLocaleString()} baris SLA
                             </span>
                         </div>
 
-                        {/* Table */}
-                        <div className="overflow-auto max-h-[600px]">
-                            <table className="w-full text-sm">
-                                <thead className="bg-blue-600 text-white sticky top-0 z-10">
+                        {/* Table - Responsive horizontal scroll container */}
+                        <div className="overflow-x-auto overflow-y-auto max-h-[600px] w-full">
+                            <table className="w-full text-sm whitespace-nowrap">
+                                <thead className="bg-blue-600 text-white sticky top-0 z-10 shadow-sm">
                                     <tr>
-                                        <th className="px-3 py-2 text-left w-12">No</th>
-                                        <th className="px-3 py-2 text-left cursor-pointer hover:bg-blue-700" onClick={() => handleSort('soDate')}>
-                                            No SO / Tgl SO {sortIcon('soDate')}
+                                        <th className="px-4 py-3 text-left w-12 font-semibold">No</th>
+                                        <th className="px-4 py-3 text-left font-semibold">No SO</th>
+                                        <th className="px-4 py-3 text-left cursor-pointer hover:bg-blue-700 font-semibold" onClick={() => handleSort('soDate')}>
+                                            Tgl SO {sortIcon('soDate')}
                                         </th>
-                                        <th className="px-3 py-2 text-left">No DO / Tgl DO</th>
-                                        <th className="px-3 py-2 text-left cursor-pointer hover:bg-blue-700" onClick={() => handleSort('customer')}>
+                                        <th className="px-4 py-3 text-left font-semibold">No DO</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Tgl DO</th>
+                                        <th className="px-4 py-3 text-left font-semibold text-blue-100">Tgl Terkirim</th>
+                                        <th className="px-4 py-3 text-left cursor-pointer hover:bg-blue-700 font-semibold min-w-[200px]" onClick={() => handleSort('customer')}>
                                             Customer {sortIcon('customer')}
                                         </th>
-                                        <th className="px-3 py-2 text-center cursor-pointer hover:bg-blue-700" onClick={() => handleSort('leadTime')}>
+                                        <th className="px-4 py-3 text-center cursor-pointer hover:bg-blue-700 font-semibold" onClick={() => handleSort('leadTime')}>
                                             Lead Time {sortIcon('leadTime')}
                                         </th>
-                                        <th className="px-3 py-2 text-center">Status</th>
+                                        <th className="px-4 py-3 text-center font-semibold">Status</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y">
+                                <tbody className="divide-y divide-gray-100">
                                     {filteredDetails.map((item, idx) => (
                                         <tr
                                             key={`${item.soNumber}-${idx}`}
                                             className={`hover:bg-blue-50/50 transition-colors ${item.status === 'LATE' ? 'bg-red-50/30' : item.status === 'PENDING' ? 'bg-gray-50/30' : item.status === 'IN_TRANSIT' ? 'bg-blue-50/30' : ''}`}
                                         >
-                                            <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
-                                            <td className="px-3 py-2">
-                                                <div className="font-medium text-blue-700">{item.soNumber}</div>
-                                                <div className="text-xs text-muted-foreground">{formatDateDisplay(item.soDate)}</div>
-                                            </td>
-                                            <td className="px-3 py-2">
+                                            <td className="px-4 py-2.5 text-muted-foreground">{idx + 1}</td>
+                                            
+                                            {/* SO */}
+                                            <td className="px-4 py-2.5 font-medium text-blue-700">{item.soNumber}</td>
+                                            <td className="px-4 py-2.5 text-muted-foreground">{formatDateDisplay(item.soDate)}</td>
+                                            
+                                            {/* DO */}
+                                            <td className="px-4 py-2.5">
                                                 {item.doNumber ? (
-                                                    <>
-                                                        <div className="font-medium">{item.doNumber}</div>
-                                                        <div className="text-xs text-muted-foreground">{formatDateDisplay(item.doDate)}</div>
-                                                    </>
-                                                ) : (
-                                                    <span className="text-muted-foreground italic">-</span>
-                                                )}
+                                                    <span className="font-medium">{item.doNumber}</span>
+                                                ) : <span className="text-muted-foreground italic">-</span>}
                                             </td>
-                                            <td className="px-3 py-2">
-                                                <div className="max-w-[200px] truncate" title={item.customerName}>
+                                            <td className="px-4 py-2.5 text-muted-foreground">
+                                                {item.doNumber ? formatDateDisplay(item.doDate) : '-'}
+                                            </td>
+
+                                            {/* Terkirim Date */}
+                                            <td className="px-4 py-2.5 font-medium text-indigo-700">
+                                                {item.receivedDate ? formatDateDisplay(item.receivedDate.split(' ')[0]) : '-'}
+                                            </td>
+
+                                            {/* Customer */}
+                                            <td className="px-4 py-2.5">
+                                                <div className="max-w-[250px] truncate" title={item.customerName}>
                                                     {item.customerName}
                                                 </div>
                                             </td>
-                                            <td className="px-3 py-2 text-center">
+
+                                            {/* Lead Time */}
+                                            <td className="px-4 py-2.5 text-center">
                                                 {item.leadTimeDays !== null ? (
                                                     <span className={`font-bold ${item.leadTimeDays <= 3 ? 'text-green-600' : 'text-red-600'}`}>
                                                         {item.leadTimeDays} hari
@@ -447,15 +579,17 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                                     <span className="text-muted-foreground">-</span>
                                                 )}
                                             </td>
-                                            <td className="px-3 py-2 text-center">
+
+                                            {/* Status Badge */}
+                                            <td className="px-4 py-2.5 text-center">
                                                 {getStatusBadge(item.status)}
                                             </td>
                                         </tr>
                                     ))}
                                     {filteredDetails.length === 0 && (
                                         <tr>
-                                            <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
-                                                {details.length === 0 ? 'Belum ada data. Klik "🔍 Tampilkan" untuk memuat data.' : 'Tidak ada data sesuai filter.'}
+                                            <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground bg-gray-50/50">
+                                                {details.length === 0 ? 'Belum ada data. Klik "🔍 Tampilkan" untuk memuat data.' : 'Tidak ada data sesuai pencarian/filter.'}
                                             </td>
                                         </tr>
                                     )}
