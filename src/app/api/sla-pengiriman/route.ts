@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchDOList, fetchDODetailsInBatch, loadSOCache, loadSLASOCache } from '@/lib/accurate';
 import { SLADetail, SLASummary } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
+import { fetchSpreadsheetOrders } from '@/lib/google-sheets';
 
 // Parse dd/mm/yyyy from Accurate to Date (midnight local time)
 function parseDate(dateStr: string): Date {
@@ -208,6 +209,35 @@ export async function GET(request: NextRequest) {
 
         console.log(`[SLA] Matched ${soToDO.size} SOs to DOs`);
 
+        // 4.5 Fetch Google Sheets Delivery Status
+        const sheetOrders = await fetchSpreadsheetOrders();
+        // Map by DO Name (ignoring case/whitespace for robust matching)
+        const sheetOrderMap = new Map<string, string>();
+        for (const order of sheetOrders) {
+            if (order.completedAt) {
+                // In Accurate, DO usually prefix 'DO.', but user said they match by DO Name
+                sheetOrderMap.set(order.doName.trim().toLowerCase(), order.completedAt);
+            }
+        }
+        console.log(`[SLA] Fetched ${sheetOrderMap.size} completed orders from Sheets`);
+
+        // Helper to parse Sheet datetime (e.g. "4/6/2026 10:15:00" or "06/04/2026")
+        function parseSheetDate(dateStr: string): Date {
+            // Remove time part if it exists
+            const datePart = dateStr.split(' ')[0];
+            const parts = datePart.split('/');
+            
+            if (parts.length === 3) {
+                // If year is the third part (e.g., DD/MM/YYYY or MM/DD/YYYY)
+                if (parts[2].length === 4) {
+                    // Try to guess if first part is month or day. If parts[1] > 12, parts[0] is month.
+                    // For safety, assume DD/MM/YYYY if typical Indonesian format.
+                    return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                }
+            }
+            return new Date(datePart);
+        }
+
         // 5. Calculate SLA for each SO
         const slaDetails: SLADetail[] = [];
         let totalLeadTime = 0;
@@ -215,32 +245,53 @@ export async function GET(request: NextRequest) {
         let onTimeCount = 0;
         let lateCount = 0;
         let pendingCount = 0;
+        let inTransitCount = 0;
 
         for (const so of approvedSOs) {
             const doInfo = soToDO.get(so.number);
             const soDateObj = parseDate(so.transDate);
 
             if (doInfo && doInfo.doDate) {
-                const doDateObj = parseDate(doInfo.doDate);
-                const leadTime = daysBetween(soDateObj, doDateObj);
-                const status = leadTime <= SLA_TARGET_DAYS ? 'ON_TIME' : 'LATE';
+                // DO was created in Accurate. Check if it's in Spreadsheet.
+                const sheetCompletedAt = sheetOrderMap.get(doInfo.doNumber.toLowerCase());
 
-                slaDetails.push({
-                    soNumber: so.number,
-                    soDate: so.transDate,
-                    doNumber: doInfo.doNumber,
-                    doDate: doInfo.doDate,
-                    customerName: so.customerName,
-                    branchId: so.branchId,
-                    leadTimeDays: leadTime,
-                    status,
-                });
+                if (sheetCompletedAt) {
+                    // Received by customer
+                    const receivedDateObj = parseSheetDate(sheetCompletedAt);
+                    const leadTime = daysBetween(soDateObj, receivedDateObj);
+                    const status = leadTime <= SLA_TARGET_DAYS ? 'ON_TIME' : 'LATE';
 
-                totalLeadTime += leadTime;
-                deliveredCount++;
-                if (status === 'ON_TIME') onTimeCount++;
-                else lateCount++;
+                    slaDetails.push({
+                        soNumber: so.number,
+                        soDate: so.transDate,
+                        doNumber: doInfo.doNumber,
+                        doDate: doInfo.doDate,
+                        customerName: so.customerName,
+                        branchId: so.branchId,
+                        leadTimeDays: leadTime,
+                        status,
+                    });
+
+                    totalLeadTime += leadTime;
+                    deliveredCount++;
+                    if (status === 'ON_TIME') onTimeCount++;
+                    else lateCount++;
+                } else {
+                    // In Transit
+                    slaDetails.push({
+                        soNumber: so.number,
+                        soDate: so.transDate,
+                        doNumber: doInfo.doNumber,
+                        doDate: doInfo.doDate,
+                        customerName: so.customerName,
+                        branchId: so.branchId,
+                        leadTimeDays: null,
+                        status: 'IN_TRANSIT',
+                    });
+                    inTransitCount++;
+                }
             } else {
+                // No DO yet
                 slaDetails.push({
                     soNumber: so.number,
                     soDate: so.transDate,
@@ -267,12 +318,13 @@ export async function GET(request: NextRequest) {
             delivered: deliveredCount,
             onTime: onTimeCount,
             late: lateCount,
+            inTransit: inTransitCount,
             pending: pendingCount,
             avgLeadTime: deliveredCount > 0 ? parseFloat((totalLeadTime / deliveredCount).toFixed(1)) : 0,
             slaPercentage: deliveredCount > 0 ? parseFloat(((onTimeCount / deliveredCount) * 100).toFixed(1)) : 0,
         };
 
-        console.log(`[SLA] Result: ${summary.totalSO} SOs | ${summary.delivered} delivered (${summary.onTime} on-time, ${summary.late} late) | ${summary.pending} pending | SLA=${summary.slaPercentage}%`);
+        console.log(`[SLA] Result: ${summary.totalSO} SOs | ${summary.delivered} delivered (${summary.onTime} on-time, ${summary.late} late) | ${summary.inTransit} in-transit | ${summary.pending} pending | SLA=${summary.slaPercentage}%`);
 
         return NextResponse.json({ summary, details: slaDetails });
     } catch (error: any) {

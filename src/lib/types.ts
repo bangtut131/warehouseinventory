@@ -129,7 +129,7 @@ export interface SLADetail {
     customerName: string;
     branchId?: number;
     leadTimeDays: number | null;  // null = belum dikirim
-    status: 'ON_TIME' | 'LATE' | 'PENDING';
+    status: 'ON_TIME' | 'LATE' | 'PENDING' | 'IN_TRANSIT';
 }
 
 export interface SLASummary {
@@ -137,6 +137,7 @@ export interface SLASummary {
     delivered: number;
     onTime: number;
     late: number;
+    inTransit: number;
     pending: number;
     avgLeadTime: number;
     slaPercentage: number;     // (onTime / delivered) * 100

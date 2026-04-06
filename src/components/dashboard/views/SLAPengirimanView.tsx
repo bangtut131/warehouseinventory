@@ -15,7 +15,7 @@ interface SLADetail {
     customerName: string;
     branchId?: number;
     leadTimeDays: number | null;
-    status: 'ON_TIME' | 'LATE' | 'PENDING';
+    status: 'ON_TIME' | 'LATE' | 'PENDING' | 'IN_TRANSIT';
 }
 
 interface SLASummary {
@@ -23,6 +23,7 @@ interface SLASummary {
     delivered: number;
     onTime: number;
     late: number;
+    inTransit: number;
     pending: number;
     avgLeadTime: number;
     slaPercentage: number;
@@ -163,9 +164,10 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
 
     const getStatusBadge = (status: string) => {
         switch (status) {
-            case 'ON_TIME': return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">✅ On Time</span>;
-            case 'LATE': return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">⏰ Terlambat</span>;
-            case 'PENDING': return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">⏳ Belum Dikirim</span>;
+            case 'ON_TIME': return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">✅ Diterima (On Time)</span>;
+            case 'LATE': return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">⏰ Diterima (Terlambat)</span>;
+            case 'IN_TRANSIT': return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">🚚 Dalam Perjalanan</span>;
+            case 'PENDING': return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">⏳ Belum Diproses</span>;
         }
     };
 
@@ -277,10 +279,18 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                             </CardContent>
                         </Card>
 
+                        {/* In Transit */}
+                        <Card>
+                            <CardContent className="p-4 text-center">
+                                <p className="text-xs text-muted-foreground font-medium">Dalam Perjalanan</p>
+                                <p className="text-2xl font-bold text-blue-500">{summary.inTransit.toLocaleString()}</p>
+                            </CardContent>
+                        </Card>
+
                         {/* Pending */}
                         <Card>
                             <CardContent className="p-4 text-center">
-                                <p className="text-xs text-muted-foreground font-medium">Belum Dikirim</p>
+                                <p className="text-xs text-muted-foreground font-medium">Belum Diproses</p>
                                 <p className="text-2xl font-bold text-gray-500">{summary.pending.toLocaleString()}</p>
                             </CardContent>
                         </Card>
@@ -288,7 +298,7 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                         {/* Avg Lead Time */}
                         <Card>
                             <CardContent className="p-4 text-center">
-                                <p className="text-xs text-muted-foreground font-medium">Rata-rata (Hari)</p>
+                                <p className="text-xs text-muted-foreground font-medium">Lama Terkirim (Hari)</p>
                                 <p className="text-2xl font-bold text-orange-600">{summary.avgLeadTime}</p>
                             </CardContent>
                         </Card>
@@ -305,12 +315,12 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                     </div>
 
                     {/* Visual Bar */}
-                    {summary.delivered > 0 && (
+                    {(summary.delivered > 0 || summary.inTransit > 0) && (
                         <div className="bg-white rounded-lg border p-4">
                             <div className="flex items-center justify-between mb-2">
                                 <span className="text-sm font-medium">Distribusi SLA</span>
                                 <span className="text-xs text-muted-foreground">
-                                    {summary.onTime} On Time · {summary.late} Terlambat · {summary.pending} Pending
+                                    {summary.onTime} On Time · {summary.late} Terlambat · {summary.inTransit} Di Jalan · {summary.pending} Pending
                                 </span>
                             </div>
                             <div className="w-full flex rounded-full h-6 overflow-hidden bg-gray-100">
@@ -330,6 +340,14 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                         {((summary.late / summary.totalSO) * 100).toFixed(0)}%
                                     </div>
                                 )}
+                                {summary.inTransit > 0 && (
+                                    <div
+                                        className="bg-blue-400 flex items-center justify-center text-white text-xs font-semibold transition-all"
+                                        style={{ width: `${(summary.inTransit / summary.totalSO) * 100}%` }}
+                                    >
+                                        {((summary.inTransit / summary.totalSO) * 100).toFixed(0)}%
+                                    </div>
+                                )}
                                 {summary.pending > 0 && (
                                     <div
                                         className="bg-gray-300 flex items-center justify-center text-gray-700 text-xs font-semibold transition-all"
@@ -339,10 +357,11 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                     </div>
                                 )}
                             </div>
-                            <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-muted-foreground">
                                 <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> On Time (≤3 hari)</span>
                                 <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Terlambat (&gt;3 hari)</span>
-                                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-300 inline-block" /> Belum Dikirim</span>
+                                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-400 inline-block" /> Dalam Perjalanan (Kurir)</span>
+                                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-300 inline-block" /> Belum Diproses</span>
                             </div>
                         </div>
                     )}
@@ -364,9 +383,10 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                 className="text-sm border rounded px-2 py-1.5"
                             >
                                 <option value="all">Semua Status</option>
-                                <option value="ON_TIME">✅ On Time</option>
-                                <option value="LATE">⏰ Terlambat</option>
-                                <option value="PENDING">⏳ Belum Dikirim</option>
+                                <option value="ON_TIME">✅ Diterima (On Time)</option>
+                                <option value="LATE">⏰ Diterima (Terlambat)</option>
+                                <option value="IN_TRANSIT">🚚 Dalam Perjalanan</option>
+                                <option value="PENDING">⏳ Belum Diproses</option>
                             </select>
                             <span className="text-xs text-muted-foreground ml-auto">
                                 {filteredDetails.length.toLocaleString()} item
@@ -396,7 +416,7 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                     {filteredDetails.map((item, idx) => (
                                         <tr
                                             key={`${item.soNumber}-${idx}`}
-                                            className={`hover:bg-blue-50/50 transition-colors ${item.status === 'LATE' ? 'bg-red-50/30' : item.status === 'PENDING' ? 'bg-gray-50/30' : ''}`}
+                                            className={`hover:bg-blue-50/50 transition-colors ${item.status === 'LATE' ? 'bg-red-50/30' : item.status === 'PENDING' ? 'bg-gray-50/30' : item.status === 'IN_TRANSIT' ? 'bg-blue-50/30' : ''}`}
                                         >
                                             <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                                             <td className="px-3 py-2">
