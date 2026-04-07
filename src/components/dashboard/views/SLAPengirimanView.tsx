@@ -210,8 +210,10 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
         };
 
         const exportData = filteredDetails.map((item, index) => {
+            const branchName = item.branchId ? branches.find(b => b.id === item.branchId)?.name || String(item.branchId) : '-';
             return {
                 'No': index + 1,
+                'Cabang': branchName,
                 'No SO': item.soNumber,
                 'Tgl SO (Approved)': parseDateObj(item.soDate),
                 'No DO': item.doNumber || '-',
@@ -231,6 +233,7 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
         // Auto-size columns slightly
         worksheet['!cols'] = [
             { wch: 5 },  // No
+            { wch: 20 }, // Cabang
             { wch: 15 }, // No SO
             { wch: 15 }, // Tgl SO
             { wch: 15 }, // No DO
@@ -519,6 +522,7 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                 <thead className="bg-blue-600 text-white sticky top-0 z-10 shadow-sm">
                                     <tr>
                                         <th className="px-4 py-3 text-left w-12 font-semibold">No</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Cabang</th>
                                         <th className="px-4 py-3 text-left font-semibold">No SO</th>
                                         <th className="px-4 py-3 text-left cursor-pointer hover:bg-blue-700 font-semibold" onClick={() => handleSort('soDate')}>
                                             Tgl SO {sortIcon('soDate')}
@@ -542,6 +546,9 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                             className={`hover:bg-blue-50/50 transition-colors ${item.status === 'LATE' ? 'bg-red-50/30' : item.status === 'PENDING' ? 'bg-gray-50/30' : item.status === 'IN_TRANSIT' ? 'bg-blue-50/30' : ''}`}
                                         >
                                             <td className="px-4 py-2.5 text-muted-foreground">{idx + 1}</td>
+                                            <td className="px-4 py-2.5 text-muted-foreground max-w-[150px] truncate" title={item.branchId ? branches.find(b => b.id === item.branchId)?.name || String(item.branchId) : '-'}>
+                                                {item.branchId ? branches.find(b => b.id === item.branchId)?.name || String(item.branchId) : '-'}
+                                            </td>
                                             
                                             {/* SO */}
                                             <td className="px-4 py-2.5 font-medium text-blue-700">{item.soNumber}</td>
@@ -588,7 +595,7 @@ export function SLAPengirimanView({ branches }: SLAPengirimanViewProps) {
                                     ))}
                                     {filteredDetails.length === 0 && (
                                         <tr>
-                                            <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground bg-gray-50/50">
+                                            <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground bg-gray-50/50">
                                                 {details.length === 0 ? 'Belum ada data. Klik "🔍 Tampilkan" untuk memuat data.' : 'Tidak ada data sesuai pencarian/filter.'}
                                             </td>
                                         </tr>
