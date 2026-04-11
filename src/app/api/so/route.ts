@@ -101,8 +101,18 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const branchId = body.branch ? parseInt(body.branch) : undefined;
-    const fromDate = body.from || undefined;
-    const toDate = body.to || undefined;
+    
+    // Convert frontend yyyy-mm-dd to Accurate dd/mm/yyyy
+    const convertDate = (d: string | undefined): string | undefined => {
+        if (!d) return undefined;
+        const parts = d.split('-');
+        if (parts.length === 3 && parts[0].length === 4) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`; // dd/mm/yyyy
+        }
+        return d; // already dd/mm/yyyy or other format
+    };
+    const fromDate = convertDate(body.from);
+    const toDate = convertDate(body.to);
     const statuses: string[] | undefined = body.statuses?.length > 0 ? body.statuses : undefined;
 
     soSyncState = { status: 'running', progress: 0, message: 'Memulai sync SO...' };

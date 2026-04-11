@@ -70,7 +70,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
 
     // Sync status filter (which statuses to fetch from API)
     const ALL_SO_STATUSES = ['Diajukan', 'Menunggu diproses', 'Sebagian diproses', 'Terproses'];
-    const [syncStatuses, setSyncStatuses] = useState<string[]>(['Menunggu diproses', 'Sebagian diproses']);
+    const [syncStatuses, setSyncStatuses] = useState<string[]>([]);
 
     // Auto-sync panel
     const [schedulerStatus, setSchedulerStatus] = useState<SOSchedulerStatus | null>(null);
@@ -371,7 +371,6 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                 </Button>
             </div>
 
-            {/* Sync Status Checkboxes */}
             <div className="flex flex-wrap items-center gap-3 bg-indigo-50/50 rounded-lg px-3 py-2 border border-indigo-200">
                 <span className="text-xs font-medium text-indigo-600">🔄 Sync status:</span>
                 {ALL_SO_STATUSES.map(status => (
@@ -388,6 +387,21 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                 <span className="text-xs text-muted-foreground ml-1">
                     ({syncStatuses.length === 0 || syncStatuses.length === ALL_SO_STATUSES.length ? 'semua' : syncStatuses.length + ' dipilih'})
                 </span>
+
+                <span className="text-gray-300 mx-1">|</span>
+
+                <span className="text-xs font-medium text-teal-600">📦 Kiriman:</span>
+                {ALL_DELIVERY_STATUSES.map(status => (
+                    <label key={status} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={deliveryStatusFilter === status}
+                            onChange={() => setDeliveryStatusFilter(deliveryStatusFilter === status ? '' : status)}
+                            className="rounded border-teal-300 text-teal-600 focus:ring-teal-500 h-3.5 w-3.5"
+                        />
+                        <span className="text-xs text-gray-700">{status}</span>
+                    </label>
+                ))}
             </div>
 
             {/* Auto-Sync Panel */}
