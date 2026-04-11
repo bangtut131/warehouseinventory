@@ -1120,7 +1120,7 @@ export async function fetchAllPOOutstanding(
 /**
  * Fetch Delivery Order list from Accurate with date filter.
  */
-async function fetchDOList(fromDate?: string, toDate?: string, branchId?: number): Promise<{ id: number; number: string; transDate: string; statusName?: string; branchId?: number }[]> {
+async function fetchSODOList(fromDate?: string, toDate?: string, branchId?: number): Promise<{ id: number; number: string; transDate: string; statusName?: string; branchId?: number }[]> {
   const allDOs: { id: number; number: string; transDate: string; statusName?: string; branchId?: number }[] = [];
   let page = 1;
   const pageSize = 200;
@@ -1191,7 +1191,7 @@ async function fetchDOList(fromDate?: string, toDate?: string, branchId?: number
 /**
  * Fetch detail for a single Delivery Order (to get salesOrderId from detailItem).
  */
-async function fetchDODetail(doId: number, maxRetries = 3): Promise<{ id: number; number: string; statusName: string; transDate: string; salesOrderIds: number[] } | null> {
+async function fetchSODODetail(doId: number, maxRetries = 3): Promise<{ id: number; number: string; statusName: string; transDate: string; salesOrderIds: number[] } | null> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await accurateClient.get('/delivery-order/detail.do', {
@@ -1232,7 +1232,7 @@ async function fetchDODetail(doId: number, maxRetries = 3): Promise<{ id: number
 /**
  * Fetch DO details in parallel batches.
  */
-async function fetchDODetailsInBatch(
+async function fetchSODODetailsInBatch(
   doIds: number[],
   batchSize = 15,
   onProgress?: (done: number, total: number) => void
@@ -1242,7 +1242,7 @@ async function fetchDODetailsInBatch(
 
   for (let i = 0; i < total; i += batchSize) {
     const batch = doIds.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(id => fetchDODetail(id)));
+    const batchResults = await Promise.all(batch.map(id => fetchSODODetail(id)));
     batchResults.forEach(r => { if (r) results.push(r); });
     if (onProgress) onProgress(Math.min(i + batchSize, total), total);
   }
@@ -1261,7 +1261,7 @@ export async function fetchDOStatusForSOs(
   branchId?: number,
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<number, string>> {
-  const doList = await fetchDOList(fromDate, toDate, branchId);
+  const doList = await fetchSODOList(fromDate, toDate, branchId);
 
   if (doList.length === 0) {
     console.log('[Accurate] No DOs found in date range');
@@ -1269,7 +1269,7 @@ export async function fetchDOStatusForSOs(
   }
 
   console.log(`[Accurate] DO Phase 2: Fetching detail for ${doList.length} DOs to map to SOs...`);
-  const doDetails = await fetchDODetailsInBatch(doList.map(d => d.id), 15, onProgress);
+  const doDetails = await fetchSODODetailsInBatch(doList.map(d => d.id), 15, onProgress);
 
   // Build soId -> deliveryStatus map (keep latest DO per SO)
   const soDoMap = new Map<number, { statusName: string; transDate: string }>();
