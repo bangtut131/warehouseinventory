@@ -1243,6 +1243,10 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
   const includeStatuses = statuses?.map(s => s.toLowerCase().trim()) || [];
   const isStatusFiltered = includeStatuses.length > 0;
 
+  // Parse date range for client-side filtering (API doesn't reliably support transDate filter)
+  const fromDateParsed = fromDate ? parseAccurateDate(fromDate) : null;
+  const toDateParsed = toDate ? parseAccurateDate(toDate) : null;
+
   // Smart early-exit: when filtering by status, stop after N consecutive pages with 0 matches
   let consecutiveEmptyPages = 0;
   const MAX_EMPTY_PAGES = 30; // Stop after 30 pages (6000 SOs) with no matches
@@ -1261,14 +1265,9 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
         params['filter.branchId.op'] = 'EQUAL';
         params['filter.branchId.val'] = branchId;
       }
-      if (fromDate) {
-        params['filter.transDate.op'] = 'GREATER_EQUAL';
-        params['filter.transDate.val'] = fromDate;
-      }
-      if (toDate) {
-        params['filter.transDate.op2'] = 'LESS_EQUAL';
-        params['filter.transDate.val2'] = toDate;
-      }
+      // NOTE: transDate filter NOT sent to API — Accurate SO list API 
+      // may not support GREATER_EQUAL/LESS_EQUAL on transDate reliably.
+      // Date filtering is done client-side below.
 
       const response = await accurateClient.get('/sales-order/list.do', { params });
 
@@ -1283,6 +1282,14 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
             if (EXCLUDE_STATUSES.includes(status)) return;
             // If statuses filter is specified, only include matching ones
             if (isStatusFiltered && !includeStatuses.includes(status)) return;
+
+            // Client-side date filtering
+            if (fromDateParsed || toDateParsed) {
+              const soDate = parseAccurateDate(so.transDate);
+              if (fromDateParsed && soDate < fromDateParsed) return;
+              if (toDateParsed && soDate > toDateParsed) return;
+            }
+
             matchesInPage++;
             allSOs.push({
               id: so.id,
