@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import axios from 'axios';
 
 interface SOControlViewProps {
     branches?: { id: number; name: string }[];
@@ -17,6 +18,42 @@ interface SOSyncState {
     message: string;
 }
 
+// ─── SO Auto-Sync Panel ──────────────────────────────────────
+
+interface SOSchedulerConfig {
+    enabled: boolean;
+    cronExpression: string;
+    intervalLabel: string;
+    branchId: number | null;
+}
+
+interface SOSchedulerStatus {
+    config: SOSchedulerConfig;
+    isRunning: boolean;
+    isSyncing: boolean;
+    cronActive: boolean;
+    history: {
+        id: number;
+        startedAt: string;
+        completedAt: string | null;
+        status: 'success' | 'error' | 'running';
+        durationSec: number | null;
+        soCount: number | null;
+        error: string | null;
+        trigger: 'scheduled' | 'manual';
+    }[];
+}
+
+const SO_INTERVAL_OPTIONS = [
+    { label: 'Setiap 2 Jam', cron: '0 */2 * * *' },
+    { label: 'Setiap 4 Jam', cron: '0 */4 * * *' },
+    { label: 'Setiap 6 Jam', cron: '0 */6 * * *' },
+    { label: 'Setiap 12 Jam', cron: '0 */12 * * *' },
+    { label: 'Setiap 24 Jam (00:00)', cron: '0 0 * * *' },
+];
+
+const ALL_DELIVERY_STATUSES = ['Dikirim', 'Difaktur Sebagian', 'Difaktur', 'Ditolak', 'Diajukan', 'Draf', 'Belum dikirim'];
+
 export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) => {
     const [soList, setSoList] = useState<SOData[]>([]);
     const [loading, setLoading] = useState(true);
@@ -26,6 +63,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
     // Filters
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
+    const [deliveryStatusFilter, setDeliveryStatusFilter] = useState('');
     const [branchFilter, setBranchFilter] = useState('');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
@@ -33,6 +71,11 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
     // Sync status filter (which statuses to fetch from API)
     const ALL_SO_STATUSES = ['Diajukan', 'Menunggu diproses', 'Sebagian diproses', 'Terproses'];
     const [syncStatuses, setSyncStatuses] = useState<string[]>(['Menunggu diproses', 'Sebagian diproses']);
+
+    // Auto-sync panel
+    const [schedulerStatus, setSchedulerStatus] = useState<SOSchedulerStatus | null>(null);
+    const [schedulerExpanded, setSchedulerExpanded] = useState(false);
+    const [schedulerUpdating, setSchedulerUpdating] = useState(false);
 
     const toggleSyncStatus = (status: string) => {
         setSyncStatuses(prev =>
@@ -79,6 +122,43 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         return () => clearInterval(interval);
     }, [syncState.status]);
 
+    // Fetch scheduler status
+    const fetchSchedulerStatus = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/so-scheduler');
+            setSchedulerStatus(res.data);
+        } catch (err) {
+            console.error('Failed to fetch SO scheduler status', err);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchSchedulerStatus();
+        const timer = setInterval(fetchSchedulerStatus, 30000);
+        return () => clearInterval(timer);
+    }, [fetchSchedulerStatus]);
+
+    const updateSchedulerConfig = async (updates: Partial<SOSchedulerConfig>) => {
+        setSchedulerUpdating(true);
+        try {
+            await axios.post('/api/so-scheduler', updates);
+            await fetchSchedulerStatus();
+        } catch (err: any) {
+            alert('Gagal update config: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setSchedulerUpdating(false);
+        }
+    };
+
+    const triggerManualSOSync = async () => {
+        try {
+            await axios.post('/api/so-scheduler?action=trigger');
+            await fetchSchedulerStatus();
+        } catch (err) {
+            console.error('Failed to trigger SO sync', err);
+        }
+    };
+
     const startSync = async () => {
         setSyncState({ status: 'running', progress: 0, message: 'Memulai sync SO...' });
         try {
@@ -97,12 +177,18 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         }
     };
 
-    // Apply search filter client-side
+    // Apply filters client-side
     const filtered = soList.filter(so => {
         // Checkbox status filter
         if (syncStatuses.length > 0 && syncStatuses.length < ALL_SO_STATUSES.length) {
             const lowerSyncStatuses = syncStatuses.map(s => s.toLowerCase());
             if (!lowerSyncStatuses.includes(so.statusName.toLowerCase())) return false;
+        }
+
+        // Delivery status filter
+        if (deliveryStatusFilter) {
+            const soDelivery = (so.deliveryStatus || 'Belum dikirim').toLowerCase();
+            if (soDelivery !== deliveryStatusFilter.toLowerCase()) return false;
         }
 
         if (!search) return true;
@@ -128,6 +214,18 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         return 'bg-gray-100 text-gray-700 border-gray-300';
     };
 
+    const getDeliveryStatusColor = (status: string) => {
+        const s = (status || '').toLowerCase();
+        if (s === 'difaktur') return 'bg-green-100 text-green-700 border-green-300';
+        if (s === 'difaktur sebagian') return 'bg-amber-100 text-amber-700 border-amber-300';
+        if (s === 'dikirim') return 'bg-blue-100 text-blue-700 border-blue-300';
+        if (s === 'diajukan') return 'bg-orange-100 text-orange-700 border-orange-300';
+        if (s === 'draf') return 'bg-gray-100 text-gray-500 border-gray-300';
+        if (s === 'ditolak') return 'bg-red-100 text-red-700 border-red-300';
+        if (s === 'belum dikirim') return 'bg-gray-50 text-gray-400 border-gray-200';
+        return 'bg-gray-100 text-gray-700 border-gray-300';
+    };
+
     const formatDate = (dateStr: string) => {
         const parts = dateStr.split('/');
         if (parts.length === 3) {
@@ -136,6 +234,25 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         }
         return dateStr;
     };
+
+    const formatDateTime = (iso: string) => {
+        const d = new Date(iso);
+        return d.toLocaleString('id-ID', {
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
+    };
+
+    const formatDuration = (sec: number | null) => {
+        if (!sec) return '-';
+        const min = Math.floor(sec / 60);
+        const s = sec % 60;
+        return min > 0 ? `${min}m ${s}s` : `${s}s`;
+    };
+
+    const selectedIntervalIdx = schedulerStatus
+        ? SO_INTERVAL_OPTIONS.findIndex(o => o.cron === schedulerStatus.config.cronExpression)
+        : -1;
 
     return (
         <div className="space-y-4">
@@ -194,6 +311,18 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     <option value="Menunggu diproses">Menunggu Diproses</option>
                     <option value="Sebagian diproses">Sebagian Diproses</option>
                     <option value="Terproses">Terproses</option>
+                </select>
+
+                {/* Delivery Status Filter */}
+                <select
+                    value={deliveryStatusFilter}
+                    onChange={(e) => setDeliveryStatusFilter(e.target.value)}
+                    className="h-9 px-3 rounded-md border text-sm bg-background cursor-pointer"
+                >
+                    <option value="">Semua Kiriman</option>
+                    {ALL_DELIVERY_STATUSES.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                    ))}
                 </select>
 
                 {/* Branch Filter */}
@@ -261,6 +390,125 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                 </span>
             </div>
 
+            {/* Auto-Sync Panel */}
+            {schedulerStatus && (
+                <div className="border rounded-lg overflow-hidden">
+                    <div
+                        className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-teal-50 to-cyan-50 cursor-pointer hover:from-teal-100 hover:to-cyan-100 transition-colors"
+                        onClick={() => setSchedulerExpanded(!schedulerExpanded)}
+                    >
+                        <div className="flex items-center gap-3">
+                            <span className="text-base">⏰</span>
+                            <span className="text-sm font-semibold text-gray-700">Auto-Sync SO</span>
+                            {schedulerStatus.config.enabled ? (
+                                <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px] px-1.5 py-0">
+                                    ● Aktif — {schedulerStatus.config.intervalLabel}
+                                </Badge>
+                            ) : (
+                                <Badge variant="outline" className="text-gray-500 text-[10px] px-1.5 py-0">
+                                    Nonaktif
+                                </Badge>
+                            )}
+                            {schedulerStatus.isSyncing && (
+                                <div className="flex items-center gap-1.5">
+                                    <div className="w-3 h-3 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+                                    <span className="text-[10px] text-teal-600 font-medium">Syncing...</span>
+                                </div>
+                            )}
+                        </div>
+                        <span className="text-xs text-gray-400">{schedulerExpanded ? '▲' : '▼'}</span>
+                    </div>
+
+                    {schedulerExpanded && (
+                        <div className="px-4 py-3 bg-white border-t space-y-3">
+                            <div className="flex flex-wrap items-center gap-3">
+                                <Button
+                                    variant={schedulerStatus.config.enabled ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => updateSchedulerConfig({ enabled: !schedulerStatus.config.enabled })}
+                                    disabled={schedulerUpdating}
+                                    className={schedulerStatus.config.enabled
+                                        ? 'bg-green-600 hover:bg-green-700 text-white text-xs'
+                                        : 'text-xs'
+                                    }
+                                >
+                                    {schedulerStatus.config.enabled ? '✅ Enabled' : '⬜ Disabled'}
+                                </Button>
+
+                                <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 border">
+                                    <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Interval:</span>
+                                    <select
+                                        value={selectedIntervalIdx >= 0 ? selectedIntervalIdx : 2}
+                                        onChange={(e) => {
+                                            const opt = SO_INTERVAL_OPTIONS[parseInt(e.target.value)];
+                                            if (opt) updateSchedulerConfig({ cronExpression: opt.cron, intervalLabel: opt.label });
+                                        }}
+                                        className="bg-transparent text-xs border-none outline-none cursor-pointer min-w-[130px]"
+                                        disabled={schedulerUpdating}
+                                    >
+                                        {SO_INTERVAL_OPTIONS.map((opt, idx) => (
+                                            <option key={idx} value={idx}>{opt.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={triggerManualSOSync}
+                                    disabled={schedulerStatus.isSyncing || schedulerUpdating}
+                                    className="text-xs border-teal-300 text-teal-700 hover:bg-teal-50"
+                                >
+                                    {schedulerStatus.isSyncing ? '⏳ Running...' : '▶ Run Now'}
+                                </Button>
+                            </div>
+
+                            {/* Sync History */}
+                            {schedulerStatus.history.length > 0 && (
+                                <div>
+                                    <p className="text-xs font-semibold text-gray-500 mb-1.5">📋 Riwayat Sync SO</p>
+                                    <div className="max-h-[160px] overflow-y-auto">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="border-b text-left text-gray-400">
+                                                    <th className="py-1 pr-2">Waktu</th>
+                                                    <th className="py-1 pr-2">Status</th>
+                                                    <th className="py-1 pr-2">Durasi</th>
+                                                    <th className="py-1 pr-2">SOs</th>
+                                                    <th className="py-1">Trigger</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {schedulerStatus.history.slice(0, 10).map(entry => (
+                                                    <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50">
+                                                        <td className="py-1.5 pr-2 text-gray-600">{formatDateTime(entry.startedAt)}</td>
+                                                        <td className="py-1.5 pr-2">
+                                                            {entry.status === 'success' && <span className="text-green-600">✅ Sukses</span>}
+                                                            {entry.status === 'error' && <span className="text-red-600" title={entry.error || ''}>❌ Gagal</span>}
+                                                            {entry.status === 'running' && <span className="text-blue-600">🔄 Berjalan</span>}
+                                                        </td>
+                                                        <td className="py-1.5 pr-2 text-gray-500">{formatDuration(entry.durationSec)}</td>
+                                                        <td className="py-1.5 pr-2 text-gray-500">{entry.soCount ?? '-'}</td>
+                                                        <td className="py-1.5">
+                                                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${entry.trigger === 'scheduled'
+                                                                ? 'bg-purple-50 text-purple-600 border-purple-200'
+                                                                : 'bg-blue-50 text-blue-600 border-blue-200'
+                                                                }`}>
+                                                                {entry.trigger === 'scheduled' ? '⏰ Auto' : '👤 Manual'}
+                                                            </Badge>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Sync Progress Banner */}
             {syncState.status === 'running' && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 space-y-2">
@@ -304,19 +552,20 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                             <th className="px-3 py-2 font-medium">Tanggal</th>
                             <th className="px-3 py-2 font-medium">Customer</th>
                             <th className="px-3 py-2 font-medium">Status</th>
+                            <th className="px-3 py-2 font-medium">Status Kiriman</th>
                             <th className="px-3 py-2 font-medium text-center">Items</th>
                             <th className="px-3 py-2 font-medium text-right">Outstanding</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">
                                 <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
                                 Memuat data SO...
                             </td></tr>
                         )}
                         {!loading && filtered.length === 0 && (
-                            <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">
                                 Tidak ada data SO. {soList.length === 0 ? 'Klik Sync SO untuk mengambil data.' : 'Coba ubah filter.'}
                             </td></tr>
                         )}
@@ -337,6 +586,11 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                             {so.statusName}
                                         </Badge>
                                     </td>
+                                    <td className="px-3 py-2">
+                                        <Badge variant="outline" className={`text-xs ${getDeliveryStatusColor(so.deliveryStatus || 'Belum dikirim')}`}>
+                                            {so.deliveryStatus || 'Belum dikirim'}
+                                        </Badge>
+                                    </td>
                                     <td className="px-3 py-2 text-center">{so.detailItems.length}</td>
                                     <td className="px-3 py-2 text-right font-medium">
                                         {so.totalOutstanding > 0 ? (
@@ -350,7 +604,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                 {/* Expanded Detail */}
                                 {expandedId === so.id && (
                                     <tr>
-                                        <td colSpan={7} className="bg-muted/20 px-4 py-3">
+                                        <td colSpan={8} className="bg-muted/20 px-4 py-3">
                                             <div className="text-xs font-medium text-muted-foreground mb-2">
                                                 Detail Item — {so.soNumber}
                                             </div>

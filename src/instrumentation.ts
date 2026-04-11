@@ -25,5 +25,13 @@ export async function register() {
         } catch (err) {
             console.error('[Instrumentation] Failed to start price sync scheduler:', err);
         }
+
+        // SO auto-sync scheduler
+        try {
+            const { startSOScheduler } = await import('@/lib/so-scheduler');
+            await startSOScheduler();
+        } catch (err) {
+            console.error('[Instrumentation] Failed to start SO scheduler:', err);
+        }
     }
 }

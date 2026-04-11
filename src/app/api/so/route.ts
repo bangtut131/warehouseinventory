@@ -58,6 +58,10 @@ export async function GET(request: NextRequest) {
                 return true;
             });
         }
+        const deliveryStatusFilter = searchParams.get('deliveryStatus') || undefined;
+        if (deliveryStatusFilter) {
+            soList = soList.filter(so => (so.deliveryStatus || 'Belum dikirim').toLowerCase() === deliveryStatusFilter.toLowerCase());
+        }
 
         // Join stock data from inventory
         try {

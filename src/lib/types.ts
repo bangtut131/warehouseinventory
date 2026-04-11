@@ -106,6 +106,7 @@ export interface SOData {
     branchId?: number;
     branchName?: string;
     statusName: string;      // Diajukan / Menunggu diproses / Terproses
+    deliveryStatus?: string; // Status pengiriman DO: Dikirim / Difaktur / Difaktur Sebagian / Ditolak / Diajukan / Draf / Belum dikirim
     detailItems: SODetailItem[];
     totalOutstanding: number; // Sum of all outstanding items
 }
