@@ -1118,140 +1118,8 @@ export async function fetchAllPOOutstanding(
 // ─── DELIVERY ORDER STATUS (for SO Kontrol) ─────────────────────────────────
 
 /**
- * Fetch Delivery Order list from Accurate with date filter.
- */
-async function fetchSODOList(fromDate?: string, toDate?: string, branchId?: number): Promise<{ id: number; number: string; transDate: string; statusName?: string; branchId?: number }[]> {
-  const allDOs: { id: number; number: string; transDate: string; statusName?: string; branchId?: number }[] = [];
-  let page = 1;
-  const pageSize = 200;
-  let hasMore = true;
-  const MAX_PAGES = 300;
-
-  console.log(`[Accurate] DO: Fetching DO list${fromDate ? ` from=${fromDate}` : ''}${toDate ? ` to=${toDate}` : ''}${branchId ? ` branch=${branchId}` : ''}...`);
-
-  while (hasMore) {
-    try {
-      const params: Record<string, any> = {
-        fields: 'id,number,transDate,statusName,branchId',
-        'sp.page': page,
-        'sp.pageSize': pageSize,
-      };
-      if (fromDate) {
-        params['filter.transDate.op'] = 'GREATER_EQUAL';
-        params['filter.transDate.val'] = fromDate;
-      }
-      if (toDate) {
-        params['filter.transDate.op2'] = 'LESS_EQUAL';
-        params['filter.transDate.val2'] = toDate;
-      }
-      if (branchId) {
-        params['filter.branchId.op'] = 'EQUAL';
-        params['filter.branchId.val'] = branchId;
-      }
-
-      const response = await accurateClient.get('/delivery-order/list.do', { params });
-
-      if (response.data?.s) {
-        const list = response.data.d || [];
-        if (list.length === 0) {
-          hasMore = false;
-        } else {
-          list.forEach((doItem: any) => {
-            allDOs.push({
-              id: doItem.id,
-              number: doItem.number,
-              transDate: doItem.transDate,
-              statusName: doItem.statusName,
-              branchId: doItem.branchId,
-            });
-          });
-          if (page % 50 === 0) {
-            console.log(`[Accurate] DO: Page ${page}, ${allDOs.length} DOs so far...`);
-          }
-          page++;
-          if (page > MAX_PAGES) {
-            console.log(`[Accurate] DO: Hit ${MAX_PAGES} pages, stopping at ${allDOs.length} DOs`);
-            hasMore = false;
-          }
-        }
-      } else {
-        console.warn('[Accurate] DO list API returned s=false:', response.data?.d);
-        hasMore = false;
-      }
-    } catch (error: any) {
-      console.error(`[Accurate] DO list page ${page} error:`, error.message);
-      hasMore = false;
-    }
-  }
-
-  console.log(`[Accurate] DO list done: ${allDOs.length} DOs found in ${page - 1} pages`);
-  return allDOs;
-}
-
-/**
- * Fetch detail for a single Delivery Order (to get salesOrderId from detailItem).
- */
-async function fetchSODODetail(doId: number, maxRetries = 3): Promise<{ id: number; number: string; statusName: string; transDate: string; salesOrderIds: number[] } | null> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await accurateClient.get('/delivery-order/detail.do', {
-        params: { id: doId }
-      });
-
-      if (response.data?.s && response.data.d) {
-        const d = response.data.d;
-        const salesOrderIds = new Set<number>();
-        if (Array.isArray(d.detailItem)) {
-          d.detailItem.forEach((di: any) => {
-            if (di.salesOrderId) salesOrderIds.add(di.salesOrderId);
-          });
-        }
-        return {
-          id: d.id,
-          number: d.number,
-          statusName: d.statusName || '',
-          transDate: d.transDate || '',
-          salesOrderIds: Array.from(salesOrderIds),
-        };
-      }
-      return null;
-    } catch (err: any) {
-      if (attempt < maxRetries) {
-        const delay = 1000 * attempt;
-        console.warn(`[Accurate] DO ${doId} fetch failed (attempt ${attempt}): ${err.message}. Retrying...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        console.error(`[Accurate] DO ${doId} FAILED after ${maxRetries} attempts: ${err.message}`);
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Fetch DO details in parallel batches.
- */
-async function fetchSODODetailsInBatch(
-  doIds: number[],
-  batchSize = 15,
-  onProgress?: (done: number, total: number) => void
-): Promise<{ id: number; number: string; statusName: string; transDate: string; salesOrderIds: number[] }[]> {
-  const results: { id: number; number: string; statusName: string; transDate: string; salesOrderIds: number[] }[] = [];
-  const total = doIds.length;
-
-  for (let i = 0; i < total; i += batchSize) {
-    const batch = doIds.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(id => fetchSODODetail(id)));
-    batchResults.forEach(r => { if (r) results.push(r); });
-    if (onProgress) onProgress(Math.min(i + batchSize, total), total);
-  }
-
-  return results;
-}
-
-/**
  * Fetch DO status map for SOs.
+ * Reuses existing fetchDOList (SLA version) and fetchDODetail (SLA version).
  * Returns Map<soId, deliveryStatusName>
  * If a SO has multiple DOs, takes the status of the latest DO (by transDate).
  */
@@ -1261,39 +1129,94 @@ export async function fetchDOStatusForSOs(
   branchId?: number,
   onProgress?: (done: number, total: number) => void
 ): Promise<Map<number, string>> {
-  const doList = await fetchSODOList(fromDate, toDate, branchId);
+  // Phase 1: Get all DO list using the existing SLA fetchDOList (which handles caching)
+  const doList = await fetchDOList(undefined, undefined, branchId, true);
 
   if (doList.length === 0) {
-    console.log('[Accurate] No DOs found in date range');
+    console.log('[Accurate] No DOs found — all SOs will have "Belum dikirim"');
     return new Map();
   }
 
-  console.log(`[Accurate] DO Phase 2: Fetching detail for ${doList.length} DOs to map to SOs...`);
-  const doDetails = await fetchSODODetailsInBatch(doList.map(d => d.id), 15, onProgress);
+  // Phase 1b: Filter DOs client-side by date range (since DO API doesn't support date filters)
+  let filteredDOs = doList;
+  if (fromDate || toDate) {
+    const fromDateParsed = fromDate ? parseAccurateDate(fromDate) : null;
+    const toDateParsed = toDate ? parseAccurateDate(toDate) : null;
 
-  // Build soId -> deliveryStatus map (keep latest DO per SO)
-  const soDoMap = new Map<number, { statusName: string; transDate: string }>();
-
-  doDetails.forEach(doDetail => {
-    doDetail.salesOrderIds.forEach(soId => {
-      const existing = soDoMap.get(soId);
-      if (!existing) {
-        soDoMap.set(soId, { statusName: doDetail.statusName, transDate: doDetail.transDate });
-      } else {
-        const existingDate = parseAccurateDate(existing.transDate);
-        const newDate = parseAccurateDate(doDetail.transDate);
-        if (newDate >= existingDate) {
-          soDoMap.set(soId, { statusName: doDetail.statusName, transDate: doDetail.transDate });
-        }
-      }
+    filteredDOs = doList.filter(doItem => {
+      const doDate = parseAccurateDate(doItem.transDate);
+      if (fromDateParsed && doDate < fromDateParsed) return false;
+      if (toDateParsed && doDate > toDateParsed) return false;
+      return true;
     });
-  });
+    console.log(`[Accurate] DO: Filtered ${doList.length} → ${filteredDOs.length} DOs by date range`);
+  }
 
-  const result = new Map<number, string>();
-  soDoMap.forEach((val, soId) => result.set(soId, val.statusName));
+  if (filteredDOs.length === 0) {
+    console.log('[Accurate] No DOs in date range');
+    return new Map();
+  }
 
-  console.log(`[Accurate] DO mapping done: ${result.size} SOs have delivery status from ${doDetails.length} DOs`);
-  return result;
+  // Phase 2: Fetch DO details directly to get salesOrderId
+  console.log(`[Accurate] DO Phase 2: Fetching detail for ${filteredDOs.length} DOs to map to SOs...`);
+  const soIdMap = new Map<number, string>();
+  const soDoMap = new Map<number, { statusName: string; transDate: string }>();
+  const total = filteredDOs.length;
+  const BATCH_SIZE = 15;
+
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    const batch = filteredDOs.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(async (doItem) => {
+      try {
+        const response = await accurateClient.get('/delivery-order/detail.do', {
+          params: { id: doItem.id }
+        });
+        if (response.data?.s && response.data.d) {
+          const d = response.data.d;
+          const salesOrderIds = new Set<number>();
+          if (Array.isArray(d.detailItem)) {
+            d.detailItem.forEach((di: any) => {
+              if (di.salesOrderId) salesOrderIds.add(di.salesOrderId);
+            });
+          }
+          return {
+            salesOrderIds: Array.from(salesOrderIds),
+            statusName: doItem.statusName || d.statusName || '',
+            transDate: doItem.transDate || d.transDate || '',
+          };
+        }
+        return null;
+      } catch (err: any) {
+        console.warn(`[Accurate] DO ${doItem.id} detail fetch error: ${err.message}`);
+        return null;
+      }
+    }));
+
+    batchResults.forEach(result => {
+      if (!result) return;
+      result.salesOrderIds.forEach(soId => {
+        const existing = soIdMap.get(soId);
+        const existingEntry = existing ? soDoMap.get(soId) : null;
+        if (!existingEntry) {
+          soDoMap.set(soId, { statusName: result.statusName, transDate: result.transDate });
+          soIdMap.set(soId, result.statusName);
+        } else {
+          const existingDate = parseAccurateDate(existingEntry.transDate);
+          const newDate = parseAccurateDate(result.transDate);
+          if (newDate >= existingDate) {
+            soDoMap.set(soId, { statusName: result.statusName, transDate: result.transDate });
+            soIdMap.set(soId, result.statusName);
+          }
+        }
+      });
+    });
+
+    const processed = Math.min(i + BATCH_SIZE, total);
+    if (onProgress) onProgress(processed, total);
+  }
+
+  console.log(`[Accurate] DO mapping done: ${soIdMap.size} SOs have delivery status from ${filteredDOs.length} DOs`);
+  return soIdMap;
 }
 
 // â”€â”€â”€ SO OUTSTANDING (Kontrol SO) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
