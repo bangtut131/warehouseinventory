@@ -101,7 +101,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
     const filtered = soList.filter(so => {
         // Checkbox status filter
         if (syncStatuses.length > 0 && syncStatuses.length < ALL_SO_STATUSES.length) {
-            if (!syncStatuses.includes(so.statusName)) return false;
+            const lowerSyncStatuses = syncStatuses.map(s => s.toLowerCase());
+            if (!lowerSyncStatuses.includes(so.statusName.toLowerCase())) return false;
         }
 
         if (!search) return true;
