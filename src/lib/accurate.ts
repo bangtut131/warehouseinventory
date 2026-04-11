@@ -1260,14 +1260,12 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
         fields: 'id,number,transDate,branchId,statusName,customerName',
         'sp.page': page,
         'sp.pageSize': pageSize,
+        'sp.sort': 'transDate|desc' // IMPORTANT to allow early-exit on dates
       };
       if (branchId) {
         params['filter.branchId.op'] = 'EQUAL';
         params['filter.branchId.val'] = branchId;
       }
-      // NOTE: transDate filter NOT sent to API — Accurate SO list API 
-      // may not support GREATER_EQUAL/LESS_EQUAL on transDate reliably.
-      // Date filtering is done client-side below.
 
       const response = await accurateClient.get('/sales-order/list.do', { params });
 
@@ -1277,6 +1275,8 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
           hasMore = false;
         } else {
           let matchesInPage = 0;
+          let datesOlderThanFromDate = 0;
+
           list.forEach((so: any) => {
             const status = (so.statusName || '').toLowerCase().trim();
             if (EXCLUDE_STATUSES.includes(status)) return;
@@ -1286,7 +1286,12 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
             // Client-side date filtering
             if (fromDateParsed || toDateParsed) {
               const soDate = parseAccurateDate(so.transDate);
-              if (fromDateParsed && soDate < fromDateParsed) return;
+              // Since it's sorted transDate|desc, if we hit a date older than fromDateParsed,
+              // we can keep a count to potentially stop fetching.
+              if (fromDateParsed && soDate < fromDateParsed) {
+                 datesOlderThanFromDate++;
+                 return;
+              }
               if (toDateParsed && soDate > toDateParsed) return;
             }
 
@@ -1301,17 +1306,22 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
             });
           });
 
-          // Smart early-exit for status-filtered queries
-          if (isStatusFiltered) {
-            if (matchesInPage === 0) {
-              consecutiveEmptyPages++;
-              if (consecutiveEmptyPages >= MAX_EMPTY_PAGES) {
-                console.log(`[Accurate] SO: ${MAX_EMPTY_PAGES} consecutive pages with 0 matches, stopping at page ${page} (${allSOs.length} SOs found)`);
-                hasMore = false;
-              }
-            } else {
-              consecutiveEmptyPages = 0;
+          // Early-exit logic: 
+          // 1. If we are sorting by transDate|desc and a significant portion of this page is older than fromDate, stop.
+          if (fromDateParsed && datesOlderThanFromDate > (list.length * 0.5)) {
+             console.log(`[Accurate] SO: Stopping at page ${page} because mostly older dates encountered (${datesOlderThanFromDate}/${list.length})`);
+             hasMore = false;
+          }
+
+          // 2. Early exit based on consecutive empty matches (useful for both status and date)
+          if (matchesInPage === 0) {
+            consecutiveEmptyPages++;
+            if (consecutiveEmptyPages >= MAX_EMPTY_PAGES) {
+              console.log(`[Accurate] SO: ${MAX_EMPTY_PAGES} consecutive pages with 0 matches, stopping at page ${page} (${allSOs.length} SOs found)`);
+              hasMore = false;
             }
+          } else {
+            consecutiveEmptyPages = 0;
           }
 
           // Log progress every 50 pages
@@ -1413,7 +1423,7 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
  */
 async function fetchSODetailsInBatch(
   soIds: number[],
-  batchSize = 15,
+  batchSize = 5, // smaller batch size to avoid 429
   onProgress?: (done: number, total: number) => void
 ): Promise<SOData[]> {
   const results: SOData[] = [];
@@ -1421,9 +1431,14 @@ async function fetchSODetailsInBatch(
 
   for (let i = 0; i < total; i += batchSize) {
     const batch = soIds.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(id => fetchSODetail(id)));
+    const batchResults = await Promise.all(batch.map(id => fetchSODetail(id, 3)));
     batchResults.forEach(r => { if (r) results.push(r); });
     if (onProgress) onProgress(Math.min(i + batchSize, total), total);
+    
+    // Add sleep to prevent Accurate HTTP 429 Too Many Requests
+    if (i + batchSize < total) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
   }
 
   return results;
