@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 
 interface SOControlViewProps {
     branches?: { id: number; name: string }[];
@@ -157,6 +158,70 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         } catch (err) {
             console.error('Failed to trigger SO sync', err);
         }
+    };
+
+    const exportToExcel = () => {
+        if (filtered.length === 0) {
+            alert('Tidak ada data untuk di-export');
+            return;
+        }
+
+        const dataToExport: any[] = [];
+        filtered.forEach((so: any) => {
+            if (so.detailItems && so.detailItems.length > 0) {
+                so.detailItems.forEach((item: any) => {
+                    dataToExport.push({
+                        'No. SO': so.soNumber,
+                        'Tanggal': so.transDate,
+                        'Customer': so.customerName,
+                        'Status': so.statusName,
+                        'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
+                        'Kode Barang': item.itemNo,
+                        'Nama Barang': item.itemName,
+                        'Qty Pesanan': item.quantity,
+                        'Qty Terkirim': item.shipQuantity || 0,
+                        'Outstanding': item.outstanding,
+                        'Satuan': item.unitName || '',
+                    });
+                });
+            } else {
+                dataToExport.push({
+                    'No. SO': so.soNumber,
+                    'Tanggal': so.transDate,
+                    'Customer': so.customerName,
+                    'Status': so.statusName,
+                    'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
+                    'Kode Barang': '-',
+                    'Nama Barang': '-',
+                    'Qty Pesanan': 0,
+                    'Qty Terkirim': 0,
+                    'Outstanding': so.totalOutstanding || 0,
+                    'Satuan': '',
+                });
+            }
+        });
+
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        
+        // Auto-sizing columns (basic approach)
+        const colWidths = [
+            { wch: 15 }, // SO
+            { wch: 12 }, // Tanggal
+            { wch: 30 }, // Customer
+            { wch: 15 }, // Status
+            { wch: 18 }, // Status Kiriman
+            { wch: 15 }, // Kode Barang
+            { wch: 40 }, // Nama Barang
+            { wch: 12 }, // Qty
+            { wch: 12 }, // Shipped
+            { wch: 12 }, // Outstanding
+            { wch: 10 }, // Satuan
+        ];
+        ws['!cols'] = colWidths;
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Sales Orders");
+        XLSX.writeFile(wb, `SO_Outstanding_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     const startSync = async () => {
@@ -359,6 +424,16 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
 
                 {/* Spacer */}
                 <div className="flex-1" />
+
+                {/* Export Button */}
+                <Button
+                    onClick={exportToExcel}
+                    size="sm"
+                    variant="outline"
+                    className="border-emerald-500 text-emerald-600 hover:bg-emerald-50"
+                >
+                    📊 Export Excel
+                </Button>
 
                 {/* Sync Button */}
                 <Button
