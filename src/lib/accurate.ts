@@ -1818,10 +1818,12 @@ export async function fetchItemUnitMap(force = false): Promise<Map<string, ItemU
       if (response.data?.s) {
         const items: { no: string; unit1Name?: string; unit2Name?: string; ratio2?: number }[] = response.data.d || [];
         for (const item of items) {
-          if (item.no && item.unit2Name && item.ratio2 && item.ratio2 > 1) {
+          // Note: unit2Name is often NOT returned by /item/list.do, only by /item/detail.do
+          // So we only filter on ratio2 > 1 and default salesUnitName to 'Box'
+          if (item.no && item.ratio2 && item.ratio2 > 1) {
             result.set(item.no, {
               unitConversion: item.ratio2,
-              salesUnitName: item.unit2Name,
+              salesUnitName: item.unit2Name || 'Box',
               baseUnitName: item.unit1Name || 'Pcs',
             });
           }
@@ -1835,7 +1837,7 @@ export async function fetchItemUnitMap(force = false): Promise<Map<string, ItemU
     }
   }
 
-  console.log('[ItemUnitMap] Fetched ' + result.size + ' items with unit2 from Accurate');
+  console.log('[ItemUnitMap] Fetched ' + result.size + ' items with unit conversion from Accurate');
 
   // Save cache
   try {
