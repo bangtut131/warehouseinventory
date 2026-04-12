@@ -1774,7 +1774,7 @@ export interface ItemUnitInfo {
   baseUnitName: string;    // e.g. 'Pcs'
 }
 
-const ITEM_UNIT_CACHE_KEY = 'item-unit-map-v2';
+const ITEM_UNIT_CACHE_KEY = 'item-unit-map-v3';
 const ITEM_UNIT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
@@ -1813,18 +1813,40 @@ export async function fetchItemUnitMap(force = false): Promise<Map<string, ItemU
   while (hasMore) {
     try {
       const response = await accurateClient.get('/item/list.do', {
-        params: { fields: 'id,no,unit1Name,unit2Name,ratio2', 'sp.page': page, 'sp.pageSize': pageSize }
+        params: { fields: 'id,no,unit1Name,unit2Name,unit3Name,ratio2,ratio3', 'sp.page': page, 'sp.pageSize': pageSize }
       });
       if (response.data?.s) {
-        const items: { no: string; unit1Name?: string; unit2Name?: string; ratio2?: number }[] = response.data.d || [];
+        const items: { no: string; unit1Name?: string; unit2Name?: string; unit3Name?: string; ratio2?: number; ratio3?: number }[] = response.data.d || [];
         for (const item of items) {
-          // Note: unit2Name is often NOT returned by /item/list.do, only by /item/detail.do
-          // So we only filter on ratio2 > 1 and default salesUnitName to 'Box'
-          if (item.no && item.ratio2 && item.ratio2 > 1) {
+          if (!item.no) continue;
+          const base = item.unit1Name || 'Pcs';
+
+          // Accurate items can have up to 3 units:
+          //   unit1 (base, e.g. Btl/Pcs), unit2 (e.g. Ltr, ratio2), unit3 (e.g. Box, ratio3)
+          // We want the "isi per box" conversion: prefer ratio with salesUnit named Box/Karung/Sak
+          // and ratio > 1 (meaning 1 salesUnit = N baseUnits)
+          
+          // Check ratio3 first (often Box), then ratio2
+          let bestRatio = 0;
+          let bestSalesUnit = '';
+
+          if (item.ratio3 && item.ratio3 > 1) {
+            bestRatio = item.ratio3;
+            bestSalesUnit = item.unit3Name || 'Box';
+          }
+          if (item.ratio2 && item.ratio2 > 1) {
+            // If ratio3 already set, only override if ratio2 is a Box-like unit
+            if (bestRatio === 0) {
+              bestRatio = item.ratio2;
+              bestSalesUnit = item.unit2Name || 'Box';
+            }
+          }
+
+          if (bestRatio > 1) {
             result.set(item.no, {
-              unitConversion: item.ratio2,
-              salesUnitName: item.unit2Name || 'Box',
-              baseUnitName: item.unit1Name || 'Pcs',
+              unitConversion: bestRatio,
+              salesUnitName: bestSalesUnit,
+              baseUnitName: base,
             });
           }
         }
