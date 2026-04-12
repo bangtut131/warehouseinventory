@@ -175,6 +175,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         'Tanggal': so.transDate,
                         'ID Customer': so.customerNo || '-',
                         'Customer': so.customerName,
+                        'Kota/Kab': so.shipCity || '-',
+                        'Provinsi': so.shipProvince || '-',
                         'Status': so.statusName,
                         'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
                         'Kode Barang': item.itemNo,
@@ -196,6 +198,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     'Tanggal': so.transDate,
                     'ID Customer': so.customerNo || '-',
                     'Customer': so.customerName,
+                    'Kota/Kab': so.shipCity || '-',
+                    'Provinsi': so.shipProvince || '-',
                     'Status': so.statusName,
                     'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
                     'Kode Barang': '-',
@@ -221,6 +225,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             { wch: 12 }, // Tanggal
             { wch: 15 }, // ID Customer
             { wch: 30 }, // Customer
+            { wch: 18 }, // Kota/Kab
+            { wch: 18 }, // Provinsi
             { wch: 15 }, // Status
             { wch: 18 }, // Status Kiriman
             { wch: 15 }, // Kode Barang
@@ -659,6 +665,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                             <th className="px-3 py-2 font-medium">Tanggal</th>
                             <th className="px-3 py-2 font-medium">ID Customer</th>
                             <th className="px-3 py-2 font-medium">Customer</th>
+                            <th className="px-3 py-2 font-medium">Kota/Kab</th>
+                            <th className="px-3 py-2 font-medium">Provinsi</th>
                             <th className="px-3 py-2 font-medium">Status</th>
                             <th className="px-3 py-2 font-medium">Status Kiriman</th>
                             <th className="px-3 py-2 font-medium text-center">Items</th>
@@ -667,13 +675,13 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">
                                 <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
                                 Memuat data SO...
                             </td></tr>
                         )}
                         {!loading && filtered.length === 0 && (
-                            <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">
                                 Tidak ada data SO. {soList.length === 0 ? 'Klik Sync SO untuk mengambil data.' : 'Coba ubah filter.'}
                             </td></tr>
                         )}
@@ -690,6 +698,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                     <td className="px-3 py-2 text-muted-foreground">{formatDate(so.transDate)}</td>
                                     <td className="px-3 py-2 font-mono text-xs">{so.customerNo || '-'}</td>
                                     <td className="px-3 py-2">{so.customerName || '-'}</td>
+                                    <td className="px-3 py-2 text-xs">{so.shipCity || <span className="text-muted-foreground">-</span>}</td>
+                                    <td className="px-3 py-2 text-xs">{so.shipProvince || <span className="text-muted-foreground">-</span>}</td>
                                     <td className="px-3 py-2">
                                         <Badge variant="outline" className={`text-xs ${getStatusColor(so.statusName)}`}>
                                             {so.statusName}
@@ -713,7 +723,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                 {/* Expanded Detail */}
                                 {expandedId === so.id && (
                                     <tr>
-                                        <td colSpan={9} className="bg-muted/20 px-4 py-3">
+                                        <td colSpan={11} className="bg-muted/20 px-4 py-3">
                                             <div className="text-xs font-medium text-muted-foreground mb-2">
                                                 Detail Item — {so.soNumber}
                                             </div>

@@ -114,6 +114,8 @@ export interface SOData {
     customerNo?: string;
     branchId?: number;
     branchName?: string;
+    shipCity?: string;       // Kota/Kab tujuan pengiriman (normalized)
+    shipProvince?: string;   // Provinsi tujuan pengiriman (normalized)
     statusName: string;      // Diajukan / Menunggu diproses / Terproses
     deliveryStatus?: string; // Status pengiriman DO: Dikirim / Difaktur / Difaktur Sebagian / Ditolak / Diajukan / Draf / Belum dikirim
     detailItems: SODetailItem[];

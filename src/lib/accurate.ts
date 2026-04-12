@@ -1350,6 +1350,40 @@ async function fetchSOList(branchId?: number, fromDate?: string, toDate?: string
 }
 
 /**
+ * Normalize city name from Accurate to remove inconsistent prefixes.
+ * e.g. "Kab. Banjarnegara" → "Banjarnegara", "Kota Semarang" → "Semarang"
+ */
+function normalizeCity(city: string): string {
+  if (!city) return '';
+  let normalized = city.trim();
+  // Remove common prefixes: "Kab.", "Kab ", "Kabupaten ", "Kota "
+  normalized = normalized.replace(/^(Kab\.\s*|Kab\s+|Kabupaten\s+|Kota\s+)/i, '');
+  // Title case
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+/**
+ * Normalize province name from Accurate.
+ * e.g. "Yogyakarta" → "DI Yogyakarta", "Daerah Istimewa Yogyakarta" → "DI Yogyakarta"
+ */
+const PROVINCE_MAP: Record<string, string> = {
+  'yogyakarta': 'DI Yogyakarta',
+  'daerah istimewa yogyakarta': 'DI Yogyakarta',
+  'di yogyakarta': 'DI Yogyakarta',
+  'd.i. yogyakarta': 'DI Yogyakarta',
+  'dki jakarta': 'DKI Jakarta',
+  'daerah khusus ibukota jakarta': 'DKI Jakarta',
+  'jakarta': 'DKI Jakarta',
+};
+
+function normalizeProvince(province: string): string {
+  if (!province) return '';
+  const trimmed = province.trim();
+  const lower = trimmed.toLowerCase();
+  return PROVINCE_MAP[lower] || trimmed;
+}
+
+/**
  * Fetch detail for a single SO with retry.
  */
 async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | null> {
@@ -1392,6 +1426,10 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
 
         const totalOutstanding = detailItems.reduce((sum, i) => sum + i.outstanding, 0);
 
+        // Extract and normalize city/province from customer ship address
+        const rawCity = d.customer?.shipAddress?.city || d.shipAddress?.city || '';
+        const rawProvince = d.customer?.shipAddress?.province || d.shipAddress?.province || '';
+
         return {
           id: d.id,
           soNumber: d.number,
@@ -1399,6 +1437,8 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
           customerName: d.customerName || d.customer?.name || '',
           customerNo: d.customer?.customerNo || d.customer?.no || d.customerNo || '',
           branchId: d.branchId || undefined,
+          shipCity: normalizeCity(rawCity),
+          shipProvince: normalizeProvince(rawProvince),
           statusName: d.statusName || '',
           detailItems,
           totalOutstanding,
