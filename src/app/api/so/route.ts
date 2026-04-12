@@ -120,15 +120,20 @@ export async function POST(request: NextRequest) {
     // Fire and forget
     (async () => {
         try {
-            const { soList, soCount } = await fetchAllSOData(true, branchId, fromDate, toDate, statuses, (done, total) => {
+            const { soList, soCount, failedSOs } = await fetchAllSOData(true, branchId, fromDate, toDate, statuses, (done, total) => {
                 soSyncState.progress = Math.round((done / total) * 100);
                 soSyncState.message = `SO: ${done}/${total}`;
             });
 
+            let doneMsg = `Selesai! ${soList.length} SO outstanding dari ${soCount} total`;
+            if (failedSOs && failedSOs.length > 0) {
+                doneMsg += `. Gagal narik: ${failedSOs.length} SO (${failedSOs.slice(0, 5).join(', ')}${failedSOs.length > 5 ? ' dll' : ''})`;
+            }
+
             soSyncState = {
                 status: 'done',
                 progress: 100,
-                message: `Selesai! ${soList.length} SO outstanding dari ${soCount} total`,
+                message: doneMsg,
             };
         } catch (err: any) {
             soSyncState = {

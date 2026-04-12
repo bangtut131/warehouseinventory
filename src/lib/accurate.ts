@@ -1397,7 +1397,7 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
           soNumber: d.number,
           transDate: d.transDate,
           customerName: d.customerName || d.customer?.name || '',
-          customerNo: d.customer?.no || d.customerNo || '',
+          customerNo: d.customer?.customerNo || d.customer?.no || d.customerNo || '',
           branchId: d.branchId || undefined,
           statusName: d.statusName || '',
           detailItems,
@@ -1423,17 +1423,21 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
  * Fetch SO details in parallel batches.
  */
 async function fetchSODetailsInBatch(
-  soIds: number[],
+  items: { id: number; number: string }[],
   batchSize = 5, // smaller batch size to avoid 429
   onProgress?: (done: number, total: number) => void
-): Promise<SOData[]> {
-  const results: SOData[] = [];
-  const total = soIds.length;
+): Promise<{ successes: SOData[], failed: string[] }> {
+  const successes: SOData[] = [];
+  const failed: string[] = [];
+  const total = items.length;
 
   for (let i = 0; i < total; i += batchSize) {
-    const batch = soIds.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(id => fetchSODetail(id, 3)));
-    batchResults.forEach(r => { if (r) results.push(r); });
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(item => fetchSODetail(item.id, 3)));
+    batchResults.forEach((r, idx) => {
+      if (r) successes.push(r);
+      else failed.push(batch[idx].number);
+    });
     if (onProgress) onProgress(Math.min(i + batchSize, total), total);
     
     // Add sleep to prevent Accurate HTTP 429 Too Many Requests
@@ -1442,7 +1446,7 @@ async function fetchSODetailsInBatch(
     }
   }
 
-  return results;
+  return { successes, failed };
 }
 
 /**
@@ -1493,7 +1497,7 @@ export async function fetchAllSOData(
   toDate?: string,
   statuses?: string[],
   onProgress?: (done: number, total: number) => void
-): Promise<{ soList: SOData[]; soCount: number }> {
+): Promise<{ soList: SOData[]; soCount: number; failedSOs?: string[] }> {
   // Try cache first (only if not force and no specific filters)
   if (!force) {
     const cached = await loadSOCache();
@@ -1520,14 +1524,16 @@ export async function fetchAllSOData(
   }
 
   // Phase 2: Fetch SO details
-  const soIds = soListRaw.map(so => so.id);
-  console.log(`[Accurate] SO Phase 2: Fetching detail for ${soIds.length} SOs...`);
+  console.log(`[Accurate] SO Phase 2: Fetching detail for ${soListRaw.length} SOs...`);
 
-  const soData = await fetchSODetailsInBatch(soIds, 15, (done, total) => {
+  const { successes: soData, failed: failedSOs } = await fetchSODetailsInBatch(soListRaw, 15, (done, total) => {
     if (onProgress) onProgress(done, total * 2); // *2 because DO phase follows
   });
 
   console.log(`[Accurate] SO Phase 2 done: ${soData.length} SOs fetched with detail`);
+  if (failedSOs.length > 0) {
+    console.warn(`[Accurate] Failed to fetch details for ${failedSOs.length} SOs`);
+  }
 
   // Phase 3: Fetch DO status and map to SOs
   console.log(`[Accurate] SO Phase 3: Fetching Delivery Order status...`);
@@ -1551,7 +1557,7 @@ export async function fetchAllSOData(
   // Cache
   await saveSOCache(soData);
 
-  return { soList: soData, soCount: soData.length };
+  return { soList: soData, soCount: soData.length, failedSOs };
 }
 
 // ─── SLA SO Cache (Lightweight list of ALL SOs for SLA Dashboard) ───

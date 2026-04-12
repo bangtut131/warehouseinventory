@@ -134,7 +134,10 @@ export async function executeSOSyncJob(trigger: 'scheduled' | 'manual' = 'schedu
         });
 
         const durationSec = Math.round((Date.now() - start) / 1000);
-        const msg = `SOs: ${result.soList.length}, Total: ${result.soCount} (${durationSec}s)`;
+        let msg = `SOs: ${result.soList.length}, Total: ${result.soCount} (${durationSec}s)`;
+        if (result.failedSOs && result.failedSOs.length > 0) {
+            msg += ` | Gagal: ${result.failedSOs.slice(0, 5).join(', ')}${result.failedSOs.length > 5 ? ' dll' : ''}`;
+        }
 
         await updateSOLogEntry(logId, 'SUCCESS', msg);
         console.log(`[SO Scheduler] Sync completed in ${durationSec}s — ${msg}`);
