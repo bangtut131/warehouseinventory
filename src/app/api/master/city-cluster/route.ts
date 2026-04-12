@@ -19,7 +19,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { city, province, area, cluster, subCluster } = body;
+        const { id, city, province, area, cluster, subCluster } = body;
 
         if (!city || !area) {
             return NextResponse.json({ error: 'Kota dan Area wajib diisi' }, { status: 400 });
@@ -28,22 +28,36 @@ export async function POST(request: NextRequest) {
         const normalized = city.trim().replace(/^(Kab\.\s*|Kab\s+|Kabupaten\s+|Kota\s+)/i, '');
         const cityName = normalized.charAt(0).toUpperCase() + normalized.slice(1);
 
-        const result = await prisma.cityCluster.upsert({
-            where: { city: cityName },
-            update: {
-                province: province?.trim() || null,
-                area: area.trim(),
-                cluster: cluster?.trim() || null,
-                subCluster: subCluster?.trim() || null,
-            },
-            create: {
-                city: cityName,
-                province: province?.trim() || null,
-                area: area.trim(),
-                cluster: cluster?.trim() || null,
-                subCluster: subCluster?.trim() || null,
-            },
-        });
+        let result;
+        if (id) {
+            result = await prisma.cityCluster.update({
+                where: { id: Number(id) },
+                data: {
+                    city: cityName,
+                    province: province?.trim() || null,
+                    area: area.trim(),
+                    cluster: cluster?.trim() || null,
+                    subCluster: subCluster?.trim() || null,
+                }
+            });
+        } else {
+            result = await prisma.cityCluster.upsert({
+                where: { city: cityName },
+                update: {
+                    province: province?.trim() || null,
+                    area: area.trim(),
+                    cluster: cluster?.trim() || null,
+                    subCluster: subCluster?.trim() || null,
+                },
+                create: {
+                    city: cityName,
+                    province: province?.trim() || null,
+                    area: area.trim(),
+                    cluster: cluster?.trim() || null,
+                    subCluster: subCluster?.trim() || null,
+                },
+            });
+        }
 
         return NextResponse.json(result);
     } catch (err: any) {

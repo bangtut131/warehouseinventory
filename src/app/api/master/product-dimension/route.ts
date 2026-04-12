@@ -19,30 +19,45 @@ export async function GET() {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { itemNo, itemName, weightKg, lengthCm, widthCm, heightCm } = body;
+        const { id, itemNo, itemName, weightKg, lengthCm, widthCm, heightCm } = body;
 
         if (!itemNo) {
-            return NextResponse.json({ error: 'itemNo (kode barang) wajib diisi' }, { status: 400 });
+            return NextResponse.json({ error: 'Kode Barang wajib diisi' }, { status: 400 });
         }
 
-        const result = await prisma.productDimension.upsert({
-            where: { itemNo: itemNo.trim() },
-            update: {
-                itemName: itemName?.trim() || null,
-                weightKg: weightKg != null ? parseFloat(weightKg) : null,
-                lengthCm: lengthCm != null ? parseFloat(lengthCm) : null,
-                widthCm: widthCm != null ? parseFloat(widthCm) : null,
-                heightCm: heightCm != null ? parseFloat(heightCm) : null,
-            },
-            create: {
-                itemNo: itemNo.trim(),
-                itemName: itemName?.trim() || null,
-                weightKg: weightKg != null ? parseFloat(weightKg) : null,
-                lengthCm: lengthCm != null ? parseFloat(lengthCm) : null,
-                widthCm: widthCm != null ? parseFloat(widthCm) : null,
-                heightCm: heightCm != null ? parseFloat(heightCm) : null,
-            },
-        });
+        let result;
+        if (id) {
+            result = await prisma.productDimension.update({
+                where: { id: Number(id) },
+                data: {
+                    itemNo: itemNo.trim(),
+                    itemName: itemName ? itemName.trim() : null,
+                    weightKg: weightKg != null ? Number(weightKg) : null,
+                    lengthCm: lengthCm != null ? Number(lengthCm) : null,
+                    widthCm: widthCm != null ? Number(widthCm) : null,
+                    heightCm: heightCm != null ? Number(heightCm) : null,
+                }
+            });
+        } else {
+            result = await prisma.productDimension.upsert({
+                where: { itemNo: itemNo.trim() },
+                update: {
+                    itemName: itemName ? itemName.trim() : null,
+                    weightKg: weightKg != null ? Number(weightKg) : null,
+                    lengthCm: lengthCm != null ? Number(lengthCm) : null,
+                    widthCm: widthCm != null ? Number(widthCm) : null,
+                    heightCm: heightCm != null ? Number(heightCm) : null,
+                },
+                create: {
+                    itemNo: itemNo.trim(),
+                    itemName: itemName ? itemName.trim() : null,
+                    weightKg: weightKg != null ? Number(weightKg) : null,
+                    lengthCm: lengthCm != null ? Number(lengthCm) : null,
+                    widthCm: widthCm != null ? Number(widthCm) : null,
+                    heightCm: heightCm != null ? Number(heightCm) : null,
+                },
+            });
+        }
 
         return NextResponse.json(result);
     } catch (err: any) {

@@ -108,6 +108,7 @@ function CityClusterTab() {
         if (!formCity || !formArea) return;
         try {
             await axios.post('/api/master/city-cluster', {
+                id: editItem?.id,
                 city: formCity, province: formProvince, area: formArea,
                 cluster: formCluster, subCluster: formSubCluster,
             });
@@ -229,7 +230,7 @@ function CityClusterTab() {
                     <CardContent className="p-4">
                         <p className="text-xs font-semibold mb-3">{editItem ? `✏️ Edit: ${editItem.city}` : '➕ Tambah Mapping'}</p>
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                            <Input placeholder="Kota *" value={formCity} onChange={e => setFormCity(e.target.value)} className="text-xs h-8" disabled={!!editItem} />
+                            <Input placeholder="Kota *" value={formCity} onChange={e => setFormCity(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Provinsi" value={formProvince} onChange={e => setFormProvince(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Area *" value={formArea} onChange={e => setFormArea(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Cluster" value={formCluster} onChange={e => setFormCluster(e.target.value)} className="text-xs h-8" />
@@ -343,9 +344,12 @@ function ProductDimensionTab() {
         if (!formItemNo) return;
         try {
             await axios.post('/api/master/product-dimension', {
+                id: editItem?.id,
                 itemNo: formItemNo, itemName: formItemName,
-                weightKg: formWeight || null, lengthCm: formLength || null,
-                widthCm: formWidth || null, heightCm: formHeight || null,
+                weightKg: formWeight || null,
+                lengthCm: formLength || null,
+                widthCm: formWidth || null,
+                heightCm: formHeight || null,
             });
             resetForm();
             fetchData();
@@ -463,7 +467,7 @@ function ProductDimensionTab() {
                     <CardContent className="p-4">
                         <p className="text-xs font-semibold mb-3">{editItem ? `✏️ Edit: ${editItem.itemNo}` : '➕ Tambah Dimensi'}</p>
                         <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-                            <Input placeholder="Kode Barang *" value={formItemNo} onChange={e => setFormItemNo(e.target.value)} className="text-xs h-8" disabled={!!editItem} />
+                            <Input placeholder="Kode Barang *" value={formItemNo} onChange={e => setFormItemNo(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Nama Barang" value={formItemName} onChange={e => setFormItemName(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Berat (kg)" type="number" step="0.01" value={formWeight} onChange={e => setFormWeight(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Panjang (cm)" type="number" step="0.1" value={formLength} onChange={e => setFormLength(e.target.value)} className="text-xs h-8" />
