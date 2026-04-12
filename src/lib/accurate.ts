@@ -1426,19 +1426,40 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
 
         const totalOutstanding = detailItems.reduce((sum, i) => sum + i.outstanding, 0);
 
-        // Extract and normalize city/province from customer ship address
-        const rawCity = d.customer?.shipAddress?.city || d.shipAddress?.city || '';
-        const rawProvince = d.customer?.shipAddress?.province || d.shipAddress?.province || '';
+        // Extract city/province from customer address
+        // Priority: shipAddress → shipAddressList[0] (fallback when default is empty)
+        const customerName = d.customerName || d.customer?.name || '';
+        const isOnlineCustomer = customerName.toLowerCase().includes('penjualan online');
+
+        let rawCity = '';
+        let rawProvince = '';
+
+        if (!isOnlineCustomer) {
+          // Try default shipAddress first
+          rawCity = d.customer?.shipAddress?.city || d.shipAddress?.city || '';
+          rawProvince = d.customer?.shipAddress?.province || d.shipAddress?.province || '';
+
+          // Fallback: check shipAddressList for non-empty city
+          if (!rawCity && d.customer?.shipAddressList?.length) {
+            for (const addr of d.customer.shipAddressList) {
+              if (addr.city) {
+                rawCity = addr.city;
+                rawProvince = addr.province || rawProvince;
+                break;
+              }
+            }
+          }
+        }
 
         return {
           id: d.id,
           soNumber: d.number,
           transDate: d.transDate,
-          customerName: d.customerName || d.customer?.name || '',
+          customerName,
           customerNo: d.customer?.customerNo || d.customer?.no || d.customerNo || '',
           branchId: d.branchId || undefined,
-          shipCity: normalizeCity(rawCity),
-          shipProvince: normalizeProvince(rawProvince),
+          shipCity: isOnlineCustomer ? 'Online' : normalizeCity(rawCity),
+          shipProvince: isOnlineCustomer ? 'Online' : normalizeProvince(rawProvince),
           statusName: d.statusName || '',
           detailItems,
           totalOutstanding,
