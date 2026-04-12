@@ -183,6 +183,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         'Qty Terkirim': item.shipQuantity || 0,
                         'Outstanding': item.outstanding,
                         'Satuan': item.unitName || '',
+                        'Isi/Box': item.isiPerBox || '-',
+                        'Qty (Pcs)': item.qtyPcs ?? item.quantity,
+                        'Outstanding (Pcs)': item.outstandingPcs ?? item.outstanding,
                     });
                 });
             } else {
@@ -199,6 +202,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     'Qty Terkirim': 0,
                     'Outstanding': so.totalOutstanding || 0,
                     'Satuan': '',
+                    'Isi/Box': '-',
+                    'Qty (Pcs)': 0,
+                    'Outstanding (Pcs)': 0,
                 });
             }
         });
@@ -219,6 +225,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             { wch: 12 }, // Shipped
             { wch: 12 }, // Outstanding
             { wch: 10 }, // Satuan
+            { wch: 10 }, // Isi/Box
+            { wch: 12 }, // Qty (Pcs)
+            { wch: 16 }, // Outstanding (Pcs)
         ];
         ws['!cols'] = colWidths;
 
@@ -698,7 +707,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                 {/* Expanded Detail */}
                                 {expandedId === so.id && (
                                     <tr>
-                                        <td colSpan={8} className="bg-muted/20 px-4 py-3">
+                                        <td colSpan={9} className="bg-muted/20 px-4 py-3">
                                             <div className="text-xs font-medium text-muted-foreground mb-2">
                                                 Detail Item — {so.soNumber}
                                             </div>
@@ -710,8 +719,11 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                                         <th className="px-2 py-1.5 text-right font-medium">Qty Pesan</th>
                                                         <th className="px-2 py-1.5 text-right font-medium">Qty Terproses</th>
                                                         <th className="px-2 py-1.5 text-right font-medium">Outstanding</th>
-                                                        <th className="px-2 py-1.5 text-right font-medium">Stock</th>
                                                         <th className="px-2 py-1.5 text-left font-medium">Satuan</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Isi/Box</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Qty (Pcs)</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Outstanding (Pcs)</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Stock</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -728,6 +740,24 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                                                     <span className="text-green-600">0</span>
                                                                 )}
                                                             </td>
+                                                            <td className="px-2 py-1.5 text-muted-foreground">{item.unitName}</td>
+                                                            <td className="px-2 py-1.5 text-right font-mono text-xs">
+                                                                {item.isiPerBox ? item.isiPerBox.toLocaleString('id-ID') : <span className="text-muted-foreground">-</span>}
+                                                            </td>
+                                                            <td className="px-2 py-1.5 text-right font-medium">
+                                                                {(item.qtyPcs ?? item.quantity).toLocaleString('id-ID')}
+                                                                {item.isiPerBox && <span className="text-[10px] text-muted-foreground ml-0.5">pcs</span>}
+                                                            </td>
+                                                            <td className="px-2 py-1.5 text-right font-medium">
+                                                                {(item.outstandingPcs ?? item.outstanding) > 0 ? (
+                                                                    <span className="text-orange-600">
+                                                                        {(item.outstandingPcs ?? item.outstanding).toLocaleString('id-ID')}
+                                                                        {item.isiPerBox && <span className="text-[10px] text-muted-foreground ml-0.5">pcs</span>}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-green-600">0</span>
+                                                                )}
+                                                            </td>
                                                             <td className="px-2 py-1.5 text-right">
                                                                 {item.stock !== undefined ? (
                                                                     <span className={item.stock < item.outstanding ? 'text-red-600 font-medium' : ''}>
@@ -737,7 +767,6 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                                                     <span className="text-muted-foreground">-</span>
                                                                 )}
                                                             </td>
-                                                            <td className="px-2 py-1.5 text-muted-foreground">{item.unitName}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>

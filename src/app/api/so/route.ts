@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllSOData, loadSOCache, fetchAllInventory } from '@/lib/accurate';
+import { fetchAllSOData, loadSOCache, fetchAllInventory, fetchItemUnitMap } from '@/lib/accurate';
 import { SOData } from '@/lib/types';
 
 // ─── In-memory sync state ────────────────────────────────────
@@ -69,15 +69,39 @@ export async function GET(request: NextRequest) {
             const stockMap = new Map<string, number>();
             items.forEach(item => stockMap.set(item.no, item.quantity || 0));
 
+            // Join unit conversion data
+            const unitMap = await fetchItemUnitMap();
+
             soList = soList.map(so => ({
                 ...so,
-                detailItems: so.detailItems.map(di => ({
-                    ...di,
-                    stock: stockMap.get(di.itemNo) ?? undefined,
-                })),
+                detailItems: so.detailItems.map(di => {
+                    const unitInfo = unitMap.get(di.itemNo);
+                    const isiPerBox = unitInfo?.unitConversion || 0;
+                    const unitNameLower = (di.unitName || '').toLowerCase();
+                    const isBaseUnit = !unitInfo || isiPerBox <= 1 ||
+                        unitNameLower === (unitInfo?.baseUnitName || 'pcs').toLowerCase();
+
+                    // Convert to smallest unit (Pcs)
+                    // If SO unit is already base unit (Pcs), keep as is
+                    // If SO unit is sales unit (Box/Karung), multiply by isiPerBox
+                    const qtyPcs = isBaseUnit ? di.quantity : di.quantity * isiPerBox;
+                    const shipQtyPcs = isBaseUnit ? di.shipQuantity : di.shipQuantity * isiPerBox;
+                    const outstandingPcs = isBaseUnit ? di.outstanding : di.outstanding * isiPerBox;
+
+                    return {
+                        ...di,
+                        stock: stockMap.get(di.itemNo) ?? undefined,
+                        isiPerBox: isiPerBox > 1 ? isiPerBox : undefined,
+                        baseUnitName: unitInfo?.baseUnitName,
+                        salesUnitName: unitInfo?.salesUnitName,
+                        qtyPcs,
+                        shipQtyPcs,
+                        outstandingPcs,
+                    };
+                }),
             }));
         } catch {
-            console.warn('[SO API] Could not join stock data');
+            console.warn('[SO API] Could not join stock/unit data');
         }
 
         return NextResponse.json({

@@ -96,6 +96,14 @@ export interface SODetailItem {
     unitPrice: number;
     totalPrice: number;
     stock?: number;          // Current stock (joined from inventory)
+
+    // Unit conversion (joined from item master)
+    isiPerBox?: number;      // How many base units (Pcs) per sales unit (Box/Karung)
+    baseUnitName?: string;   // e.g. "Pcs"
+    salesUnitName?: string;  // e.g. "Box", "Karung"
+    qtyPcs?: number;         // quantity converted to smallest unit (Pcs)
+    shipQtyPcs?: number;     // shipQuantity converted to smallest unit (Pcs)
+    outstandingPcs?: number; // outstanding converted to smallest unit (Pcs)
 }
 
 export interface SOData {
