@@ -105,7 +105,7 @@ function CityClusterTab() {
     };
 
     const handleSave = async () => {
-        if (!formCity || !formArea || !formCluster) return;
+        if (!formCity || !formArea) return;
         try {
             await axios.post('/api/master/city-cluster', {
                 city: formCity, province: formProvince, area: formArea,
@@ -232,7 +232,7 @@ function CityClusterTab() {
                             <Input placeholder="Kota *" value={formCity} onChange={e => setFormCity(e.target.value)} className="text-xs h-8" disabled={!!editItem} />
                             <Input placeholder="Provinsi" value={formProvince} onChange={e => setFormProvince(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Area *" value={formArea} onChange={e => setFormArea(e.target.value)} className="text-xs h-8" />
-                            <Input placeholder="Cluster *" value={formCluster} onChange={e => setFormCluster(e.target.value)} className="text-xs h-8" />
+                            <Input placeholder="Cluster" value={formCluster} onChange={e => setFormCluster(e.target.value)} className="text-xs h-8" />
                             <Input placeholder="Sub Cluster" value={formSubCluster} onChange={e => setFormSubCluster(e.target.value)} className="text-xs h-8" />
                         </div>
                         <div className="flex gap-2 mt-3">

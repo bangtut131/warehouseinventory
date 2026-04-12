@@ -46,7 +46,7 @@ model CityCluster {
   city       String   @unique
   province   String?
   area       String
-  cluster    String
+  cluster    String?
   subCluster String?
   updatedAt  DateTime @updatedAt
 }

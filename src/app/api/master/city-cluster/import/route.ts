@@ -39,9 +39,9 @@ export async function POST(request: NextRequest) {
             const cluster = getVal(['cluster', 'klaster']);
             const subCluster = getVal(['sub cluster', 'subcluster', 'sub_cluster', 'sub-cluster']);
 
-            if (!rawCity || !area || !cluster) {
+            if (!rawCity || !area) {
                 skipped++;
-                errors.push(`Baris ${i + 2}: Kolom wajib tidak ditemukan. Kota/Kab: ${rawCity || 'Kosong'}, Area: ${area || 'Kosong'}, Cluster: ${cluster || 'Kosong'}`);
+                errors.push(`Baris ${i + 2}: Kolom wajib tidak ditemukan. Kota/Kab: ${rawCity || 'Kosong'}, Area: ${area || 'Kosong'}`);
                 if (i === 0) {
                     errors.push(`Info: Nama kolom yang terdeteksi di Excel Anda adalah: [${keys.join(', ')}]`);
                 }
@@ -49,24 +49,24 @@ export async function POST(request: NextRequest) {
             }
 
             // Normalize city name
-            const normalized = rawCity.trim().replace(/^(Kab\.\s*|Kab\s+|Kabupaten\s+|Kota\s+)/i, '');
+            const normalized = String(rawCity).trim().replace(/^(Kab\.\s*|Kab\s+|Kabupaten\s+|Kota\s+)/i, '');
             const cityName = normalized.charAt(0).toUpperCase() + normalized.slice(1);
 
             try {
                 await prisma.cityCluster.upsert({
                     where: { city: cityName },
                     update: {
-                        province: province?.trim() || null,
-                        area: area.trim(),
-                        cluster: cluster.trim(),
-                        subCluster: subCluster?.trim() || null,
+                        province: province ? String(province).trim() : null,
+                        area: String(area).trim(),
+                        cluster: cluster ? String(cluster).trim() : null,
+                        subCluster: subCluster ? String(subCluster).trim() : null,
                     },
                     create: {
                         city: cityName,
-                        province: province?.trim() || null,
-                        area: area.trim(),
-                        cluster: cluster.trim(),
-                        subCluster: subCluster?.trim() || null,
+                        province: province ? String(province).trim() : null,
+                        area: String(area).trim(),
+                        cluster: cluster ? String(cluster).trim() : null,
+                        subCluster: subCluster ? String(subCluster).trim() : null,
                     },
                 });
                 imported++;

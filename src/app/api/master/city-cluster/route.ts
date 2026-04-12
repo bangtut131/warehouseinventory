@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { city, province, area, cluster, subCluster } = body;
 
-        if (!city || !area || !cluster) {
-            return NextResponse.json({ error: 'city, area, dan cluster wajib diisi' }, { status: 400 });
+        if (!city || !area) {
+            return NextResponse.json({ error: 'Kota dan Area wajib diisi' }, { status: 400 });
         }
 
         const normalized = city.trim().replace(/^(Kab\.\s*|Kab\s+|Kabupaten\s+|Kota\s+)/i, '');
@@ -33,14 +33,14 @@ export async function POST(request: NextRequest) {
             update: {
                 province: province?.trim() || null,
                 area: area.trim(),
-                cluster: cluster.trim(),
+                cluster: cluster?.trim() || null,
                 subCluster: subCluster?.trim() || null,
             },
             create: {
                 city: cityName,
                 province: province?.trim() || null,
                 area: area.trim(),
-                cluster: cluster.trim(),
+                cluster: cluster?.trim() || null,
                 subCluster: subCluster?.trim() || null,
             },
         });
