@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
         }
 
         // Load master data: city clusters + product dimensions
-        let clusterMap = new Map<string, { area: string; cluster: string; subCluster: string | null }>();
+        let clusterMap = new Map<string, { area: string; cluster: string | null; subCluster: string | null }>();
         let dimMap = new Map<string, { weightKg: number | null; lengthCm: number | null; widthCm: number | null; heightCm: number | null }>();
         try {
             const [clusters, dims] = await Promise.all([
