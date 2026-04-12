@@ -98,6 +98,9 @@ export async function POST(request: NextRequest) {
             { status: 409 }
         );
     }
+    
+    // Set status synchronously to prevent race conditions from double clicks
+    soSyncState.status = 'running';
 
     const body = await request.json().catch(() => ({}));
     const branchId = body.branch ? parseInt(body.branch) : undefined;

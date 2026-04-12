@@ -62,6 +62,9 @@ export async function POST(request: NextRequest) {
             { status: 409 }
         );
     }
+    
+    // Set status synchronously to prevent race conditions from double clicks
+    syncState.status = 'running';
 
     const body = await request.json().catch(() => ({}));
     const fromDate = body.from ? new Date(body.from) : new Date(2025, 0, 1);
