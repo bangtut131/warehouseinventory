@@ -1397,6 +1397,7 @@ async function fetchSODetail(soId: number, maxRetries = 3): Promise<SOData | nul
           soNumber: d.number,
           transDate: d.transDate,
           customerName: d.customerName || d.customer?.name || '',
+          customerNo: d.customer?.no || d.customerNo || '',
           branchId: d.branchId || undefined,
           statusName: d.statusName || '',
           detailItems,

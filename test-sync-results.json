@@ -1,0 +1,36 @@
+{
+  "soCount": 485,
+  "listLength": 485,
+  "sample": {
+    "id": 177864,
+    "soNumber": "DFT.82963",
+    "transDate": "11/04/2026",
+    "customerName": "Tani Mapan Toroh Grobogan",
+    "branchId": 50,
+    "statusName": "Diajukan",
+    "detailItems": [
+      {
+        "itemNo": "SAK-PPC-009",
+        "itemName": "Gen-V HI_Speed 250 ml",
+        "quantity": 6,
+        "shipQuantity": 0,
+        "outstanding": 6,
+        "unitName": "Btl",
+        "unitPrice": 44000,
+        "totalPrice": 264000
+      },
+      {
+        "itemNo": "IK-144",
+        "itemName": "Biogent 50 SC 250 ml",
+        "quantity": 10,
+        "shipQuantity": 0,
+        "outstanding": 10,
+        "unitName": "Btl",
+        "unitPrice": 73800,
+        "totalPrice": 738000
+      }
+    ],
+    "totalOutstanding": 16,
+    "deliveryStatus": "Belum dikirim"
+  }
+}

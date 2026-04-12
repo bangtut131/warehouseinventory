@@ -103,6 +103,7 @@ export interface SOData {
     soNumber: string;
     transDate: string;       // dd/mm/yyyy
     customerName: string;
+    customerNo?: string;
     branchId?: number;
     branchName?: string;
     statusName: string;      // Diajukan / Menunggu diproses / Terproses

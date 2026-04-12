@@ -173,6 +173,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     dataToExport.push({
                         'No. SO': so.soNumber,
                         'Tanggal': so.transDate,
+                        'ID Customer': so.customerNo || '-',
                         'Customer': so.customerName,
                         'Status': so.statusName,
                         'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
@@ -188,6 +189,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                 dataToExport.push({
                     'No. SO': so.soNumber,
                     'Tanggal': so.transDate,
+                    'ID Customer': so.customerNo || '-',
                     'Customer': so.customerName,
                     'Status': so.statusName,
                     'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
@@ -207,6 +209,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         const colWidths = [
             { wch: 15 }, // SO
             { wch: 12 }, // Tanggal
+            { wch: 15 }, // ID Customer
             { wch: 30 }, // Customer
             { wch: 15 }, // Status
             { wch: 18 }, // Status Kiriman
@@ -639,6 +642,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                             <th className="px-3 py-2 font-medium w-8"></th>
                             <th className="px-3 py-2 font-medium">No. SO</th>
                             <th className="px-3 py-2 font-medium">Tanggal</th>
+                            <th className="px-3 py-2 font-medium">ID Customer</th>
                             <th className="px-3 py-2 font-medium">Customer</th>
                             <th className="px-3 py-2 font-medium">Status</th>
                             <th className="px-3 py-2 font-medium">Status Kiriman</th>
@@ -669,6 +673,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                     </td>
                                     <td className="px-3 py-2 font-mono font-medium text-blue-700">{so.soNumber}</td>
                                     <td className="px-3 py-2 text-muted-foreground">{formatDate(so.transDate)}</td>
+                                    <td className="px-3 py-2 font-mono text-xs">{so.customerNo || '-'}</td>
                                     <td className="px-3 py-2">{so.customerName || '-'}</td>
                                     <td className="px-3 py-2">
                                         <Badge variant="outline" className={`text-xs ${getStatusColor(so.statusName)}`}>
