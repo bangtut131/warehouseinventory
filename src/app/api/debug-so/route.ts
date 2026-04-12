@@ -9,8 +9,6 @@ export async function GET(request: NextRequest) {
     const soNumber = searchParams.get('so') || 'DFT.82963';
 
     try {
-        const session = (await import('@/lib/accurate')).getAccurateSession?.();
-        const headers: Record<string, string> = {};
 
         // Get session from env
         const sessionId = process.env.ACCURATE_SESSION;
