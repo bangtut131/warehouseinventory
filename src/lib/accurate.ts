@@ -1774,7 +1774,7 @@ export interface ItemUnitInfo {
   baseUnitName: string;    // e.g. 'Pcs'
 }
 
-const ITEM_UNIT_CACHE_KEY = 'item-unit-map-v1';
+const ITEM_UNIT_CACHE_KEY = 'item-unit-map-v2';
 const ITEM_UNIT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
