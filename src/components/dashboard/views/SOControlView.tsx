@@ -186,6 +186,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         'Isi/Box': item.isiPerBox || '-',
                         'Qty (Pcs)': item.qtyPcs ?? item.quantity,
                         'Outstanding (Pcs)': item.outstandingPcs ?? item.outstanding,
+                        'Stock (Pcs)': item.stock ?? '-',
+                        'Stock (Box)': item.stock !== undefined && item.isiPerBox ? Math.floor(item.stock / item.isiPerBox) : '-',
                     });
                 });
             } else {
@@ -205,6 +207,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     'Isi/Box': '-',
                     'Qty (Pcs)': 0,
                     'Outstanding (Pcs)': 0,
+                    'Stock (Pcs)': '-',
+                    'Stock (Box)': '-',
                 });
             }
         });
@@ -228,6 +232,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             { wch: 10 }, // Isi/Box
             { wch: 12 }, // Qty (Pcs)
             { wch: 16 }, // Outstanding (Pcs)
+            { wch: 12 }, // Stock (Pcs)
+            { wch: 12 }, // Stock (Box)
         ];
         ws['!cols'] = colWidths;
 
@@ -723,7 +729,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                                         <th className="px-2 py-1.5 text-right font-medium">Isi/Box</th>
                                                         <th className="px-2 py-1.5 text-right font-medium">Qty (Pcs)</th>
                                                         <th className="px-2 py-1.5 text-right font-medium">Outstanding (Pcs)</th>
-                                                        <th className="px-2 py-1.5 text-right font-medium">Stock</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Stock (Pcs)</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Stock (Box)</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -760,8 +767,19 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                                             </td>
                                                             <td className="px-2 py-1.5 text-right">
                                                                 {item.stock !== undefined ? (
-                                                                    <span className={item.stock < item.outstanding ? 'text-red-600 font-medium' : ''}>
+                                                                    <span className={(item.outstandingPcs ?? item.outstanding) > 0 && item.stock < (item.outstandingPcs ?? item.outstanding) ? 'text-red-600 font-medium' : ''}>
                                                                         {item.stock.toLocaleString('id-ID')}
+                                                                        <span className="text-[10px] text-muted-foreground ml-0.5">{item.baseUnitName || 'pcs'}</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-muted-foreground">-</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-2 py-1.5 text-right">
+                                                                {item.stock !== undefined && item.isiPerBox ? (
+                                                                    <span className={(item.outstanding) > 0 && Math.floor(item.stock / item.isiPerBox) < item.outstanding ? 'text-red-600 font-medium' : ''}>
+                                                                        {Math.floor(item.stock / item.isiPerBox).toLocaleString('id-ID')}
+                                                                        <span className="text-[10px] text-muted-foreground ml-0.5">{item.salesUnitName || 'box'}</span>
                                                                     </span>
                                                                 ) : (
                                                                     <span className="text-muted-foreground">-</span>
