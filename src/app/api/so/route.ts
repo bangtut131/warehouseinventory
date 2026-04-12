@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchAllSOData, loadSOCache, fetchAllInventory, fetchItemUnitMap } from '@/lib/accurate';
 import { SOData } from '@/lib/types';
+import { prisma } from '@/lib/prisma';
 
 // ─── In-memory sync state ────────────────────────────────────
 let soSyncState = {
@@ -63,6 +64,20 @@ export async function GET(request: NextRequest) {
             soList = soList.filter(so => (so.deliveryStatus || 'Belum dikirim').toLowerCase() === deliveryStatusFilter.toLowerCase());
         }
 
+        // Load master data: city clusters + product dimensions
+        let clusterMap = new Map<string, { area: string; cluster: string; subCluster: string | null }>();
+        let dimMap = new Map<string, { weightKg: number | null; lengthCm: number | null; widthCm: number | null; heightCm: number | null }>();
+        try {
+            const [clusters, dims] = await Promise.all([
+                prisma.cityCluster.findMany(),
+                prisma.productDimension.findMany(),
+            ]);
+            clusters.forEach(c => clusterMap.set(c.city, { area: c.area, cluster: c.cluster, subCluster: c.subCluster }));
+            dims.forEach(d => dimMap.set(d.itemNo, { weightKg: d.weightKg, lengthCm: d.lengthCm, widthCm: d.widthCm, heightCm: d.heightCm }));
+        } catch (e: any) {
+            console.warn('[SO API] Could not load master data:', e.message);
+        }
+
         // Join stock data from inventory
         try {
             const items = await fetchAllInventory();
@@ -72,34 +87,55 @@ export async function GET(request: NextRequest) {
             // Join unit conversion data
             const unitMap = await fetchItemUnitMap();
 
-            soList = soList.map(so => ({
-                ...so,
-                detailItems: so.detailItems.map(di => {
-                    const unitInfo = unitMap.get(di.itemNo);
-                    const isiPerBox = unitInfo?.unitConversion || 0;
-                    const unitNameLower = (di.unitName || '').toLowerCase();
-                    const isBaseUnit = !unitInfo || isiPerBox <= 1 ||
-                        unitNameLower === (unitInfo?.baseUnitName || 'pcs').toLowerCase();
+            soList = soList.map(so => {
+                // Join cluster data by city
+                const clusterInfo = so.shipCity ? clusterMap.get(so.shipCity) : undefined;
 
-                    // Convert to smallest unit (Pcs)
-                    // If SO unit is already base unit (Pcs), keep as is
-                    // If SO unit is sales unit (Box/Karung), multiply by isiPerBox
-                    const qtyPcs = isBaseUnit ? di.quantity : di.quantity * isiPerBox;
-                    const shipQtyPcs = isBaseUnit ? di.shipQuantity : di.shipQuantity * isiPerBox;
-                    const outstandingPcs = isBaseUnit ? di.outstanding : di.outstanding * isiPerBox;
+                return {
+                    ...so,
+                    area: clusterInfo?.area || undefined,
+                    cluster: clusterInfo?.cluster || undefined,
+                    subCluster: clusterInfo?.subCluster || undefined,
+                    detailItems: so.detailItems.map(di => {
+                        const unitInfo = unitMap.get(di.itemNo);
+                        const isiPerBox = unitInfo?.unitConversion || 0;
+                        const unitNameLower = (di.unitName || '').toLowerCase();
+                        const isBaseUnit = !unitInfo || isiPerBox <= 1 ||
+                            unitNameLower === (unitInfo?.baseUnitName || 'pcs').toLowerCase();
 
-                    return {
-                        ...di,
-                        stock: stockMap.get(di.itemNo) ?? undefined,
-                        isiPerBox: isiPerBox > 1 ? isiPerBox : undefined,
-                        baseUnitName: unitInfo?.baseUnitName,
-                        salesUnitName: unitInfo?.salesUnitName,
-                        qtyPcs,
-                        shipQtyPcs,
-                        outstandingPcs,
-                    };
-                }),
-            }));
+                        // Convert to smallest unit (Pcs)
+                        const qtyPcs = isBaseUnit ? di.quantity : di.quantity * isiPerBox;
+                        const shipQtyPcs = isBaseUnit ? di.shipQuantity : di.shipQuantity * isiPerBox;
+                        const outstandingPcs = isBaseUnit ? di.outstanding : di.outstanding * isiPerBox;
+
+                        // Join dimension data
+                        const dimInfo = dimMap.get(di.itemNo);
+                        const weightKg = dimInfo?.weightKg || undefined;
+                        const volumeM3 = (dimInfo?.lengthCm && dimInfo?.widthCm && dimInfo?.heightCm)
+                            ? (dimInfo.lengthCm * dimInfo.widthCm * dimInfo.heightCm) / 1_000_000
+                            : undefined;
+
+                        // Calculated totals (per pcs qty)
+                        const totalWeightKg = weightKg && qtyPcs ? weightKg * qtyPcs : undefined;
+                        const totalVolumeM3 = volumeM3 && qtyPcs ? volumeM3 * qtyPcs : undefined;
+
+                        return {
+                            ...di,
+                            stock: stockMap.get(di.itemNo) ?? undefined,
+                            isiPerBox: isiPerBox > 1 ? isiPerBox : undefined,
+                            baseUnitName: unitInfo?.baseUnitName,
+                            salesUnitName: unitInfo?.salesUnitName,
+                            qtyPcs,
+                            shipQtyPcs,
+                            outstandingPcs,
+                            weightKg,
+                            volumeM3,
+                            totalWeightKg,
+                            totalVolumeM3,
+                        };
+                    }),
+                };
+            });
         } catch {
             console.warn('[SO API] Could not join stock/unit data');
         }

@@ -39,3 +39,26 @@ model BroadcastLog {
   message     String?
   itemCount   Int?
 }
+
+// Master Data: Mapping kota -> area/cluster/sub-cluster
+model CityCluster {
+  id         Int      @id @default(autoincrement())
+  city       String   @unique
+  province   String?
+  area       String
+  cluster    String
+  subCluster String?
+  updatedAt  DateTime @updatedAt
+}
+
+// Master Data: Berat & dimensi produk per satuan terkecil
+model ProductDimension {
+  id        Int      @id @default(autoincrement())
+  itemNo    String   @unique
+  itemName  String?
+  weightKg  Float?
+  lengthCm  Float?
+  widthCm   Float?
+  heightCm  Float?
+  updatedAt DateTime @updatedAt
+}

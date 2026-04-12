@@ -177,6 +177,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         'Customer': so.customerName,
                         'Kota/Kab': so.shipCity || '-',
                         'Provinsi': so.shipProvince || '-',
+                        'Area': so.area || '-',
+                        'Cluster': so.cluster || '-',
+                        'Sub Cluster': so.subCluster || '-',
                         'Status': so.statusName,
                         'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
                         'Kode Barang': item.itemNo,
@@ -190,6 +193,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         'Outstanding (Pcs)': item.outstandingPcs ?? item.outstanding,
                         'Stock (Pcs)': item.stock ?? '-',
                         'Stock (Box)': item.stock !== undefined && item.isiPerBox ? Math.floor(item.stock / item.isiPerBox) : '-',
+                        'Berat (kg)': item.totalWeightKg ? item.totalWeightKg.toFixed(1) : '-',
+                        'Volume (m³)': item.totalVolumeM3 ? item.totalVolumeM3.toFixed(4) : '-',
                     });
                 });
             } else {
@@ -200,6 +205,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     'Customer': so.customerName,
                     'Kota/Kab': so.shipCity || '-',
                     'Provinsi': so.shipProvince || '-',
+                    'Area': so.area || '-',
+                    'Cluster': so.cluster || '-',
+                    'Sub Cluster': so.subCluster || '-',
                     'Status': so.statusName,
                     'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
                     'Kode Barang': '-',
@@ -213,6 +221,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     'Outstanding (Pcs)': 0,
                     'Stock (Pcs)': '-',
                     'Stock (Box)': '-',
+                    'Berat (kg)': '-',
+                    'Volume (m³)': '-',
                 });
             }
         });
@@ -227,6 +237,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             { wch: 30 }, // Customer
             { wch: 18 }, // Kota/Kab
             { wch: 18 }, // Provinsi
+            { wch: 15 }, // Area
+            { wch: 15 }, // Cluster
+            { wch: 15 }, // Sub Cluster
             { wch: 15 }, // Status
             { wch: 18 }, // Status Kiriman
             { wch: 15 }, // Kode Barang
@@ -240,6 +253,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             { wch: 16 }, // Outstanding (Pcs)
             { wch: 12 }, // Stock (Pcs)
             { wch: 12 }, // Stock (Box)
+            { wch: 12 }, // Berat (kg)
+            { wch: 14 }, // Volume (m³)
         ];
         ws['!cols'] = colWidths;
 
@@ -667,6 +682,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                             <th className="px-3 py-2 font-medium">Customer</th>
                             <th className="px-3 py-2 font-medium">Kota/Kab</th>
                             <th className="px-3 py-2 font-medium">Provinsi</th>
+                            <th className="px-3 py-2 font-medium">Area</th>
+                            <th className="px-3 py-2 font-medium">Cluster</th>
+                            <th className="px-3 py-2 font-medium">Sub Cluster</th>
                             <th className="px-3 py-2 font-medium">Status</th>
                             <th className="px-3 py-2 font-medium">Status Kiriman</th>
                             <th className="px-3 py-2 font-medium text-center">Items</th>
@@ -675,13 +693,13 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={14} className="text-center py-8 text-muted-foreground">
                                 <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
                                 Memuat data SO...
                             </td></tr>
                         )}
                         {!loading && filtered.length === 0 && (
-                            <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={14} className="text-center py-8 text-muted-foreground">
                                 Tidak ada data SO. {soList.length === 0 ? 'Klik Sync SO untuk mengambil data.' : 'Coba ubah filter.'}
                             </td></tr>
                         )}
@@ -700,6 +718,9 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                     <td className="px-3 py-2">{so.customerName || '-'}</td>
                                     <td className="px-3 py-2 text-xs">{so.shipCity || <span className="text-muted-foreground">-</span>}</td>
                                     <td className="px-3 py-2 text-xs">{so.shipProvince || <span className="text-muted-foreground">-</span>}</td>
+                                    <td className="px-3 py-2 text-xs">{(so as any).area ? <Badge variant="outline" className="text-[10px]">{(so as any).area}</Badge> : <span className="text-muted-foreground">-</span>}</td>
+                                    <td className="px-3 py-2 text-xs">{(so as any).cluster ? <Badge variant="outline" className="text-[10px] bg-purple-50">{(so as any).cluster}</Badge> : <span className="text-muted-foreground">-</span>}</td>
+                                    <td className="px-3 py-2 text-xs">{(so as any).subCluster || <span className="text-muted-foreground">-</span>}</td>
                                     <td className="px-3 py-2">
                                         <Badge variant="outline" className={`text-xs ${getStatusColor(so.statusName)}`}>
                                             {so.statusName}
@@ -723,7 +744,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                 {/* Expanded Detail */}
                                 {expandedId === so.id && (
                                     <tr>
-                                        <td colSpan={11} className="bg-muted/20 px-4 py-3">
+                                        <td colSpan={14} className="bg-muted/20 px-4 py-3">
                                             <div className="text-xs font-medium text-muted-foreground mb-2">
                                                 Detail Item — {so.soNumber}
                                             </div>
@@ -741,6 +762,8 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                                         <th className="px-2 py-1.5 text-right font-medium">Outstanding (Pcs)</th>
                                                         <th className="px-2 py-1.5 text-right font-medium">Stock (Pcs)</th>
                                                         <th className="px-2 py-1.5 text-right font-medium">Stock (Box)</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Berat (kg)</th>
+                                                        <th className="px-2 py-1.5 text-right font-medium">Vol (m³)</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -795,8 +818,26 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                                                     <span className="text-muted-foreground">-</span>
                                                                 )}
                                                             </td>
+                                                            <td className="px-2 py-1.5 text-right text-xs">
+                                                                {item.totalWeightKg ? item.totalWeightKg.toFixed(1) : <span className="text-muted-foreground">-</span>}
+                                                            </td>
+                                                            <td className="px-2 py-1.5 text-right text-xs font-mono">
+                                                                {item.totalVolumeM3 ? item.totalVolumeM3.toFixed(4) : <span className="text-muted-foreground">-</span>}
+                                                            </td>
                                                         </tr>
                                                     ))}
+                                                    {/* Summary row */}
+                                                    {(() => {
+                                                        const totalWt = so.detailItems.reduce((s: number, i: any) => s + (i.totalWeightKg || 0), 0);
+                                                        const totalVol = so.detailItems.reduce((s: number, i: any) => s + (i.totalVolumeM3 || 0), 0);
+                                                        return (totalWt > 0 || totalVol > 0) ? (
+                                                            <tr className="border-t-2 border-muted bg-muted/30 font-medium">
+                                                                <td colSpan={11} className="px-2 py-1.5 text-right text-xs">Total SO:</td>
+                                                                <td className="px-2 py-1.5 text-right text-xs text-blue-700">{totalWt > 0 ? `${totalWt.toFixed(1)} kg` : '-'}</td>
+                                                                <td className="px-2 py-1.5 text-right text-xs font-mono text-blue-700">{totalVol > 0 ? `${totalVol.toFixed(4)} m³` : '-'}</td>
+                                                            </tr>
+                                                        ) : null;
+                                                    })()}
                                                 </tbody>
                                             </table>
                                         </td>

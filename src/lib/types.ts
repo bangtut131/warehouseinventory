@@ -104,6 +104,10 @@ export interface SODetailItem {
     qtyPcs?: number;         // quantity converted to smallest unit (Pcs)
     shipQtyPcs?: number;     // shipQuantity converted to smallest unit (Pcs)
     outstandingPcs?: number; // outstanding converted to smallest unit (Pcs)
+    weightKg?: number;
+    volumeM3?: number;
+    totalWeightKg?: number;
+    totalVolumeM3?: number;
 }
 
 export interface SOData {
@@ -116,6 +120,9 @@ export interface SOData {
     branchName?: string;
     shipCity?: string;       // Kota/Kab tujuan pengiriman (normalized)
     shipProvince?: string;   // Provinsi tujuan pengiriman (normalized)
+    area?: string;
+    cluster?: string;
+    subCluster?: string;
     statusName: string;      // Diajukan / Menunggu diproses / Terproses
     deliveryStatus?: string; // Status pengiriman DO: Dikirim / Difaktur / Difaktur Sebagian / Ditolak / Diajukan / Draf / Belum dikirim
     detailItems: SODetailItem[];
