@@ -25,16 +25,26 @@ export async function POST(request: NextRequest) {
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            // Support flexible column names
-            const rawCity = row['Kota'] || row['City'] || row['kota'] || row['city'] || '';
-            const province = row['Provinsi'] || row['Province'] || row['provinsi'] || '';
-            const area = row['Area'] || row['area'] || '';
-            const cluster = row['Cluster'] || row['cluster'] || '';
-            const subCluster = row['Sub Cluster'] || row['SubCluster'] || row['sub_cluster'] || row['Sub cluster'] || '';
+            
+            // Normalize keys to lowercase for flexible matching
+            const keys = Object.keys(row);
+            const getVal = (possibleNames: string[]) => {
+                const foundKey = keys.find(k => possibleNames.some(p => k.toLowerCase().includes(p.toLowerCase())));
+                return foundKey ? row[foundKey] : undefined;
+            };
+
+            const rawCity = getVal(['kota', 'city', 'kab']) || getVal(['regency', 'daerah']);
+            const province = getVal(['provinsi', 'province', 'prov']);
+            const area = getVal(['area', 'wilayah']);
+            const cluster = getVal(['cluster', 'klaster']);
+            const subCluster = getVal(['sub cluster', 'subcluster', 'sub_cluster', 'sub-cluster']);
 
             if (!rawCity || !area || !cluster) {
                 skipped++;
-                if (rawCity) errors.push(`Baris ${i + 2}: "${rawCity}" - area/cluster kosong`);
+                errors.push(`Baris ${i + 2}: Kolom wajib tidak ditemukan. Kota/Kab: ${rawCity || 'Kosong'}, Area: ${area || 'Kosong'}, Cluster: ${cluster || 'Kosong'}`);
+                if (i === 0) {
+                    errors.push(`Info: Nama kolom yang terdeteksi di Excel Anda adalah: [${keys.join(', ')}]`);
+                }
                 continue;
             }
 

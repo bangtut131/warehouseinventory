@@ -204,13 +204,22 @@ function CityClusterTab() {
 
             {/* Import result */}
             {importResult && (
-                <div className={`text-xs px-3 py-2 rounded-lg border ${importResult.error
+                <div className={`text-xs px-3 py-2 rounded-lg border mb-3 ${importResult.error
                     ? 'bg-red-50 border-red-200 text-red-700'
                     : 'bg-green-50 border-green-200 text-green-700'}`}>
-                    {importResult.error
-                        ? `❌ ${importResult.error}`
-                        : `✅ Import selesai: ${importResult.imported} berhasil, ${importResult.skipped} dilewati`}
-                    <button onClick={() => setImportResult(null)} className="ml-2 text-xs opacity-50 hover:opacity-100">✕</button>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            {importResult.error
+                                ? `❌ ${importResult.error}`
+                                : `✅ Import selesai: ${importResult.imported} berhasil, ${importResult.skipped} dilewati`}
+                            {importResult.errors && importResult.errors.length > 0 && (
+                                <ul className="mt-2 text-red-600 list-disc ml-4">
+                                    {importResult.errors.map((err: string, i: number) => <li key={i}>{err}</li>)}
+                                </ul>
+                            )}
+                        </div>
+                        <button onClick={() => setImportResult(null)} className="opacity-50 hover:opacity-100">✕</button>
+                    </div>
                 </div>
             )}
 
@@ -429,13 +438,22 @@ function ProductDimensionTab() {
 
             {/* Import result */}
             {importResult && (
-                <div className={`text-xs px-3 py-2 rounded-lg border ${importResult.error
+                <div className={`text-xs px-3 py-2 rounded-lg border mb-3 ${importResult.error
                     ? 'bg-red-50 border-red-200 text-red-700'
                     : 'bg-green-50 border-green-200 text-green-700'}`}>
-                    {importResult.error
-                        ? `❌ ${importResult.error}`
-                        : `✅ Import selesai: ${importResult.imported} berhasil, ${importResult.skipped} dilewati`}
-                    <button onClick={() => setImportResult(null)} className="ml-2 text-xs opacity-50 hover:opacity-100">✕</button>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            {importResult.error
+                                ? `❌ ${importResult.error}`
+                                : `✅ Import selesai: ${importResult.imported} berhasil, ${importResult.skipped} dilewati`}
+                            {importResult.errors && importResult.errors.length > 0 && (
+                                <ul className="mt-2 text-red-600 list-disc ml-4">
+                                    {importResult.errors.map((err: string, i: number) => <li key={i}>{err}</li>)}
+                                </ul>
+                            )}
+                        </div>
+                        <button onClick={() => setImportResult(null)} className="opacity-50 hover:opacity-100">✕</button>
+                    </div>
                 </div>
             )}
 

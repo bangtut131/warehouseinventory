@@ -25,15 +25,25 @@ export async function POST(request: NextRequest) {
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            const itemNo = row['Kode Barang'] || row['ItemNo'] || row['kode_barang'] || row['itemNo'] || row['No'] || '';
-            const itemName = row['Nama Barang'] || row['ItemName'] || row['nama_barang'] || row['Name'] || '';
-            const weightKg = row['Berat (kg)'] || row['Berat'] || row['WeightKg'] || row['weight_kg'] || null;
-            const lengthCm = row['Panjang (cm)'] || row['Panjang'] || row['LengthCm'] || row['length_cm'] || null;
-            const widthCm = row['Lebar (cm)'] || row['Lebar'] || row['WidthCm'] || row['width_cm'] || null;
-            const heightCm = row['Tinggi (cm)'] || row['Tinggi'] || row['HeightCm'] || row['height_cm'] || null;
+            const keys = Object.keys(row);
+            const getVal = (possibleNames: string[]) => {
+                const foundKey = keys.find(k => possibleNames.some(p => k.toLowerCase().includes(p.toLowerCase())));
+                return foundKey ? row[foundKey] : undefined;
+            };
+
+            const itemNo = getVal(['kode', 'no', 'code', 'itemno']);
+            const itemName = getVal(['nama', 'name', 'itemname', 'deskripsi']);
+            const weightKg = getVal(['berat', 'weight']);
+            const lengthCm = getVal(['panjang', 'length']);
+            const widthCm = getVal(['lebar', 'width']);
+            const heightCm = getVal(['tinggi', 'height']);
 
             if (!itemNo) {
                 skipped++;
+                errors.push(`Baris ${i + 2}: Kolom Kode Barang tidak ditemukan`);
+                if (i === 0) {
+                    errors.push(`Info: Nama kolom yang terdeteksi di Excel Anda adalah: [${keys.join(', ')}]`);
+                }
                 continue;
             }
 
