@@ -99,14 +99,17 @@ export async function GET(request: NextRequest) {
                     detailItems: so.detailItems.map(di => {
                         const unitInfo = unitMap.get(di.itemNo);
                         const isiPerBox = unitInfo?.unitConversion || 0;
-                        const unitNameLower = (di.unitName || '').toLowerCase();
-                        const isBaseUnit = !unitInfo || isiPerBox <= 1 ||
-                            unitNameLower === (unitInfo?.baseUnitName || 'pcs').toLowerCase();
+                        const soUnit = (di.unitName || '').toLowerCase().trim();
+                        const baseUnit = (unitInfo?.baseUnitName || '').toLowerCase().trim();
+                        const salesUnit = (unitInfo?.salesUnitName || '').toLowerCase().trim();
 
-                        // Convert to smallest unit (Pcs)
-                        const qtyPcs = isBaseUnit ? di.quantity : di.quantity * isiPerBox;
-                        const shipQtyPcs = isBaseUnit ? di.shipQuantity : di.shipQuantity * isiPerBox;
-                        const outstandingPcs = isBaseUnit ? di.outstanding : di.outstanding * isiPerBox;
+                        // Hanya konversi jika satuan SO = satuan jual grosir (Box/Karton/Sak)
+                        // Jika satuan SO = base unit (Bks/Btl/Pcs) atau tidak dikenali → JANGAN kalikan
+                        const isSalesUnit = isiPerBox > 1 && salesUnit && soUnit === salesUnit;
+
+                        const qtyPcs = isSalesUnit ? di.quantity * isiPerBox : di.quantity;
+                        const shipQtyPcs = isSalesUnit ? di.shipQuantity * isiPerBox : di.shipQuantity;
+                        const outstandingPcs = isSalesUnit ? di.outstanding * isiPerBox : di.outstanding;
 
                         // Join dimension data
                         // Berat sudah per-pcs, volume (P×L×T) per-karton → bagi dengan isi karton
