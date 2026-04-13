@@ -1,60 +1,89 @@
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { fetchItemUnitMap, loadSOCache } from '@/lib/accurate';
 
+// Endpoint diagnostik: cek semua variasi satuan di Accurate & SO
 export async function GET() {
-    // 1. Sales cache keys
-    const keys = await prisma.dataCache.findMany({
-        where: { key: { startsWith: 'sales-cache-' } },
-        select: { key: true, updatedAt: true },
-        orderBy: { updatedAt: 'desc' },
-        take: 5,
-    });
+    try {
+        // 1. Ambil semua unit info dari item master
+        const unitMap = await fetchItemUnitMap(true); // force refresh
+        const baseUnits = new Map<string, number>();
+        const salesUnits = new Map<string, number>();
 
-    let salesCacheInfo: any = { keys: keys.map(k => ({ key: k.key, updatedAt: k.updatedAt })) };
-    let itemsWithConversion: any[] = [];
-    let totalItems = 0;
-    let totalWithConversion = 0;
+        unitMap.forEach((info) => {
+            const b = info.baseUnitName || '(kosong)';
+            baseUnits.set(b, (baseUnits.get(b) || 0) + 1);
+            const s = info.salesUnitName || '(kosong)';
+            salesUnits.set(s, (salesUnits.get(s) || 0) + 1);
+        });
 
-    if (keys.length > 0) {
-        const entry = await prisma.dataCache.findUnique({ where: { key: keys[0].key } });
-        const data = (entry?.data as any)?.data || {};
-        totalItems = Object.keys(data).length;
-        for (const [itemNo, val] of Object.entries(data)) {
-            const v = val as any;
-            if (v.unitConversion > 0) {
-                totalWithConversion++;
-                if (itemsWithConversion.length < 15) {
-                    itemsWithConversion.push({ itemNo, unitConversion: v.unitConversion, salesUnitName: v.salesUnitName });
+        // 2. Ambil semua satuan yang dipakai di SO
+        const soList = await loadSOCache();
+        const soUnits = new Map<string, number>();
+        const soUnitExamples = new Map<string, string[]>();
+        
+        if (soList) {
+            for (const so of soList) {
+                for (const di of so.detailItems) {
+                    const u = di.unitName || '(kosong)';
+                    soUnits.set(u, (soUnits.get(u) || 0) + 1);
+                    if (!soUnitExamples.has(u) || soUnitExamples.get(u)!.length < 3) {
+                        if (!soUnitExamples.has(u)) soUnitExamples.set(u, []);
+                        soUnitExamples.get(u)!.push(`${di.itemNo} (${di.itemName})`);
+                    }
                 }
             }
         }
-    }
-    salesCacheInfo.totalItems = totalItems;
-    salesCacheInfo.totalWithConversion = totalWithConversion;
-    salesCacheInfo.samples = itemsWithConversion;
 
-    // 2. SO cache unitName distribution
-    const soCacheEntry = await prisma.dataCache.findUnique({ where: { key: 'so-outstanding-cache' } });
-    const unitDist: Record<string, number> = {};
-    let soCount = 0;
-    if (soCacheEntry?.data) {
-        const soList = (soCacheEntry.data as any)?.items || [];
-        soCount = soList.length;
-        for (const so of soList) {
-            for (const item of (so.detailItems || [])) {
-                const u = item.unitName || '(empty)';
-                unitDist[u] = (unitDist[u] || 0) + 1;
+        // 3. Cari mismatch: SO unit != base unit DAN SO unit != sales unit
+        const mismatches: any[] = [];
+        if (soList) {
+            for (const so of soList) {
+                for (const di of so.detailItems) {
+                    const unitInfo = unitMap.get(di.itemNo);
+                    if (!unitInfo) continue;
+                    const soU = (di.unitName || '').toLowerCase().trim();
+                    const baseU = (unitInfo.baseUnitName || '').toLowerCase().trim();
+                    const salesU = (unitInfo.salesUnitName || '').toLowerCase().trim();
+                    
+                    if (soU && soU !== baseU && soU !== salesU) {
+                        if (mismatches.length < 20) {
+                            mismatches.push({
+                                soNumber: so.soNumber,
+                                itemNo: di.itemNo,
+                                itemName: di.itemName,
+                                soUnit: di.unitName,
+                                baseUnit: unitInfo.baseUnitName,
+                                salesUnit: unitInfo.salesUnitName,
+                                isiPerBox: unitInfo.unitConversion,
+                                qty: di.quantity,
+                            });
+                        }
+                    }
+                }
             }
         }
+
+        return NextResponse.json({
+            itemMaster: {
+                totalWithConversion: unitMap.size,
+                baseUnits: Object.fromEntries(baseUnits),
+                salesUnits: Object.fromEntries(salesUnits),
+            },
+            soTransactions: {
+                totalSO: soList?.length || 0,
+                unitsUsed: Object.fromEntries(soUnits),
+                examples: Object.fromEntries(soUnitExamples),
+            },
+            mismatches: {
+                count: mismatches.length,
+                items: mismatches,
+                note: 'Items where SO unit does not match base OR sales unit'
+            }
+        });
+    } catch (err: any) {
+        return NextResponse.json({ error: err.message }, { status: 500 });
     }
-
-    // 3. All DataCache keys
-    const allKeys = await prisma.dataCache.findMany({ select: { key: true } });
-
-    return NextResponse.json({
-        salesCache: salesCacheInfo,
-        soCache: { soCount, unitDistribution: unitDist },
-        allCacheKeys: allKeys.map(k => k.key),
-    });
 }
