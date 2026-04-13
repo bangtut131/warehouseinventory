@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 
@@ -30,6 +31,30 @@ interface ProductDim {
 }
 
 // ─── Component ────────────────────────────────────────────────
+
+function SortHeader({ label, sortKey, currentSort, onSort, align = 'left' }: { 
+    label: string, 
+    sortKey: string, 
+    currentSort: { key: string | null, direction: 'asc' | 'desc' }, 
+    onSort: (key: string) => void,
+    align?: 'left' | 'right' | 'center' 
+}) {
+    return (
+        <th className={`px-3 py-2 font-medium cursor-pointer hover:bg-muted/80 select-none group focus:outline-none`} 
+            onClick={() => onSort(sortKey)}>
+            <div className={`flex items-center ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
+                {label}
+                {currentSort.key === sortKey ? (
+                    currentSort.direction === 'asc' ? 
+                        <ChevronUp className="ml-1 h-3.5 w-3.5 inline-block text-blue-600" /> : 
+                        <ChevronDown className="ml-1 h-3.5 w-3.5 inline-block text-blue-600" />
+                ) : (
+                    <ArrowUpDown className="ml-1 h-3.5 w-3.5 inline-block opacity-0 group-hover:opacity-40" />
+                )}
+            </div>
+        </th>
+    );
+}
 
 export const MasterDataView: React.FC = () => {
     const [tab, setTab] = useState<'cluster' | 'dimension'>('cluster');
@@ -158,11 +183,34 @@ function CityClusterTab() {
         XLSX.writeFile(wb, 'Template_Area_Cluster.xlsx');
     };
 
-    const filtered = data.filter(d =>
-        !search || d.city.toLowerCase().includes(search.toLowerCase()) ||
-        d.area.toLowerCase().includes(search.toLowerCase()) ||
-        d.cluster.toLowerCase().includes(search.toLowerCase())
-    );
+    const [sortConfig, setSortConfig] = useState<{ key: keyof CityCluster | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' });
+
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+        setSortConfig({ key: key as keyof CityCluster, direction });
+    };
+
+    const sortedFiltered = React.useMemo(() => {
+        let result = data.filter(d =>
+            !search || d.city.toLowerCase().includes(search.toLowerCase()) ||
+            d.area.toLowerCase().includes(search.toLowerCase()) ||
+            d.cluster.toLowerCase().includes(search.toLowerCase())
+        );
+
+        if (sortConfig.key) {
+            result.sort((a, b) => {
+                const aVal = a[sortConfig.key!];
+                const bVal = b[sortConfig.key!];
+                if (aVal === bVal) return 0;
+                if (aVal === null || aVal === undefined) return 1;
+                if (bVal === null || bVal === undefined) return -1;
+                const comparison = aVal < bVal ? -1 : 1;
+                return sortConfig.direction === 'asc' ? comparison : -comparison;
+            });
+        }
+        return result;
+    }, [data, search, sortConfig]);
 
     // Get unique areas for summary
     const areas = [...new Set(data.map(d => d.area))];
@@ -248,13 +296,13 @@ function CityClusterTab() {
             <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-xs">
                     <thead>
-                        <tr className="bg-muted/50 text-left">
+                        <tr className="bg-muted/50 text-left whitespace-nowrap">
                             <th className="px-3 py-2 font-medium w-8">#</th>
-                            <th className="px-3 py-2 font-medium">Kota</th>
-                            <th className="px-3 py-2 font-medium">Provinsi</th>
-                            <th className="px-3 py-2 font-medium">Area</th>
-                            <th className="px-3 py-2 font-medium">Cluster</th>
-                            <th className="px-3 py-2 font-medium">Sub Cluster</th>
+                            <SortHeader label="Kota" sortKey="city" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Provinsi" sortKey="province" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Area" sortKey="area" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Cluster" sortKey="cluster" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Sub Cluster" sortKey="subCluster" currentSort={sortConfig} onSort={handleSort} />
                             <th className="px-3 py-2 font-medium text-center">Aksi</th>
                         </tr>
                     </thead>
@@ -265,12 +313,12 @@ function CityClusterTab() {
                                 Memuat data...
                             </td></tr>
                         )}
-                        {!loading && filtered.length === 0 && (
+                        {!loading && sortedFiltered.length === 0 && (
                             <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">
                                 Belum ada data mapping kota. Klik "Tambah" atau "Import Excel".
                             </td></tr>
                         )}
-                        {!loading && filtered.map((item, idx) => (
+                        {!loading && sortedFiltered.map((item, idx) => (
                             <tr key={item.id} className="border-t hover:bg-muted/20">
                                 <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                                 <td className="px-3 py-2 font-medium">{item.city}</td>
@@ -287,7 +335,7 @@ function CityClusterTab() {
                     </tbody>
                 </table>
             </div>
-            {!loading && <p className="text-xs text-muted-foreground text-right">{filtered.length} dari {data.length} data</p>}
+            {!loading && <p className="text-xs text-muted-foreground text-right">{sortedFiltered.length} dari {data.length} data</p>}
         </div>
     );
 }
@@ -396,15 +444,45 @@ function ProductDimensionTab() {
         XLSX.writeFile(wb, 'Template_Dimensi_Produk.xlsx');
     };
 
+    const [sortConfig, setSortConfig] = useState<{ key: string | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' });
+
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+        setSortConfig({ key, direction });
+    };
+
     const calcVolume = (l?: number | null, w?: number | null, h?: number | null) => {
         if (!l || !w || !h) return null;
         return (l * w * h) / 1_000_000; // cm³ -> m³
     };
 
-    const filtered = data.filter(d =>
-        !search || d.itemNo.toLowerCase().includes(search.toLowerCase()) ||
-        (d.itemName || '').toLowerCase().includes(search.toLowerCase())
-    );
+    const sortedFiltered = React.useMemo(() => {
+        let result = data.filter(d =>
+            !search || d.itemNo.toLowerCase().includes(search.toLowerCase()) ||
+            (d.itemName || '').toLowerCase().includes(search.toLowerCase())
+        );
+
+        if (sortConfig.key) {
+            result.sort((a, b) => {
+                let aVal: any = a[sortConfig.key as keyof ProductDim];
+                let bVal: any = b[sortConfig.key as keyof ProductDim];
+
+                if (sortConfig.key === 'volume') {
+                    aVal = calcVolume(a.lengthCm, a.widthCm, a.heightCm);
+                    bVal = calcVolume(b.lengthCm, b.widthCm, b.heightCm);
+                }
+
+                if (aVal === bVal) return 0;
+                if (aVal === null || aVal === undefined) return 1;
+                if (bVal === null || bVal === undefined) return -1;
+
+                const comparison = aVal < bVal ? -1 : 1;
+                return sortConfig.direction === 'asc' ? comparison : -comparison;
+            });
+        }
+        return result;
+    }, [data, search, sortConfig]);
 
     return (
         <div className="space-y-4">
@@ -486,15 +564,15 @@ function ProductDimensionTab() {
             <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-xs">
                     <thead>
-                        <tr className="bg-muted/50 text-left">
+                        <tr className="bg-muted/50 text-left whitespace-nowrap">
                             <th className="px-3 py-2 font-medium w-8">#</th>
-                            <th className="px-3 py-2 font-medium">Kode Barang</th>
-                            <th className="px-3 py-2 font-medium">Nama Barang</th>
-                            <th className="px-3 py-2 font-medium text-right">Berat (kg)</th>
-                            <th className="px-3 py-2 font-medium text-right">P (cm)</th>
-                            <th className="px-3 py-2 font-medium text-right">L (cm)</th>
-                            <th className="px-3 py-2 font-medium text-right">T (cm)</th>
-                            <th className="px-3 py-2 font-medium text-right">Volume (m³)</th>
+                            <SortHeader label="Kode Barang" sortKey="itemNo" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Nama Barang" sortKey="itemName" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Berat (kg)" sortKey="weightKg" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="P (cm)" sortKey="lengthCm" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="L (cm)" sortKey="widthCm" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="T (cm)" sortKey="heightCm" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="Volume (m³)" sortKey="volume" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <th className="px-3 py-2 font-medium text-center">Aksi</th>
                         </tr>
                     </thead>
@@ -505,12 +583,12 @@ function ProductDimensionTab() {
                                 Memuat data...
                             </td></tr>
                         )}
-                        {!loading && filtered.length === 0 && (
+                        {!loading && sortedFiltered.length === 0 && (
                             <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">
                                 Belum ada data dimensi. Klik "Tambah" atau "Import Excel".
                             </td></tr>
                         )}
-                        {!loading && filtered.map((item, idx) => {
+                        {!loading && sortedFiltered.map((item, idx) => {
                             const vol = calcVolume(item.lengthCm, item.widthCm, item.heightCm);
                             return (
                                 <tr key={item.id} className="border-t hover:bg-muted/20">
@@ -532,7 +610,7 @@ function ProductDimensionTab() {
                     </tbody>
                 </table>
             </div>
-            {!loading && <p className="text-xs text-muted-foreground text-right">{filtered.length} dari {data.length} data</p>}
+            {!loading && <p className="text-xs text-muted-foreground text-right">{sortedFiltered.length} dari {data.length} data</p>}
         </div>
     );
 }
