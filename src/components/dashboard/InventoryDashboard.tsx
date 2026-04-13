@@ -16,6 +16,7 @@ import { RegionalSOView } from './views/RegionalSOView';
 import { SLAPengirimanView } from './views/SLAPengirimanView';
 import { PriceAnalysisView } from './views/PriceAnalysisView';
 import { MasterDataView } from './views/MasterDataView';
+import { DeliveryRoutingView } from './views/DeliveryRoutingView';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { exportAllAnalysis } from '@/lib/exportExcel';
@@ -201,6 +202,7 @@ export default function InventoryDashboard() {
         { id: 'regional', label: '📍 Wilayah SO', color: 'text-teal-600 border-teal-200 hover:bg-teal-50' },
         { id: 'sla', label: '🚚 SLA Pengiriman', color: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' },
         { id: 'price', label: '💰 Analisa Harga', color: 'text-amber-600 border-amber-200 hover:bg-amber-50' },
+        { id: 'routing', label: '🚛 Delivery Routing', color: 'text-cyan-600 border-cyan-200 hover:bg-cyan-50' },
         { id: 'settings', label: '⚙️ Master Data', color: 'text-gray-600 border-gray-200 hover:bg-gray-50' },
     ];
 
@@ -218,6 +220,7 @@ export default function InventoryDashboard() {
             case 'regional': return <RegionalSOView />;
             case 'sla': return <SLAPengirimanView branches={branches} />;
             case 'price': return <PriceAnalysisView />;
+            case 'routing': return <DeliveryRoutingView />;
             case 'settings': return <MasterDataView />;
             default: return <DashboardView items={items} />;
         }
