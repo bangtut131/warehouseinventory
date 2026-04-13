@@ -28,6 +28,7 @@ interface ProductDim {
     lengthCm: number | null;
     widthCm: number | null;
     heightCm: number | null;
+    qtyPerCarton: number | null;
 }
 
 // ─── Component ────────────────────────────────────────────────
@@ -387,6 +388,7 @@ function ProductDimensionTab() {
     const [showForm, setShowForm] = useState(false);
     const [editItem, setEditItem] = useState<ProductDim | null>(null);
     const [importing, setImporting] = useState(false);
+    const [syncingKarton, setSyncingKarton] = useState(false);
     const [importResult, setImportResult] = useState<any>(null);
     const fileRef = useRef<HTMLInputElement>(null);
 
@@ -453,6 +455,18 @@ function ProductDimensionTab() {
             await axios.delete(`/api/master/product-dimension?id=${id}`);
             fetchData();
         } catch { }
+    };
+
+    const handleSyncKarton = async () => {
+        setSyncingKarton(true);
+        try {
+            const res = await axios.post('/api/master/product-dimension/sync-karton');
+            alert(res.data.message);
+            fetchData();
+        } catch (err: any) {
+            alert('Gagal sync isi karton: ' + (err.response?.data?.error || err.message));
+        }
+        setSyncingKarton(false);
     };
 
     const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -577,6 +591,10 @@ function ProductDimensionTab() {
                 <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
                 <Button size="sm" variant="outline" onClick={downloadTemplate}
                     className="text-xs h-8">📄 Download Template</Button>
+                <Button size="sm" variant="outline" onClick={handleSyncKarton} disabled={syncingKarton}
+                    className="text-xs h-8 bg-purple-50 text-purple-700 hover:bg-purple-100 hover:text-purple-800 border-purple-200">
+                    {syncingKarton ? '⏳ Syncing...' : '🔄 Sync Isi Karton'}
+                </Button>
                 {selectedIds.length > 0 && (
                     <Button size="sm" variant="destructive" onClick={handleDeleteSelected} className="text-xs h-8 bg-red-600 hover:bg-red-700">
                         🗑️ Hapus {selectedIds.length} Terpilih
@@ -639,28 +657,33 @@ function ProductDimensionTab() {
                             <th className="px-3 py-2 font-medium w-8">#</th>
                             <SortHeader label="Kode Barang" sortKey="itemNo" currentSort={sortConfig} onSort={handleSort} />
                             <SortHeader label="Nama Barang" sortKey="itemName" currentSort={sortConfig} onSort={handleSort} />
-                            <SortHeader label="Berat (kg)" sortKey="weightKg" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="Berat/Pcs (kg)" sortKey="weightKg" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <SortHeader label="P (cm)" sortKey="lengthCm" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <SortHeader label="L (cm)" sortKey="widthCm" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <SortHeader label="T (cm)" sortKey="heightCm" currentSort={sortConfig} onSort={handleSort} align="right" />
-                            <SortHeader label="Volume (m³)" sortKey="volume" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="Isi Karton" sortKey="qtyPerCarton" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="Volume/Pcs (m³)" sortKey="volume" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <th className="px-3 py-2 font-medium text-center">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">
                                 <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
                                 Memuat data...
                             </td></tr>
                         )}
                         {!loading && sortedFiltered.length === 0 && (
-                            <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">
                                 Belum ada data dimensi. Klik "Tambah" atau "Import Excel".
                             </td></tr>
                         )}
                         {!loading && sortedFiltered.map((item, idx) => {
-                            const vol = calcVolume(item.lengthCm, item.widthCm, item.heightCm);
+                            const qty = (item.qtyPerCarton && item.qtyPerCarton > 1) ? item.qtyPerCarton : 1;
+                            const cartonVol = calcVolume(item.lengthCm, item.widthCm, item.heightCm);
+                            const pcsVol = cartonVol ? cartonVol / qty : null;
+                            const pcsWeight = item.weightKg ? item.weightKg / qty : null;
+
                             return (
                                 <tr key={item.id} className={`border-t hover:bg-muted/20 ${selectedIds.includes(item.id) ? 'bg-blue-50/50' : ''}`}>
                                     <td className="px-3 py-2 text-center text-muted-foreground">
@@ -671,11 +694,26 @@ function ProductDimensionTab() {
                                     <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                                     <td className="px-3 py-2 font-mono font-medium text-blue-700">{item.itemNo}</td>
                                     <td className="px-3 py-2">{item.itemName || '-'}</td>
-                                    <td className="px-3 py-2 text-right">{item.weightKg?.toFixed(2) || <span className="text-muted-foreground">-</span>}</td>
+                                    <td className="px-3 py-2 text-right">
+                                        {pcsWeight ? 
+                                            ((qty > 1) ? <span className="text-green-600 font-medium">{pcsWeight.toFixed(3)}</span> : pcsWeight.toFixed(2)) 
+                                            : <span className="text-muted-foreground">-</span>
+                                        }
+                                    </td>
                                     <td className="px-3 py-2 text-right">{item.lengthCm?.toFixed(1) || <span className="text-muted-foreground">-</span>}</td>
                                     <td className="px-3 py-2 text-right">{item.widthCm?.toFixed(1) || <span className="text-muted-foreground">-</span>}</td>
                                     <td className="px-3 py-2 text-right">{item.heightCm?.toFixed(1) || <span className="text-muted-foreground">-</span>}</td>
-                                    <td className="px-3 py-2 text-right font-mono">{vol ? vol.toFixed(6) : <span className="text-muted-foreground">-</span>}</td>
+                                    <td className="px-3 py-2 text-right">
+                                        {item.qtyPerCarton && item.qtyPerCarton > 1 ? (
+                                            <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700">{item.qtyPerCarton}</Badge>
+                                        ) : <span className="text-muted-foreground">-</span>}
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-mono">
+                                        {pcsVol ? 
+                                            ((qty > 1) ? <span className="text-green-600 font-medium">{pcsVol.toFixed(6)}</span> : pcsVol.toFixed(6)) 
+                                            : <span className="text-muted-foreground">-</span>
+                                        }
+                                    </td>
                                     <td className="px-3 py-2 text-center">
                                         <button onClick={() => startEdit(item)} className="text-blue-600 hover:underline text-[11px] mr-2">Edit</button>
                                         <button onClick={() => handleDelete(item.id)} className="text-red-500 hover:underline text-[11px]">Hapus</button>

@@ -56,9 +56,10 @@ model ProductDimension {
   id        Int      @id @default(autoincrement())
   itemNo    String   @unique
   itemName  String?
-  weightKg  Float?
-  lengthCm  Float?
-  widthCm   Float?
-  heightCm  Float?
-  updatedAt DateTime @updatedAt
+  weightKg     Float?
+  lengthCm     Float?
+  widthCm      Float?
+  heightCm     Float?
+  qtyPerCarton Int?
+  updatedAt    DateTime @updatedAt
 }
