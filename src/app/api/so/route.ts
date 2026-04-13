@@ -66,14 +66,14 @@ export async function GET(request: NextRequest) {
 
         // Load master data: city clusters + product dimensions
         let clusterMap = new Map<string, { area: string; cluster: string | null; subCluster: string | null }>();
-        let dimMap = new Map<string, { weightKg: number | null; lengthCm: number | null; widthCm: number | null; heightCm: number | null }>();
+        let dimMap = new Map<string, { weightKg: number | null; lengthCm: number | null; widthCm: number | null; heightCm: number | null; qtyPerCarton: number | null }>();
         try {
             const [clusters, dims] = await Promise.all([
                 prisma.cityCluster.findMany(),
                 prisma.productDimension.findMany(),
             ]);
             clusters.forEach(c => clusterMap.set(c.city, { area: c.area, cluster: c.cluster, subCluster: c.subCluster }));
-            dims.forEach(d => dimMap.set(d.itemNo, { weightKg: d.weightKg, lengthCm: d.lengthCm, widthCm: d.widthCm, heightCm: d.heightCm }));
+            dims.forEach(d => dimMap.set(d.itemNo, { weightKg: d.weightKg, lengthCm: d.lengthCm, widthCm: d.widthCm, heightCm: d.heightCm, qtyPerCarton: d.qtyPerCarton }));
         } catch (e: any) {
             console.warn('[SO API] Could not load master data:', e.message);
         }
@@ -108,11 +108,12 @@ export async function GET(request: NextRequest) {
                         const shipQtyPcs = isBaseUnit ? di.shipQuantity : di.shipQuantity * isiPerBox;
                         const outstandingPcs = isBaseUnit ? di.outstanding : di.outstanding * isiPerBox;
 
-                        // Join dimension data
+                        // Join dimension data — divide by qtyPerCarton to get per-pcs values
                         const dimInfo = dimMap.get(di.itemNo);
-                        const weightKg = dimInfo?.weightKg || undefined;
+                        const qtyKarton = (dimInfo?.qtyPerCarton && dimInfo.qtyPerCarton > 1) ? dimInfo.qtyPerCarton : 1;
+                        const weightKg = dimInfo?.weightKg ? dimInfo.weightKg / qtyKarton : undefined;
                         const volumeM3 = (dimInfo?.lengthCm && dimInfo?.widthCm && dimInfo?.heightCm)
-                            ? (dimInfo.lengthCm * dimInfo.widthCm * dimInfo.heightCm) / 1_000_000
+                            ? (dimInfo.lengthCm * dimInfo.widthCm * dimInfo.heightCm) / 1_000_000 / qtyKarton
                             : undefined;
 
                         // Calculated totals (per pcs qty)
