@@ -102,6 +102,8 @@ function CityClusterTab() {
     const [formCluster, setFormCluster] = useState('');
     const [formSubCluster, setFormSubCluster] = useState('');
 
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
@@ -109,6 +111,7 @@ function CityClusterTab() {
             setData(res.data);
         } catch { }
         setLoading(false);
+        setSelectedIds([]);
     }, []);
 
     useEffect(() => { fetchData(); }, [fetchData]);
@@ -212,6 +215,26 @@ function CityClusterTab() {
         return result;
     }, [data, search, sortConfig]);
 
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) setSelectedIds(sortedFiltered.map(d => d.id));
+        else setSelectedIds([]);
+    };
+
+    const handleSelect = (id: number, checked: boolean) => {
+        if (checked) setSelectedIds(prev => [...prev, id]);
+        else setSelectedIds(prev => prev.filter(i => i !== id));
+    };
+
+    const handleDeleteSelected = async () => {
+        if (!confirm(`Hapus ${selectedIds.length} data yang dipilih?`)) return;
+        try {
+            await axios.delete(`/api/master/city-cluster?ids=${selectedIds.join(',')}`);
+            fetchData();
+        } catch (err: any) {
+            alert('Gagal menghapus data: ' + err.message);
+        }
+    };
+
     // Get unique areas for summary
     const areas = [...new Set(data.map(d => d.area))];
     const clusters = [...new Set(data.map(d => d.cluster))];
@@ -249,6 +272,11 @@ function CityClusterTab() {
                 <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
                 <Button size="sm" variant="outline" onClick={downloadTemplate}
                     className="text-xs h-8">📄 Download Template</Button>
+                {selectedIds.length > 0 && (
+                    <Button size="sm" variant="destructive" onClick={handleDeleteSelected} className="text-xs h-8 bg-red-600 hover:bg-red-700">
+                        🗑️ Hapus {selectedIds.length} Terpilih
+                    </Button>
+                )}
             </div>
 
             {/* Import result */}
@@ -297,6 +325,11 @@ function CityClusterTab() {
                 <table className="w-full text-xs">
                     <thead>
                         <tr className="bg-muted/50 text-left whitespace-nowrap">
+                            <th className="px-3 py-2 w-8 text-center">
+                                <input type="checkbox" className="rounded"
+                                    checked={sortedFiltered.length > 0 && selectedIds.length === sortedFiltered.length}
+                                    onChange={handleSelectAll} />
+                            </th>
                             <th className="px-3 py-2 font-medium w-8">#</th>
                             <SortHeader label="Kota" sortKey="city" currentSort={sortConfig} onSort={handleSort} />
                             <SortHeader label="Provinsi" sortKey="province" currentSort={sortConfig} onSort={handleSort} />
@@ -308,18 +341,23 @@ function CityClusterTab() {
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">
                                 <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
                                 Memuat data...
                             </td></tr>
                         )}
                         {!loading && sortedFiltered.length === 0 && (
-                            <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">
                                 Belum ada data mapping kota. Klik "Tambah" atau "Import Excel".
                             </td></tr>
                         )}
                         {!loading && sortedFiltered.map((item, idx) => (
-                            <tr key={item.id} className="border-t hover:bg-muted/20">
+                            <tr key={item.id} className={`border-t hover:bg-muted/20 ${selectedIds.includes(item.id) ? 'bg-blue-50/50' : ''}`}>
+                                <td className="px-3 py-2 text-center text-muted-foreground">
+                                    <input type="checkbox" className="rounded"
+                                        checked={selectedIds.includes(item.id)}
+                                        onChange={(e) => handleSelect(item.id, e.target.checked)} />
+                                </td>
                                 <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                                 <td className="px-3 py-2 font-medium">{item.city}</td>
                                 <td className="px-3 py-2 text-muted-foreground">{item.province || '-'}</td>
@@ -360,6 +398,8 @@ function ProductDimensionTab() {
     const [formWidth, setFormWidth] = useState('');
     const [formHeight, setFormHeight] = useState('');
 
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
@@ -367,6 +407,7 @@ function ProductDimensionTab() {
             setData(res.data);
         } catch { }
         setLoading(false);
+        setSelectedIds([]);
     }, []);
 
     useEffect(() => { fetchData(); }, [fetchData]);
@@ -484,6 +525,26 @@ function ProductDimensionTab() {
         return result;
     }, [data, search, sortConfig]);
 
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) setSelectedIds(sortedFiltered.map(d => d.id));
+        else setSelectedIds([]);
+    };
+
+    const handleSelect = (id: number, checked: boolean) => {
+        if (checked) setSelectedIds(prev => [...prev, id]);
+        else setSelectedIds(prev => prev.filter(i => i !== id));
+    };
+
+    const handleDeleteSelected = async () => {
+        if (!confirm(`Hapus ${selectedIds.length} data yang dipilih?`)) return;
+        try {
+            await axios.delete(`/api/master/product-dimension?ids=${selectedIds.join(',')}`);
+            fetchData();
+        } catch (err: any) {
+            alert('Gagal menghapus data: ' + err.message);
+        }
+    };
+
     return (
         <div className="space-y-4">
             {/* Summary */}
@@ -516,6 +577,11 @@ function ProductDimensionTab() {
                 <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
                 <Button size="sm" variant="outline" onClick={downloadTemplate}
                     className="text-xs h-8">📄 Download Template</Button>
+                {selectedIds.length > 0 && (
+                    <Button size="sm" variant="destructive" onClick={handleDeleteSelected} className="text-xs h-8 bg-red-600 hover:bg-red-700">
+                        🗑️ Hapus {selectedIds.length} Terpilih
+                    </Button>
+                )}
             </div>
 
             {/* Import result */}
@@ -565,6 +631,11 @@ function ProductDimensionTab() {
                 <table className="w-full text-xs">
                     <thead>
                         <tr className="bg-muted/50 text-left whitespace-nowrap">
+                            <th className="px-3 py-2 w-8 text-center">
+                                <input type="checkbox" className="rounded"
+                                    checked={sortedFiltered.length > 0 && selectedIds.length === sortedFiltered.length}
+                                    onChange={handleSelectAll} />
+                            </th>
                             <th className="px-3 py-2 font-medium w-8">#</th>
                             <SortHeader label="Kode Barang" sortKey="itemNo" currentSort={sortConfig} onSort={handleSort} />
                             <SortHeader label="Nama Barang" sortKey="itemName" currentSort={sortConfig} onSort={handleSort} />
@@ -578,20 +649,25 @@ function ProductDimensionTab() {
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">
                                 <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
                                 Memuat data...
                             </td></tr>
                         )}
                         {!loading && sortedFiltered.length === 0 && (
-                            <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">
                                 Belum ada data dimensi. Klik "Tambah" atau "Import Excel".
                             </td></tr>
                         )}
                         {!loading && sortedFiltered.map((item, idx) => {
                             const vol = calcVolume(item.lengthCm, item.widthCm, item.heightCm);
                             return (
-                                <tr key={item.id} className="border-t hover:bg-muted/20">
+                                <tr key={item.id} className={`border-t hover:bg-muted/20 ${selectedIds.includes(item.id) ? 'bg-blue-50/50' : ''}`}>
+                                    <td className="px-3 py-2 text-center text-muted-foreground">
+                                        <input type="checkbox" className="rounded"
+                                            checked={selectedIds.includes(item.id)}
+                                            onChange={(e) => handleSelect(item.id, e.target.checked)} />
+                                    </td>
                                     <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                                     <td className="px-3 py-2 font-mono font-medium text-blue-700">{item.itemNo}</td>
                                     <td className="px-3 py-2">{item.itemName || '-'}</td>

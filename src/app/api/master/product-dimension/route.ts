@@ -65,15 +65,25 @@ export async function POST(request: NextRequest) {
     }
 }
 
-// DELETE: Remove a product dimension by id
+// DELETE: Remove a product dimension by id or multiple ids
 export async function DELETE(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
-        if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+        const idsParam = searchParams.get('ids');
 
-        await prisma.productDimension.delete({ where: { id: parseInt(id) } });
-        return NextResponse.json({ success: true });
+        if (idsParam) {
+            const ids = idsParam.split(',').map(id => parseInt(id)).filter(id => !isNaN(id));
+            if (ids.length > 0) {
+                await prisma.productDimension.deleteMany({ where: { id: { in: ids } } });
+            }
+            return NextResponse.json({ success: true, deletedCount: ids.length });
+        } else if (id) {
+            await prisma.productDimension.delete({ where: { id: parseInt(id) } });
+            return NextResponse.json({ success: true });
+        }
+
+        return NextResponse.json({ error: 'id or ids required' }, { status: 400 });
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }
