@@ -108,10 +108,11 @@ export async function GET(request: NextRequest) {
                         const shipQtyPcs = isBaseUnit ? di.shipQuantity : di.shipQuantity * isiPerBox;
                         const outstandingPcs = isBaseUnit ? di.outstanding : di.outstanding * isiPerBox;
 
-                        // Join dimension data — divide by qtyPerCarton to get per-pcs values
+                        // Join dimension data
+                        // Berat sudah per-pcs, volume (P×L×T) per-karton → bagi dengan isi karton
                         const dimInfo = dimMap.get(di.itemNo);
                         const qtyKarton = (dimInfo?.qtyPerCarton && dimInfo.qtyPerCarton > 1) ? dimInfo.qtyPerCarton : 1;
-                        const weightKg = dimInfo?.weightKg ? dimInfo.weightKg / qtyKarton : undefined;
+                        const weightKg = dimInfo?.weightKg || undefined;
                         const volumeM3 = (dimInfo?.lengthCm && dimInfo?.widthCm && dimInfo?.heightCm)
                             ? (dimInfo.lengthCm * dimInfo.widthCm * dimInfo.heightCm) / 1_000_000 / qtyKarton
                             : undefined;

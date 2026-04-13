@@ -657,7 +657,7 @@ function ProductDimensionTab() {
                             <th className="px-3 py-2 font-medium w-8">#</th>
                             <SortHeader label="Kode Barang" sortKey="itemNo" currentSort={sortConfig} onSort={handleSort} />
                             <SortHeader label="Nama Barang" sortKey="itemName" currentSort={sortConfig} onSort={handleSort} />
-                            <SortHeader label="Berat/Pcs (kg)" sortKey="weightKg" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <SortHeader label="Berat (kg)" sortKey="weightKg" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <SortHeader label="P (cm)" sortKey="lengthCm" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <SortHeader label="L (cm)" sortKey="widthCm" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <SortHeader label="T (cm)" sortKey="heightCm" currentSort={sortConfig} onSort={handleSort} align="right" />
@@ -682,7 +682,6 @@ function ProductDimensionTab() {
                             const qty = (item.qtyPerCarton && item.qtyPerCarton > 1) ? item.qtyPerCarton : 1;
                             const cartonVol = calcVolume(item.lengthCm, item.widthCm, item.heightCm);
                             const pcsVol = cartonVol ? cartonVol / qty : null;
-                            const pcsWeight = item.weightKg ? item.weightKg / qty : null;
 
                             return (
                                 <tr key={item.id} className={`border-t hover:bg-muted/20 ${selectedIds.includes(item.id) ? 'bg-blue-50/50' : ''}`}>
@@ -695,8 +694,7 @@ function ProductDimensionTab() {
                                     <td className="px-3 py-2 font-mono font-medium text-blue-700">{item.itemNo}</td>
                                     <td className="px-3 py-2">{item.itemName || '-'}</td>
                                     <td className="px-3 py-2 text-right">
-                                        {pcsWeight ? 
-                                            ((qty > 1) ? <span className="text-green-600 font-medium">{pcsWeight.toFixed(3)}</span> : pcsWeight.toFixed(2)) 
+                                        {item.weightKg ? item.weightKg.toFixed(2)
                                             : <span className="text-muted-foreground">-</span>
                                         }
                                     </td>
