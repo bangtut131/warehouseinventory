@@ -50,11 +50,7 @@ COPY --from=builder /app/node_modules/crypto-js ./node_modules/crypto-js
 # Create data directory
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
-# Copy entrypoint script
-COPY --chown=nextjs:nodejs docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
-
 USER nextjs
 EXPOSE 3000
 
-ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss 2>&1 || true; exec node server.js"]
