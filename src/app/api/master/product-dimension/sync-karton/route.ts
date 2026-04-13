@@ -5,8 +5,23 @@ import { fetchAllInventory } from '@/lib/accurate';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Auto-migrate: ensure qtyPerCarton column exists
+let schemaMigrated = false;
+async function ensureSchema() {
+    if (schemaMigrated) return;
+    try {
+        await prisma.$executeRawUnsafe(
+            `ALTER TABLE "ProductDimension" ADD COLUMN IF NOT EXISTS "qtyPerCarton" INTEGER`
+        );
+        schemaMigrated = true;
+    } catch (e: any) {
+        schemaMigrated = true;
+    }
+}
+
 export async function POST(request: NextRequest) {
     try {
+        await ensureSchema();
         console.log('[Sync Karton] Memulai tarik data master item dari Accurate...');
         const accurateItems = await fetchAllInventory();
         let updatedCount = 0;

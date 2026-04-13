@@ -3,9 +3,25 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// Auto-migrate: ensure qtyPerCarton column exists
+let schemaMigrated = false;
+async function ensureSchema() {
+    if (schemaMigrated) return;
+    try {
+        await prisma.$executeRawUnsafe(
+            `ALTER TABLE "ProductDimension" ADD COLUMN IF NOT EXISTS "qtyPerCarton" INTEGER`
+        );
+        schemaMigrated = true;
+    } catch (e: any) {
+        console.log('[Migration] qtyPerCarton column check:', e.message);
+        schemaMigrated = true; // Don't retry on error
+    }
+}
+
 // GET: List all product dimensions
 export async function GET() {
     try {
+        await ensureSchema();
         const data = await prisma.productDimension.findMany({
             orderBy: { itemNo: 'asc' },
         });
@@ -18,6 +34,7 @@ export async function GET() {
 // POST: Upsert a product dimension
 export async function POST(request: NextRequest) {
     try {
+        await ensureSchema();
         const body = await request.json();
         const { id, itemNo, itemName, weightKg, lengthCm, widthCm, heightCm } = body;
 
@@ -68,6 +85,7 @@ export async function POST(request: NextRequest) {
 // DELETE: Remove a product dimension by id or multiple ids
 export async function DELETE(request: NextRequest) {
     try {
+        await ensureSchema();
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
         const idsParam = searchParams.get('ids');

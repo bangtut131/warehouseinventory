@@ -4,8 +4,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import * as XLSX from 'xlsx';
 
+// Auto-migrate: ensure qtyPerCarton column exists
+let schemaMigrated = false;
+async function ensureSchema() {
+    if (schemaMigrated) return;
+    try {
+        await prisma.$executeRawUnsafe(
+            `ALTER TABLE "ProductDimension" ADD COLUMN IF NOT EXISTS "qtyPerCarton" INTEGER`
+        );
+        schemaMigrated = true;
+    } catch (e: any) {
+        schemaMigrated = true;
+    }
+}
+
 export async function POST(request: NextRequest) {
     try {
+        await ensureSchema();
         const formData = await request.formData();
         const file = formData.get('file') as File;
         if (!file) return NextResponse.json({ error: 'File wajib diupload' }, { status: 400 });
