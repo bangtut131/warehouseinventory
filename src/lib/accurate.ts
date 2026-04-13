@@ -79,7 +79,7 @@ accurateClient.interceptors.request.use((config) => {
   return config;
 });
 
-// â”€â”€â”€ ITEM LIST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ——— ITEM LIST ——————————————————————————————————————————————
 
 export interface AccurateItem {
   id: number;
@@ -91,14 +91,16 @@ export interface AccurateItem {
   cost: number;
   unit1Name?: string; // Satuan utama (Pcs/Kg)
   unit2Name?: string; // Satuan kedua (Box/Sak)
-  ratio2?: number;    // Rasio unit2 ke unit1 (misal 1 Box = 12 Pcs â†’ ratio2 = 12). 0 = no unit2.
+  unit3Name?: string; // Satuan ketiga (Box/Karton)
+  ratio2?: number;    // Rasio unit2 ke unit1 (misal 1 Box = 12 Pcs → ratio2 = 12). 0 = no unit2.
+  ratio3?: number;    // Rasio unit3 ke unit1 (misal 1 Box = 20 Btl → ratio3 = 20)
 }
 
 export async function fetchInventory(page = 1, pageSize = 100): Promise<{ list: AccurateItem[], hasMore: boolean }> {
   try {
     const response = await accurateClient.get('/item/list.do', {
       params: {
-        fields: 'id,no,name,itemType,quantity,unitPrice,cost,unit1Name,unit2Name,ratio2',
+        fields: 'id,no,name,itemType,quantity,unitPrice,cost,unit1Name,unit2Name,unit3Name,ratio2,ratio3',
         'sp.page': page,
         'sp.pageSize': pageSize
       }

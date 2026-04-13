@@ -26,12 +26,15 @@ export async function POST(request: NextRequest) {
         const accurateItems = await fetchAllInventory();
         let updatedCount = 0;
 
-        // Buat map ratio2 berdasarkan itemNo dari Accurate
-        // Asumsi: ratio2 adalah representasi Isi Karton (misal 1 Box = 24 Pcs -> ratio2: 24)
+        // Buat map isi karton berdasarkan itemNo dari Accurate
+        // Pilih ratio terbesar dari ratio2 & ratio3 (karena Box/Karton bisa di unit ke-2 atau ke-3)
         const ratioMap = new Map<string, number>();
         accurateItems.forEach(item => {
-            if (item.ratio2 && item.ratio2 > 1) {
-                ratioMap.set(item.no, item.ratio2);
+            const r2 = (item.ratio2 && item.ratio2 > 1) ? item.ratio2 : 0;
+            const r3 = (item.ratio3 && item.ratio3 > 1) ? item.ratio3 : 0;
+            const bestRatio = Math.max(r2, r3);
+            if (bestRatio > 1) {
+                ratioMap.set(item.no, bestRatio);
             }
         });
 
