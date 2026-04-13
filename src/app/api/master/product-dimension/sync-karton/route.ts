@@ -38,22 +38,24 @@ export async function POST(request: NextRequest) {
         // Ambil semua data dimensi produk yang sudah ada di database lokal
         const localDims = await prisma.productDimension.findMany();
 
-        // Lakukan update massal
-        // Prisma tidak support bulk update dengan value dinamis per-baris,
-        // jadi kita gunakan loop secara sekuensial atau Promise.all
-        const updatePromises = localDims.map(async (dim) => {
+        // Filter items yang perlu diupdate
+        const toUpdate = localDims.filter(dim => {
             const accurateRatio = ratioMap.get(dim.itemNo);
-            // Jika ada ratio di accurate, dan berbeda dengan lokal, update
-            if (accurateRatio && accurateRatio !== dim.qtyPerCarton) {
-                await prisma.productDimension.update({
-                    where: { id: dim.id },
-                    data: { qtyPerCarton: accurateRatio }
-                });
-                updatedCount++;
-            }
+            return accurateRatio && accurateRatio !== dim.qtyPerCarton;
         });
 
-        await Promise.all(updatePromises);
+        // Update secara batch (10 item per batch) untuk hindari max connections
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+            const batch = toUpdate.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(dim =>
+                prisma.productDimension.update({
+                    where: { id: dim.id },
+                    data: { qtyPerCarton: ratioMap.get(dim.itemNo)! }
+                })
+            ));
+            updatedCount += batch.length;
+        }
         
         console.log(`[Sync Karton] Selesai. Diperbarui: ${updatedCount} item.`);
         return NextResponse.json({
