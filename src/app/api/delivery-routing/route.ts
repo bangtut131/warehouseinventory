@@ -56,11 +56,16 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        // Filter: hanya SO yang belum dikirim / outstanding
+        // Filter: hanya SO yang belum selesai dikirim
         if (onlyOutstanding) {
+            const deliveredStatuses = ['dikirim', 'difaktur'];
             soList = soList.filter(so => {
-                const ds = (so.deliveryStatus || '').toLowerCase();
-                return !ds.includes('dikirim') && !ds.includes('difaktur');
+                const ds = (so.deliveryStatus || 'Belum dikirim').toLowerCase().trim();
+                // "Belum dikirim" → include (belum kirim)
+                // "Dikirim" → exclude (sudah selesai kirim)
+                // "Difaktur" → exclude (sudah difaktur)
+                // "Diajukan", "Draf", "Menunggu diproses" → include
+                return !deliveredStatuses.includes(ds);
             });
         }
 
