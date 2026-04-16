@@ -68,9 +68,10 @@ export const GeneralSettingsView: React.FC = () => {
     const fetchAll = useCallback(async () => {
         setLoading(true);
         try {
+            const timestamp = new Date().getTime();
             const [usersRes, rolesRes] = await Promise.all([
-                fetch('/api/users'),
-                fetch('/api/roles'),
+                fetch(`/api/users?t=${timestamp}`, { cache: 'no-store' }),
+                fetch(`/api/roles?t=${timestamp}`, { cache: 'no-store' }),
             ]);
             const usersData = await usersRes.json();
             const rolesData = await rolesRes.json();
