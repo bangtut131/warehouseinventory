@@ -1617,6 +1617,28 @@ export async function fetchAllSOData(
     soData.forEach(so => { so.deliveryStatus = so.deliveryStatus || 'Belum dikirim'; });
   }
 
+  // Phase 3b: Fallback — detect SOs invoiced directly without DO (SO→Faktur)
+  // Uses shipQuantity data already fetched in Phase 2 (zero additional API calls)
+  {
+    let fixedFull = 0;
+    let fixedPartial = 0;
+    soData.forEach(so => {
+      if (so.deliveryStatus !== 'Belum dikirim') return;
+      const totalQty = so.detailItems.reduce((s, i) => s + i.quantity, 0);
+      const totalShipped = so.detailItems.reduce((s, i) => s + i.shipQuantity, 0);
+      if (totalQty > 0 && totalShipped >= totalQty) {
+        so.deliveryStatus = 'Difaktur';
+        fixedFull++;
+      } else if (totalShipped > 0) {
+        so.deliveryStatus = 'Difaktur Sebagian';
+        fixedPartial++;
+      }
+    });
+    if (fixedFull > 0 || fixedPartial > 0) {
+      console.log(`[Accurate] SO Phase 3b: Fixed ${fixedFull} SOs → Difaktur, ${fixedPartial} → Difaktur Sebagian (direct invoice without DO)`);
+    }
+  }
+
   // Cache
   await saveSOCache(soData);
 
