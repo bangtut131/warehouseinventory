@@ -5,19 +5,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifySessionToken, SESSION_COOKIE_NAME, ALL_MENUS, ALL_DATA_COLUMNS } from '@/lib/auth';
 
-function isAdmin(request: NextRequest): boolean {
+function getAdminSession(request: NextRequest): { session: any; error?: string } {
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-    if (!token) return false;
+    if (!token) return { session: null, error: 'No session token found' };
     const session = verifySessionToken(token);
-    if (!session) return false;
-    // Allow: superadmin, role named 'Admin', or any user with access to general-settings
-    return session.isSuperAdmin || session.roleName === 'Admin' || (session.allowedMenus || []).includes('general-settings');
+    if (!session) return { session: null, error: 'Token invalid or expired - please re-login' };
+    const isAllowed = session.isSuperAdmin || session.roleName === 'Admin' || (session.allowedMenus || []).includes('general-settings');
+    if (!isAllowed) {
+        return { session: null, error: `Insufficient permissions (role: ${session.roleName}, isSuperAdmin: ${session.isSuperAdmin}, menus: ${JSON.stringify(session.allowedMenus)})` };
+    }
+    return { session };
 }
 
 // GET: List all roles + menu/column registry
 export async function GET(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const roles = await prisma.appRole.findMany({
@@ -42,8 +46,9 @@ export async function GET(request: NextRequest) {
 
 // POST: Create a new role
 export async function POST(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const body = await request.json();
@@ -79,8 +84,9 @@ export async function POST(request: NextRequest) {
 
 // PUT: Update a role
 export async function PUT(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const body = await request.json();
@@ -111,8 +117,9 @@ export async function PUT(request: NextRequest) {
 
 // DELETE: Remove a role
 export async function DELETE(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const { searchParams } = new URL(request.url);
