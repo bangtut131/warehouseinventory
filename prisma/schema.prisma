@@ -63,3 +63,16 @@ model ProductDimension {
   qtyPerCarton Int?
   updatedAt    DateTime @updatedAt
 }
+
+// Master Data: Jenis kendaraan pengiriman (fleet management)
+model VehicleType {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique       // e.g. "Pickup", "CDE", "CDD", "Fuso", "Tronton"
+  maxWeightKg  Float                  // Kapasitas maks berat (kg)
+  maxVolumeM3  Float                  // Kapasitas maks volume (m3)
+  costPerTrip  Float?                 // Biaya per trip (Rp), optional
+  sortOrder    Int      @default(0)   // Urutan tampil (kecil ke besar)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

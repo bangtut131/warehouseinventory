@@ -64,10 +64,116 @@ interface Summary {
     truckVolumeM3: number;
 }
 
+interface VehicleType {
+    id: number;
+    name: string;
+    maxWeightKg: number;
+    maxVolumeM3: number;
+    costPerTrip: number | null;
+    sortOrder: number;
+    isActive: boolean;
+}
+
+interface VehicleSuggestion {
+    vehicle: VehicleType;
+    count: number;
+    totalCost: number;
+    weightUtil: number; // 0-100%
+    volumeUtil: number; // 0-100%
+}
+
+interface FleetSuggestion {
+    combo: VehicleSuggestion[];
+    totalTrucks: number;
+    totalCost: number;
+    avgUtilization: number;
+}
+
 type TabKey = 'area' | 'customer' | 'detail';
 type AreaSortKey = 'area' | 'soCount' | 'customerCount' | 'totalWeightKg' | 'totalVolumeM3' | 'totalValue' | 'oldestSODate';
 type CustSortKey = 'customerName' | 'area' | 'city' | 'soCount' | 'totalWeightKg' | 'totalVolumeM3' | 'totalValue';
 type DetailSortKey = 'soNumber' | 'customerName' | 'transDate' | 'totalWeightKg' | 'totalVolumeM3' | 'totalValue';
+
+// ─── Fleet Suggestion Algorithm ─────────────────────────────
+
+function suggestFleet(weightKg: number, volumeM3: number, vehicles: VehicleType[]): FleetSuggestion | null {
+    // Filter active vehicles, sort largest first
+    const active = vehicles.filter(v => v.isActive).sort((a, b) => b.maxWeightKg - a.maxWeightKg);
+    if (active.length === 0 || (weightKg <= 0 && volumeM3 <= 0)) return null;
+
+    // Greedy: try to fill with largest vehicle first, then fill remainder with smaller
+    // Try each starting vehicle to find best combination
+    let bestCombo: FleetSuggestion | null = null;
+
+    for (let startIdx = 0; startIdx < active.length; startIdx++) {
+        const combo: VehicleSuggestion[] = [];
+        let remainW = weightKg;
+        let remainV = volumeM3;
+
+        for (let i = startIdx; i < active.length; i++) {
+            const v = active[i];
+            // How many of this vehicle needed for remaining load?
+            const needByW = v.maxWeightKg > 0 ? Math.floor(remainW / v.maxWeightKg) : 0;
+            const needByV = v.maxVolumeM3 > 0 ? Math.floor(remainV / v.maxVolumeM3) : 0;
+            const count = Math.max(needByW, needByV);
+            if (count > 0) {
+                remainW -= count * v.maxWeightKg;
+                remainV -= count * v.maxVolumeM3;
+                combo.push({
+                    vehicle: v, count,
+                    totalCost: (v.costPerTrip || 0) * count,
+                    weightUtil: 0, volumeUtil: 0,
+                });
+            }
+        }
+
+        // Handle remaining with smallest vehicle that fits
+        if (remainW > 0 || remainV > 0) {
+            // Find smallest vehicle that can carry the remainder
+            const fitting = [...active].reverse().find(v =>
+                v.maxWeightKg >= remainW && v.maxVolumeM3 >= remainV
+            ) || active[active.length - 1]; // fallback to smallest
+
+            const existing = combo.find(c => c.vehicle.id === fitting.id);
+            if (existing) {
+                existing.count++;
+                existing.totalCost += fitting.costPerTrip || 0;
+            } else {
+                combo.push({
+                    vehicle: fitting, count: 1,
+                    totalCost: fitting.costPerTrip || 0,
+                    weightUtil: 0, volumeUtil: 0,
+                });
+            }
+        }
+
+        if (combo.length === 0) continue;
+
+        const totalTrucks = combo.reduce((s, c) => s + c.count, 0);
+        const totalCost = combo.reduce((s, c) => s + c.totalCost, 0);
+        const totalCapW = combo.reduce((s, c) => s + c.vehicle.maxWeightKg * c.count, 0);
+        const totalCapV = combo.reduce((s, c) => s + c.vehicle.maxVolumeM3 * c.count, 0);
+        const avgUtil = ((totalCapW > 0 ? weightKg / totalCapW : 0) + (totalCapV > 0 ? volumeM3 / totalCapV : 0)) / 2 * 100;
+
+        // Calculate per-vehicle utilization
+        combo.forEach(c => {
+            c.weightUtil = totalCapW > 0 ? (weightKg / totalCapW) * 100 : 0;
+            c.volumeUtil = totalCapV > 0 ? (volumeM3 / totalCapV) * 100 : 0;
+        });
+
+        const suggestion: FleetSuggestion = { combo, totalTrucks, totalCost, avgUtilization: avgUtil };
+
+        // Pick suggestion with best utilization while minimizing cost
+        if (!bestCombo
+            || (suggestion.totalCost < bestCombo.totalCost && suggestion.avgUtilization > 40)
+            || (suggestion.avgUtilization > bestCombo.avgUtilization + 10 && suggestion.totalCost <= bestCombo.totalCost * 1.2)
+        ) {
+            bestCombo = suggestion;
+        }
+    }
+
+    return bestCombo;
+}
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -119,17 +225,20 @@ const CapacityBar = ({ used, max, label, unit }: { used: number; max: number; la
     );
 };
 
-const TruckBadge = ({ weight, volume, truckW, truckV }: { weight: number; volume: number; truckW: number; truckV: number }) => {
-    const byW = truckW > 0 ? Math.ceil(weight / truckW) : 0;
-    const byV = truckV > 0 ? Math.ceil(volume / truckV) : 0;
-    const trucks = Math.max(byW, byV, 1);
-    const color = trucks > 2 ? 'bg-red-100 text-red-700 border-red-200'
-        : trucks > 1 ? 'bg-amber-100 text-amber-700 border-amber-200'
-            : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+const FleetBadge = ({ suggestion }: { suggestion: FleetSuggestion | undefined }) => {
+    if (!suggestion) return <span className="text-gray-300 text-[10px]">-</span>;
+    const color = suggestion.avgUtilization > 70 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        : suggestion.avgUtilization > 40 ? 'bg-amber-50 text-amber-700 border-amber-200'
+            : 'bg-red-50 text-red-700 border-red-200';
     return (
-        <span className={`text-[11px] px-2 py-0.5 rounded-full border font-bold ${color}`}>
-            🚛 {trucks} truk
-        </span>
+        <div className={`text-[10px] px-2 py-1 rounded-lg border ${color} text-left min-w-[100px]`}>
+            {suggestion.combo.map((c, i) => (
+                <div key={i} className="font-medium">{c.count}x {c.vehicle.name}</div>
+            ))}
+            {suggestion.totalCost > 0 && (
+                <div className="text-[9px] opacity-70 mt-0.5">~Rp {(suggestion.totalCost / 1_000_000).toFixed(1)}jt</div>
+            )}
+        </div>
     );
 };
 
@@ -192,6 +301,12 @@ export const DeliveryRoutingView: React.FC = () => {
         return 16;
     });
 
+    // Fleet state
+    const [vehicles, setVehicles] = useState<VehicleType[]>([]);
+    const [showFleetManager, setShowFleetManager] = useState(false);
+    const [editingVehicle, setEditingVehicle] = useState<Partial<VehicleType> | null>(null);
+    const [fleetSaving, setFleetSaving] = useState(false);
+
     // UI state
     const [expandedArea, setExpandedArea] = useState<string | null>(null);
     const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
@@ -216,6 +331,47 @@ export const DeliveryRoutingView: React.FC = () => {
             localStorage.setItem('truckVolumeM3', String(truckVolumeM3));
         }
     }, [truckWeightKg, truckVolumeM3]);
+
+    // Fetch fleet vehicles
+    const fetchVehicles = useCallback(async () => {
+        try {
+            const res = await fetch('/api/vehicle-types');
+            const data = await res.json();
+            setVehicles(data.vehicles || []);
+        } catch { /* ignore — will use defaults */ }
+    }, []);
+
+    useEffect(() => { fetchVehicles(); }, [fetchVehicles]);
+
+    // Fleet CRUD handlers
+    const handleSaveVehicle = async () => {
+        if (!editingVehicle?.name || !editingVehicle?.maxWeightKg || !editingVehicle?.maxVolumeM3) return;
+        setFleetSaving(true);
+        try {
+            const method = editingVehicle.id ? 'PUT' : 'POST';
+            await fetch('/api/vehicle-types', {
+                method, headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editingVehicle),
+            });
+            setEditingVehicle(null);
+            await fetchVehicles();
+        } catch { /* ignore */ }
+        setFleetSaving(false);
+    };
+
+    const handleDeleteVehicle = async (id: number) => {
+        if (!confirm('Hapus kendaraan ini?')) return;
+        await fetch(`/api/vehicle-types?id=${id}`, { method: 'DELETE' });
+        await fetchVehicles();
+    };
+
+    const handleToggleVehicle = async (v: VehicleType) => {
+        await fetch('/api/vehicle-types', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: v.id, isActive: !v.isActive }),
+        });
+        await fetchVehicles();
+    };
 
     // Fetch data
     const fetchData = useCallback(async () => {
@@ -437,6 +593,18 @@ export const DeliveryRoutingView: React.FC = () => {
     const maxAreaVolume = useMemo(() => Math.max(...filteredAreas.map(a => a.totalVolumeM3), 0.001), [filteredAreas]);
     const maxCustWeight = useMemo(() => Math.max(...filteredCustomers.map(c => c.totalWeightKg), 1), [filteredCustomers]);
 
+    // Fleet suggestion per area (memoized)
+    const areaSuggestions = useMemo(() => {
+        const map = new Map<string, FleetSuggestion>();
+        if (vehicles.length === 0) return map;
+        for (const a of filteredAreas) {
+            const key = `${a.area}||${a.cluster}`;
+            const sug = suggestFleet(a.totalWeightKg, a.totalVolumeM3, vehicles);
+            if (sug) map.set(key, sug);
+        }
+        return map;
+    }, [filteredAreas, vehicles]);
+
     // ─── Sort Handlers ────────────────────────────
 
     const handleAreaSort = (key: AreaSortKey) => {
@@ -495,35 +663,21 @@ export const DeliveryRoutingView: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            {/* ─── Header with Truck Planner ──────────── */}
+            {/* ─── Header with Fleet Planner ──────────── */}
             <div className="bg-gradient-to-r from-slate-800 to-slate-700 text-white rounded-xl p-5 shadow-lg">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h2 className="text-lg font-bold flex items-center gap-2">🚛 Delivery Routing</h2>
                         <p className="text-xs text-slate-300 mt-0.5">Analisis kubikasi, berat & perencanaan pengiriman per area & customer</p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
-                            <span className="text-xs text-slate-300 whitespace-nowrap">⚖️ Maks Berat:</span>
-                            <input
-                                type="number"
-                                value={truckWeightKg}
-                                onChange={e => setTruckWeightKg(parseFloat(e.target.value) || 0)}
-                                className="bg-transparent text-white text-sm border-none outline-none w-20 text-right font-bold"
-                            />
-                            <span className="text-xs text-slate-400">kg</span>
-                        </div>
-                        <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
-                            <span className="text-xs text-slate-300 whitespace-nowrap">📦 Maks Volume:</span>
-                            <input
-                                type="number"
-                                value={truckVolumeM3}
-                                onChange={e => setTruckVolumeM3(parseFloat(e.target.value) || 0)}
-                                className="bg-transparent text-white text-sm border-none outline-none w-16 text-right font-bold"
-                                step="0.5"
-                            />
-                            <span className="text-xs text-slate-400">m³</span>
-                        </div>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => setShowFleetManager(p => !p)}
+                            className={`text-xs px-3 py-2 rounded-lg transition font-medium flex items-center gap-1.5 ${showFleetManager ? 'bg-blue-500 text-white' : 'bg-white/10 text-slate-200 hover:bg-white/20'}`}
+                        >
+                            🚚 Fleet Manager
+                            <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">{vehicles.filter(v => v.isActive).length}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -536,6 +690,87 @@ export const DeliveryRoutingView: React.FC = () => {
                 )}
             </div>
 
+            {/* ─── Fleet Manager Panel (collapsible) ─────── */}
+            {showFleetManager && (
+                <div className="bg-white border-2 border-blue-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">🚚 Fleet Manager <span className="text-xs font-normal text-gray-400">Kelola jenis kendaraan pengiriman</span></h3>
+                        <button
+                            onClick={() => setEditingVehicle({ name: '', maxWeightKg: 0, maxVolumeM3: 0, costPerTrip: 0, sortOrder: vehicles.length + 1 })}
+                            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition font-medium"
+                        >+ Tambah Kendaraan</button>
+                    </div>
+
+                    {/* Vehicle list */}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                            <thead className="bg-gray-50 border-b">
+                                <tr>
+                                    <th className="text-left px-3 py-2 text-gray-500">Nama</th>
+                                    <th className="text-right px-3 py-2 text-gray-500">Maks Berat (kg)</th>
+                                    <th className="text-right px-3 py-2 text-gray-500">Maks Volume (m³)</th>
+                                    <th className="text-right px-3 py-2 text-gray-500">Biaya/Trip (Rp)</th>
+                                    <th className="text-center px-3 py-2 text-gray-500">Urutan</th>
+                                    <th className="text-center px-3 py-2 text-gray-500">Aktif</th>
+                                    <th className="text-center px-3 py-2 text-gray-500">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {vehicles.map(v => (
+                                    <tr key={v.id} className={`border-b hover:bg-gray-50 ${!v.isActive ? 'opacity-40' : ''}`}>
+                                        <td className="px-3 py-2 font-medium text-gray-800">🚛 {v.name}</td>
+                                        <td className="px-3 py-2 text-right font-mono text-blue-600">{fmt(v.maxWeightKg)}</td>
+                                        <td className="px-3 py-2 text-right font-mono text-teal-600">{fmtDec(v.maxVolumeM3, 1)}</td>
+                                        <td className="px-3 py-2 text-right text-gray-600">{v.costPerTrip ? `Rp ${fmt(v.costPerTrip)}` : '-'}</td>
+                                        <td className="px-3 py-2 text-center text-gray-400">{v.sortOrder}</td>
+                                        <td className="px-3 py-2 text-center">
+                                            <button onClick={() => handleToggleVehicle(v)} className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${v.isActive ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-400 border-gray-200'}`}>
+                                                {v.isActive ? 'Aktif' : 'Nonaktif'}
+                                            </button>
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
+                                            <button onClick={() => setEditingVehicle(v)} className="text-blue-600 hover:text-blue-800 mr-2 text-[10px] font-medium">Edit</button>
+                                            <button onClick={() => handleDeleteVehicle(v.id)} className="text-red-500 hover:text-red-700 text-[10px] font-medium">Hapus</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Edit/Add form */}
+                    {editingVehicle !== null && (
+                        <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <p className="text-xs font-semibold text-blue-700 mb-2">{editingVehicle.id ? 'Edit Kendaraan' : 'Tambah Kendaraan Baru'}</p>
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Nama</label>
+                                    <input type="text" value={editingVehicle.name || ''} onChange={e => setEditingVehicle(p => ({ ...p!, name: e.target.value }))} className="w-full text-xs border rounded px-2 py-1.5 bg-white" placeholder="CDD" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Maks Berat (kg)</label>
+                                    <input type="number" value={editingVehicle.maxWeightKg || ''} onChange={e => setEditingVehicle(p => ({ ...p!, maxWeightKg: parseFloat(e.target.value) || 0 }))} className="w-full text-xs border rounded px-2 py-1.5 bg-white" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Maks Volume (m³)</label>
+                                    <input type="number" value={editingVehicle.maxVolumeM3 || ''} onChange={e => setEditingVehicle(p => ({ ...p!, maxVolumeM3: parseFloat(e.target.value) || 0 }))} className="w-full text-xs border rounded px-2 py-1.5 bg-white" step="0.5" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Biaya/Trip (Rp)</label>
+                                    <input type="number" value={editingVehicle.costPerTrip || ''} onChange={e => setEditingVehicle(p => ({ ...p!, costPerTrip: parseFloat(e.target.value) || 0 }))} className="w-full text-xs border rounded px-2 py-1.5 bg-white" />
+                                </div>
+                                <div className="flex items-end gap-2">
+                                    <button onClick={handleSaveVehicle} disabled={fleetSaving} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 disabled:opacity-50">
+                                        {fleetSaving ? 'Saving...' : 'Simpan'}
+                                    </button>
+                                    <button onClick={() => setEditingVehicle(null)} className="text-xs bg-gray-200 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-300">Batal</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* ─── Summary Cards ──────────────────────── */}
             {summary && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -546,7 +781,7 @@ export const DeliveryRoutingView: React.FC = () => {
                         { label: 'Total Berat', value: `${fmtDec(summary.totalWeight, 1)} kg`, icon: '⚖️', color: 'bg-emerald-50 border-emerald-200' },
                         { label: 'Total Volume', value: `${fmtDec(summary.totalVolume, 2)} m³`, icon: '📦', color: 'bg-amber-50 border-amber-200' },
                         { label: 'Total Nilai', value: fmtRp(summary.totalValue), icon: '💰', color: 'bg-indigo-50 border-indigo-200' },
-                        { label: 'Est. Truk', value: `${summary.totalTrucks} truk`, icon: '🚛', color: 'bg-orange-50 border-orange-200' },
+                        { label: 'Fleet', value: `${vehicles.filter(v => v.isActive).length} jenis`, icon: '🚚', color: 'bg-orange-50 border-orange-200' },
                     ].map(card => (
                         <Card key={card.label} className={`border ${card.color}`}>
                             <CardContent className="p-3">
@@ -728,7 +963,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                 Nilai <SortIcon active={areaSortKey === 'totalValue'} asc={areaSortAsc} /></th>
                                             <th className="text-center px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleAreaSort('oldestSODate')}>
                                                 Umur <SortIcon active={areaSortKey === 'oldestSODate'} asc={areaSortAsc} /></th>
-                                            <th className="text-center px-3 py-2.5 text-gray-500 font-semibold">Truk</th>
+                                            <th className="text-center px-3 py-2.5 text-gray-500 font-semibold min-w-[110px]">Kendaraan</th>
                                             <th className="text-center px-3 py-2.5 text-gray-500 font-semibold w-[50px]">Aksi</th>
                                         </tr>
                                     </thead>
@@ -763,8 +998,8 @@ export const DeliveryRoutingView: React.FC = () => {
                                                         <td className="px-3 py-2.5 text-center">
                                                             <UrgencyBadge days={days} />
                                                         </td>
-                                                        <td className="px-3 py-2.5 text-center">
-                                                            <TruckBadge weight={row.totalWeightKg} volume={row.totalVolumeM3} truckW={truckWeightKg} truckV={truckVolumeM3} />
+                                                        <td className="px-3 py-2.5">
+                                                            <FleetBadge suggestion={areaSuggestions.get(`${row.area}||${row.cluster}`)} />
                                                         </td>
                                                         <td className="px-3 py-2.5 text-center">
                                                             <button
