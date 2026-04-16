@@ -13,11 +13,26 @@ interface AreaSOItem {
     transDate: string;
     statusName: string;
     deliveryStatus?: string;
+    city?: string;
     itemCount: number;
     totalWeightKg: number;
     totalVolumeM3: number;
     totalValue: number;
     outstandingPcs: number;
+}
+
+interface CustomerGroup {
+    customerName: string;
+    customerNo?: string;
+    city: string;
+    area: string;
+    cluster: string;
+    soCount: number;
+    totalWeightKg: number;
+    totalVolumeM3: number;
+    totalValue: number;
+    totalOutstandingPcs: number;
+    soNumbers: string[];
 }
 
 interface AreaGroup {
@@ -34,11 +49,13 @@ interface AreaGroup {
     totalOutstandingPcs: number;
     oldestSODate: string;
     soItems: AreaSOItem[];
+    customers: CustomerGroup[];
 }
 
 interface Summary {
     totalAreas: number;
     totalSO: number;
+    totalCustomers: number;
     totalWeight: number;
     totalVolume: number;
     totalValue: number;
@@ -47,7 +64,10 @@ interface Summary {
     truckVolumeM3: number;
 }
 
-type SortKey = 'area' | 'soCount' | 'customerCount' | 'totalWeightKg' | 'totalVolumeM3' | 'totalValue' | 'oldestSODate';
+type TabKey = 'area' | 'customer' | 'detail';
+type AreaSortKey = 'area' | 'soCount' | 'customerCount' | 'totalWeightKg' | 'totalVolumeM3' | 'totalValue' | 'oldestSODate';
+type CustSortKey = 'customerName' | 'area' | 'city' | 'soCount' | 'totalWeightKg' | 'totalVolumeM3' | 'totalValue';
+type DetailSortKey = 'soNumber' | 'customerName' | 'transDate' | 'totalWeightKg' | 'totalVolumeM3' | 'totalValue';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -60,6 +80,15 @@ const fmtDate = (iso: string) => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
     return `${d} ${months[parseInt(m) - 1]} ${y}`;
 };
+const fmtDateSlash = (ds: string) => {
+    if (!ds) return '-';
+    const parts = ds.split('/');
+    if (parts.length === 3) {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+        return `${parseInt(parts[0])} ${months[parseInt(parts[1]) - 1]} ${parts[2]}`;
+    }
+    return ds;
+};
 
 const daysSince = (iso: string): number => {
     if (!iso) return 0;
@@ -67,10 +96,12 @@ const daysSince = (iso: string): number => {
     return Math.floor(diff / 86400000);
 };
 
-// ─── Progress Bar ───────────────────────────────────────────
+const pctOf = (val: number, max: number) => max > 0 ? Math.min((val / max) * 100, 100) : 0;
+
+// ─── Micro Components ───────────────────────────────────────
 
 const CapacityBar = ({ used, max, label, unit }: { used: number; max: number; label: string; unit: string }) => {
-    const pct = max > 0 ? Math.min((used / max) * 100, 100) : 0;
+    const pct = pctOf(used, max);
     const over = used > max;
     return (
         <div className="flex-1 min-w-[140px]">
@@ -88,8 +119,6 @@ const CapacityBar = ({ used, max, label, unit }: { used: number; max: number; la
     );
 };
 
-// ─── Truck Badge ────────────────────────────────────────────
-
 const TruckBadge = ({ weight, volume, truckW, truckV }: { weight: number; volume: number; truckW: number; truckV: number }) => {
     const byW = truckW > 0 ? Math.ceil(weight / truckW) : 0;
     const byV = truckV > 0 ? Math.ceil(volume / truckV) : 0;
@@ -104,13 +133,54 @@ const TruckBadge = ({ weight, volume, truckW, truckV }: { weight: number; volume
     );
 };
 
+const SortIcon = ({ active, asc }: { active: boolean; asc: boolean }) =>
+    active ? <span className="ml-0.5">{asc ? '▲' : '▼'}</span> : <span className="ml-0.5 text-gray-300">⇅</span>;
+
+const HorizBar = ({ value, maxValue, color = 'bg-blue-500' }: { value: number; maxValue: number; color?: string }) => {
+    const w = maxValue > 0 ? Math.min((value / maxValue) * 100, 100) : 0;
+    return (
+        <div className="w-full bg-gray-100 rounded h-3 relative overflow-hidden">
+            <div className={`h-full rounded transition-all duration-700 ${color}`} style={{ width: `${w}%` }} />
+        </div>
+    );
+};
+
+const UrgencyBadge = ({ days }: { days: number }) => {
+    if (days <= 0) return <span className="text-gray-400">-</span>;
+    const cls = days > 7 ? 'bg-red-100 text-red-700 border-red-200' : days > 3 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-gray-100 text-gray-600 border-gray-200';
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${cls}`}>{days}h</span>;
+};
+
+const StatusBadge = ({ status }: { status: string }) => {
+    const s = (status || '').toLowerCase();
+    const color = s.includes('terproses') ? 'bg-green-100 text-green-700'
+        : s.includes('diajukan') ? 'bg-blue-100 text-blue-700'
+            : s.includes('sebagian') ? 'bg-orange-100 text-orange-700'
+                : 'bg-yellow-100 text-yellow-700';
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded ${color}`}>{status}</span>;
+};
+
+const DeliveryBadge = ({ status }: { status?: string }) => {
+    const s = (status || 'Belum dikirim').toLowerCase();
+    const color = s === 'difaktur' ? 'bg-green-100 text-green-700'
+        : s === 'difaktur sebagian' ? 'bg-amber-100 text-amber-700'
+            : s === 'dikirim' ? 'bg-blue-100 text-blue-700'
+                : s === 'diajukan' ? 'bg-orange-100 text-orange-700'
+                    : 'bg-gray-100 text-gray-400';
+    return <span className={`text-[10px] px-1.5 py-0.5 rounded ${color}`}>{status || 'Belum dikirim'}</span>;
+};
+
 // ─── Main Component ─────────────────────────────────────────
 
 export const DeliveryRoutingView: React.FC = () => {
     const [areas, setAreas] = useState<AreaGroup[]>([]);
+    const [allCustomers, setAllCustomers] = useState<CustomerGroup[]>([]);
     const [summary, setSummary] = useState<Summary | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Tab state
+    const [activeTab, setActiveTab] = useState<TabKey>('area');
 
     // Load planning state
     const [truckWeightKg, setTruckWeightKg] = useState(() => {
@@ -124,10 +194,18 @@ export const DeliveryRoutingView: React.FC = () => {
 
     // UI state
     const [expandedArea, setExpandedArea] = useState<string | null>(null);
-    const [sortKey, setSortKey] = useState<SortKey>('totalWeightKg');
-    const [sortAsc, setSortAsc] = useState(false);
-    const [searchArea, setSearchArea] = useState('');
+    const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
+    const [globalSearch, setGlobalSearch] = useState('');
     const [filterProvince, setFilterProvince] = useState('');
+    const [filterArea, setFilterArea] = useState('');
+
+    // Sort states per tab
+    const [areaSortKey, setAreaSortKey] = useState<AreaSortKey>('totalWeightKg');
+    const [areaSortAsc, setAreaSortAsc] = useState(false);
+    const [custSortKey, setCustSortKey] = useState<CustSortKey>('totalWeightKg');
+    const [custSortAsc, setCustSortAsc] = useState(false);
+    const [detailSortKey, setDetailSortKey] = useState<DetailSortKey>('totalWeightKg');
+    const [detailSortAsc, setDetailSortAsc] = useState(false);
 
     // Save truck capacity to localStorage
     useEffect(() => {
@@ -153,6 +231,7 @@ export const DeliveryRoutingView: React.FC = () => {
             }
             const data = await res.json();
             setAreas(data.areas || []);
+            setAllCustomers(data.customers || []);
             setSummary(data.summary || null);
         } catch (err: any) {
             setError(err.message);
@@ -163,63 +242,189 @@ export const DeliveryRoutingView: React.FC = () => {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    // Sort & filter
-    const handleSort = (key: SortKey) => {
-        if (sortKey === key) setSortAsc(p => !p);
-        else { setSortKey(key); setSortAsc(false); }
-    };
-
-    const SortIcon = ({ k }: { k: SortKey }) =>
-        sortKey === k ? <span className="ml-0.5">{sortAsc ? '▲' : '▼'}</span> : <span className="ml-0.5 text-gray-300">⇅</span>;
+    // ─── Derived data ─────────────────────────────
 
     const provinces = useMemo(() =>
         [...new Set(areas.map(a => a.province).filter(p => p && p !== '-'))].sort(), [areas]);
 
-    const filtered = useMemo(() => {
+    const areaNames = useMemo(() =>
+        [...new Set(areas.map(a => a.area).filter(a => a && a !== 'Tidak Diketahui'))].sort(), [areas]);
+
+    // All SO items flattened for detail tab
+    const allSOItems = useMemo(() => {
+        const items: (AreaSOItem & { area: string; cluster: string })[] = [];
+        for (const a of areas) {
+            for (const so of a.soItems) {
+                items.push({ ...so, area: a.area, cluster: a.cluster });
+            }
+        }
+        return items;
+    }, [areas]);
+
+    // ─── Filtered + Sorted: Area Tab ──────────────
+
+    const filteredAreas = useMemo(() => {
         let data = areas.filter(a => {
-            const matchSearch = !searchArea || a.area.toLowerCase().includes(searchArea.toLowerCase())
-                || a.cluster.toLowerCase().includes(searchArea.toLowerCase())
-                || a.cities.some(c => c.toLowerCase().includes(searchArea.toLowerCase()));
+            const matchSearch = !globalSearch || a.area.toLowerCase().includes(globalSearch.toLowerCase())
+                || a.cluster.toLowerCase().includes(globalSearch.toLowerCase())
+                || a.cities.some(c => c.toLowerCase().includes(globalSearch.toLowerCase()))
+                || a.soItems.some(s => s.customerName.toLowerCase().includes(globalSearch.toLowerCase()) || s.soNumber.toLowerCase().includes(globalSearch.toLowerCase()));
             const matchProv = !filterProvince || a.province === filterProvince;
-            return matchSearch && matchProv;
+            const matchArea = !filterArea || a.area === filterArea;
+            return matchSearch && matchProv && matchArea;
         });
         return [...data].sort((a, b) => {
             let av: any, bv: any;
-            if (sortKey === 'area') { av = a.area; bv = b.area; }
-            else if (sortKey === 'oldestSODate') { av = a.oldestSODate; bv = b.oldestSODate; }
-            else { av = a[sortKey]; bv = b[sortKey]; }
-            if (typeof av === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
-            return sortAsc ? av - bv : bv - av;
+            if (areaSortKey === 'area') { av = a.area; bv = b.area; }
+            else if (areaSortKey === 'oldestSODate') { av = a.oldestSODate; bv = b.oldestSODate; }
+            else { av = a[areaSortKey]; bv = b[areaSortKey]; }
+            if (typeof av === 'string') return areaSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+            return areaSortAsc ? av - bv : bv - av;
         });
-    }, [areas, searchArea, filterProvince, sortKey, sortAsc]);
+    }, [areas, globalSearch, filterProvince, filterArea, areaSortKey, areaSortAsc]);
 
-    // Export
+    // ─── Filtered + Sorted: Customer Tab ──────────
+
+    const filteredCustomers = useMemo(() => {
+        let data = allCustomers.filter(c => {
+            const matchSearch = !globalSearch
+                || c.customerName.toLowerCase().includes(globalSearch.toLowerCase())
+                || (c.customerNo || '').toLowerCase().includes(globalSearch.toLowerCase())
+                || c.city.toLowerCase().includes(globalSearch.toLowerCase())
+                || c.area.toLowerCase().includes(globalSearch.toLowerCase());
+            const matchArea = !filterArea || c.area === filterArea;
+            return matchSearch && matchArea;
+        });
+        return [...data].sort((a, b) => {
+            let av: any, bv: any;
+            if (custSortKey === 'customerName') { av = a.customerName; bv = b.customerName; }
+            else if (custSortKey === 'area') { av = a.area; bv = b.area; }
+            else if (custSortKey === 'city') { av = a.city; bv = b.city; }
+            else { av = a[custSortKey]; bv = b[custSortKey]; }
+            if (typeof av === 'string') return custSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+            return custSortAsc ? av - bv : bv - av;
+        });
+    }, [allCustomers, globalSearch, filterArea, custSortKey, custSortAsc]);
+
+    // ─── Filtered + Sorted: Detail Tab ────────────
+
+    const filteredDetails = useMemo(() => {
+        let data = allSOItems.filter(so => {
+            const matchSearch = !globalSearch
+                || so.soNumber.toLowerCase().includes(globalSearch.toLowerCase())
+                || so.customerName.toLowerCase().includes(globalSearch.toLowerCase())
+                || (so.customerNo || '').toLowerCase().includes(globalSearch.toLowerCase())
+                || so.area.toLowerCase().includes(globalSearch.toLowerCase());
+            const matchArea = !filterArea || so.area === filterArea;
+            return matchSearch && matchArea;
+        });
+        return [...data].sort((a, b) => {
+            let av: any, bv: any;
+            if (detailSortKey === 'soNumber') { av = a.soNumber; bv = b.soNumber; }
+            else if (detailSortKey === 'customerName') { av = a.customerName; bv = b.customerName; }
+            else if (detailSortKey === 'transDate') {
+                av = a.transDate.split('/').reverse().join('-');
+                bv = b.transDate.split('/').reverse().join('-');
+            }
+            else { av = a[detailSortKey]; bv = b[detailSortKey]; }
+            if (typeof av === 'string') return detailSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+            return detailSortAsc ? av - bv : bv - av;
+        });
+    }, [allSOItems, globalSearch, filterArea, detailSortKey, detailSortAsc]);
+
+    // ─── Grand totals per tab ─────────────────────
+
+    const areaGrandTotal = useMemo(() => ({
+        soCount: filteredAreas.reduce((s, a) => s + a.soCount, 0),
+        customerCount: filteredAreas.reduce((s, a) => s + a.customerCount, 0),
+        weight: filteredAreas.reduce((s, a) => s + a.totalWeightKg, 0),
+        volume: filteredAreas.reduce((s, a) => s + a.totalVolumeM3, 0),
+        value: filteredAreas.reduce((s, a) => s + a.totalValue, 0),
+    }), [filteredAreas]);
+
+    const custGrandTotal = useMemo(() => ({
+        soCount: filteredCustomers.reduce((s, c) => s + c.soCount, 0),
+        weight: filteredCustomers.reduce((s, c) => s + c.totalWeightKg, 0),
+        volume: filteredCustomers.reduce((s, c) => s + c.totalVolumeM3, 0),
+        value: filteredCustomers.reduce((s, c) => s + c.totalValue, 0),
+    }), [filteredCustomers]);
+
+    const detailGrandTotal = useMemo(() => ({
+        weight: filteredDetails.reduce((s, d) => s + d.totalWeightKg, 0),
+        volume: filteredDetails.reduce((s, d) => s + d.totalVolumeM3, 0),
+        value: filteredDetails.reduce((s, d) => s + d.totalValue, 0),
+    }), [filteredDetails]);
+
+    // ─── Max for bar charts ───────────────────────
+
+    const maxAreaWeight = useMemo(() => Math.max(...filteredAreas.map(a => a.totalWeightKg), 1), [filteredAreas]);
+    const maxAreaVolume = useMemo(() => Math.max(...filteredAreas.map(a => a.totalVolumeM3), 0.001), [filteredAreas]);
+    const maxCustWeight = useMemo(() => Math.max(...filteredCustomers.map(c => c.totalWeightKg), 1), [filteredCustomers]);
+
+    // ─── Sort Handlers ────────────────────────────
+
+    const handleAreaSort = (key: AreaSortKey) => {
+        if (areaSortKey === key) setAreaSortAsc(p => !p);
+        else { setAreaSortKey(key); setAreaSortAsc(false); }
+    };
+    const handleCustSort = (key: CustSortKey) => {
+        if (custSortKey === key) setCustSortAsc(p => !p);
+        else { setCustSortKey(key); setCustSortAsc(false); }
+    };
+    const handleDetailSort = (key: DetailSortKey) => {
+        if (detailSortKey === key) setDetailSortAsc(p => !p);
+        else { setDetailSortKey(key); setDetailSortAsc(false); }
+    };
+
+    // ─── Export ───────────────────────────────────
+
     const handleExport = () => {
-        const rows: any[][] = [['Area', 'Cluster', 'Kota', 'Provinsi', 'SO', 'Customer', 'Berat (kg)', 'Volume (m³)', 'Nilai', 'Est. Truk']];
-        for (const a of filtered) {
-            const trucks = Math.max(
-                truckWeightKg > 0 ? Math.ceil(a.totalWeightKg / truckWeightKg) : 0,
-                truckVolumeM3 > 0 ? Math.ceil(a.totalVolumeM3 / truckVolumeM3) : 0,
-                1
-            );
-            rows.push([a.area, a.cluster, a.cities.join(', '), a.province, a.soCount, a.customerCount, a.totalWeightKg, a.totalVolumeM3, a.totalValue, trucks]);
+        const rows: any[][] = [];
+        if (activeTab === 'area') {
+            rows.push(['Area', 'Cluster', 'Kota', 'Provinsi', 'SO', 'Customer', 'Berat (kg)', 'Volume (m³)', 'Nilai', 'Est. Truk']);
+            for (const a of filteredAreas) {
+                const trucks = Math.max(
+                    truckWeightKg > 0 ? Math.ceil(a.totalWeightKg / truckWeightKg) : 0,
+                    truckVolumeM3 > 0 ? Math.ceil(a.totalVolumeM3 / truckVolumeM3) : 0, 1
+                );
+                rows.push([a.area, a.cluster, a.cities.join(', '), a.province, a.soCount, a.customerCount, a.totalWeightKg, a.totalVolumeM3, a.totalValue, trucks]);
+            }
+        } else if (activeTab === 'customer') {
+            rows.push(['Area', 'Cluster', 'Customer', 'ID Customer', 'Kota', 'SO', 'Berat (kg)', 'Volume (m³)', 'Nilai', 'Outstanding Pcs']);
+            for (const c of filteredCustomers) {
+                rows.push([c.area, c.cluster, c.customerName, c.customerNo || '', c.city, c.soCount, c.totalWeightKg, c.totalVolumeM3, c.totalValue, c.totalOutstandingPcs]);
+            }
+        } else {
+            rows.push(['No. SO', 'Customer', 'ID Customer', 'Tanggal', 'Area', 'Cluster', 'Kota', 'Status', 'Status Kiriman', 'Items', 'Berat (kg)', 'Volume (m³)', 'Nilai', 'Outstanding Pcs']);
+            for (const so of filteredDetails) {
+                rows.push([so.soNumber, so.customerName, so.customerNo || '', so.transDate, so.area, so.cluster, so.city || '', so.statusName, so.deliveryStatus || 'Belum dikirim', so.itemCount, so.totalWeightKg, so.totalVolumeM3, so.totalValue, so.outstandingPcs]);
+            }
         }
         const csv = rows.map(r => r.join('\t')).join('\n');
         const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `Delivery_Routing_${new Date().toISOString().slice(0, 10)}.csv`;
+        const tabName = activeTab === 'area' ? 'Area' : activeTab === 'customer' ? 'Customer' : 'Detail';
+        link.download = `Delivery_Routing_${tabName}_${new Date().toISOString().slice(0, 10)}.csv`;
         link.click();
     };
 
+    // ─── Tab definitions ──────────────────────────
+
+    const tabs: { key: TabKey; label: string; icon: string; count: number }[] = [
+        { key: 'area', label: 'Pivot per Area', icon: '📊', count: filteredAreas.length },
+        { key: 'customer', label: 'Pivot per Customer', icon: '👤', count: filteredCustomers.length },
+        { key: 'detail', label: 'Semua SO', icon: '📋', count: filteredDetails.length },
+    ];
+
     return (
         <div className="space-y-4">
-            {/* ─── Load Planning Panel ─────────────────────── */}
+            {/* ─── Header with Truck Planner ──────────── */}
             <div className="bg-gradient-to-r from-slate-800 to-slate-700 text-white rounded-xl p-5 shadow-lg">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h2 className="text-lg font-bold flex items-center gap-2">🚛 Delivery Routing</h2>
-                        <p className="text-xs text-slate-300 mt-0.5">Perencanaan pengiriman berdasarkan area & kapasitas truk</p>
+                        <p className="text-xs text-slate-300 mt-0.5">Analisis kubikasi, berat & perencanaan pengiriman per area & customer</p>
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
@@ -249,28 +454,19 @@ export const DeliveryRoutingView: React.FC = () => {
                 {/* Global capacity bars */}
                 {summary && (
                     <div className="mt-4 flex gap-6">
-                        <CapacityBar
-                            used={summary.totalWeight}
-                            max={truckWeightKg * summary.totalTrucks}
-                            label="Total Berat"
-                            unit="kg"
-                        />
-                        <CapacityBar
-                            used={summary.totalVolume}
-                            max={truckVolumeM3 * summary.totalTrucks}
-                            label="Total Volume"
-                            unit="m³"
-                        />
+                        <CapacityBar used={summary.totalWeight} max={truckWeightKg * summary.totalTrucks} label="Total Berat" unit="kg" />
+                        <CapacityBar used={summary.totalVolume} max={truckVolumeM3 * summary.totalTrucks} label="Total Volume" unit="m³" />
                     </div>
                 )}
             </div>
 
-            {/* ─── Summary Cards ──────────────────────────── */}
+            {/* ─── Summary Cards ──────────────────────── */}
             {summary && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                     {[
-                        { label: 'Area/Cluster', value: fmt(summary.totalAreas), icon: '🗺️', color: 'bg-blue-50 border-blue-200' },
+                        { label: 'Area', value: fmt(summary.totalAreas), icon: '🗺️', color: 'bg-blue-50 border-blue-200' },
                         { label: 'Total SO', value: fmt(summary.totalSO), icon: '📋', color: 'bg-purple-50 border-purple-200' },
+                        { label: 'Customer', value: fmt(summary.totalCustomers), icon: '👤', color: 'bg-pink-50 border-pink-200' },
                         { label: 'Total Berat', value: `${fmtDec(summary.totalWeight, 1)} kg`, icon: '⚖️', color: 'bg-emerald-50 border-emerald-200' },
                         { label: 'Total Volume', value: `${fmtDec(summary.totalVolume, 2)} m³`, icon: '📦', color: 'bg-amber-50 border-amber-200' },
                         { label: 'Total Nilai', value: fmtRp(summary.totalValue), icon: '💰', color: 'bg-indigo-50 border-indigo-200' },
@@ -287,15 +483,66 @@ export const DeliveryRoutingView: React.FC = () => {
                 </div>
             )}
 
-            {/* ─── Filters ───────────────────────────────── */}
+            {/* ─── Top 5 Area Chart ──────────────────── */}
+            {!loading && !error && areas.length > 0 && (
+                <div className="bg-white border rounded-xl p-4 shadow-sm">
+                    <h3 className="text-xs font-semibold text-gray-500 mb-3">📈 Top 5 Area — Berat & Volume</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-semibold mb-1.5">⚖️ BERAT (kg)</p>
+                            {areas.slice(0, 5).map(a => (
+                                <div key={`w-${a.area}-${a.cluster}`} className="mb-1.5">
+                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                        <span className="text-gray-700 font-medium truncate max-w-[160px]">{a.area}</span>
+                                        <span className="text-blue-700 font-bold">{fmtDec(a.totalWeightKg, 1)} kg</span>
+                                    </div>
+                                    <HorizBar value={a.totalWeightKg} maxValue={maxAreaWeight} color="bg-blue-500" />
+                                </div>
+                            ))}
+                        </div>
+                        <div>
+                            <p className="text-[10px] text-gray-400 font-semibold mb-1.5">📦 VOLUME (m³)</p>
+                            {areas.slice(0, 5).map(a => (
+                                <div key={`v-${a.area}-${a.cluster}`} className="mb-1.5">
+                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                        <span className="text-gray-700 font-medium truncate max-w-[160px]">{a.area}</span>
+                                        <span className="text-teal-700 font-bold">{fmtDec(a.totalVolumeM3, 4)} m³</span>
+                                    </div>
+                                    <HorizBar value={a.totalVolumeM3} maxValue={maxAreaVolume} color="bg-teal-500" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Tabs + Filters ─────────────────────── */}
             <div className="flex flex-wrap gap-2 items-center">
+                {/* Tabs */}
+                <div className="flex bg-gray-100 rounded-lg p-0.5 mr-2">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveTab(tab.key)}
+                            className={`text-xs px-3 py-1.5 rounded-md transition font-medium ${activeTab === tab.key
+                                ? 'bg-white shadow text-blue-700'
+                                : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                        >
+                            {tab.icon} {tab.label} <span className="ml-1 text-[10px] opacity-60">({tab.count})</span>
+                        </button>
+                    ))}
+                </div>
+
+                {/* Search */}
                 <input
                     type="text"
-                    value={searchArea}
-                    onChange={e => setSearchArea(e.target.value)}
-                    placeholder="🔍 Cari area/cluster/kota..."
+                    value={globalSearch}
+                    onChange={e => setGlobalSearch(e.target.value)}
+                    placeholder="🔍 Cari area/customer/SO..."
                     className="text-xs border rounded-lg px-3 py-1.5 bg-white w-52 focus:ring-1 focus:ring-blue-300 outline-none"
                 />
+                {/* Province filter */}
                 <select
                     value={filterProvince}
                     onChange={e => setFilterProvince(e.target.value)}
@@ -304,21 +551,29 @@ export const DeliveryRoutingView: React.FC = () => {
                     <option value="">Semua Provinsi</option>
                     {provinces.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
+                {/* Area filter */}
+                <select
+                    value={filterArea}
+                    onChange={e => setFilterArea(e.target.value)}
+                    className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-300 outline-none"
+                >
+                    <option value="">Semua Area</option>
+                    {areaNames.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
                 <Button variant="outline" size="sm" onClick={handleExport} className="text-xs h-7">📥 Export</Button>
                 <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading} className="text-xs h-7 border-blue-300 text-blue-700 hover:bg-blue-50">
                     {loading ? '⟳ Memuat...' : '🔄 Refresh'}
                 </Button>
-                <span className="text-xs text-gray-400">{filtered.length} area</span>
             </div>
 
-            {/* ─── Error ─────────────────────────────────── */}
+            {/* ─── Error ──────────────────────────────── */}
             {error && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-600">
                     ⚠️ {error}
                 </div>
             )}
 
-            {/* ─── Loading ───────────────────────────────── */}
+            {/* ─── Loading ────────────────────────────── */}
             {loading && (
                 <div className="flex items-center justify-center h-40 text-gray-400">
                     <div className="text-center">
@@ -328,13 +583,15 @@ export const DeliveryRoutingView: React.FC = () => {
                 </div>
             )}
 
-            {/* ─── Table ─────────────────────────────────── */}
-            {!loading && !error && (
+            {/* ═══════════════════════════════════════════
+                TAB 1: PIVOT PER AREA
+               ═══════════════════════════════════════════ */}
+            {!loading && !error && activeTab === 'area' && (
                 <>
-                    {filtered.length === 0 ? (
+                    {filteredAreas.length === 0 ? (
                         <div className="text-center py-16 text-gray-400">
-                            <p className="text-4xl mb-3">🚛</p>
-                            <p className="text-sm">Tidak ada data pengiriman untuk filter ini</p>
+                            <p className="text-4xl mb-3">🗺️</p>
+                            <p className="text-sm">Tidak ada data area untuk filter ini</p>
                         </div>
                     ) : (
                         <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
@@ -343,30 +600,29 @@ export const DeliveryRoutingView: React.FC = () => {
                                     <thead className="bg-gray-50 border-b">
                                         <tr>
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold w-6">#</th>
-                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('area')}>
-                                                Area / Cluster <SortIcon k="area" /></th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleAreaSort('area')}>
+                                                Area / Cluster <SortIcon active={areaSortKey === 'area'} asc={areaSortAsc} /></th>
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Kota</th>
-                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('soCount')}>
-                                                SO <SortIcon k="soCount" /></th>
-                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('customerCount')}>
-                                                Customer <SortIcon k="customerCount" /></th>
-                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('totalWeightKg')}>
-                                                Berat (kg) <SortIcon k="totalWeightKg" /></th>
-                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('totalVolumeM3')}>
-                                                Volume (m³) <SortIcon k="totalVolumeM3" /></th>
-                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('totalValue')}>
-                                                Nilai <SortIcon k="totalValue" /></th>
-                                            <th className="text-center px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleSort('oldestSODate')}>
-                                                Umur <SortIcon k="oldestSODate" /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleAreaSort('soCount')}>
+                                                SO <SortIcon active={areaSortKey === 'soCount'} asc={areaSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleAreaSort('customerCount')}>
+                                                Customer <SortIcon active={areaSortKey === 'customerCount'} asc={areaSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none min-w-[120px]" onClick={() => handleAreaSort('totalWeightKg')}>
+                                                Berat (kg) <SortIcon active={areaSortKey === 'totalWeightKg'} asc={areaSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none min-w-[120px]" onClick={() => handleAreaSort('totalVolumeM3')}>
+                                                Volume (m³) <SortIcon active={areaSortKey === 'totalVolumeM3'} asc={areaSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleAreaSort('totalValue')}>
+                                                Nilai <SortIcon active={areaSortKey === 'totalValue'} asc={areaSortAsc} /></th>
+                                            <th className="text-center px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleAreaSort('oldestSODate')}>
+                                                Umur <SortIcon active={areaSortKey === 'oldestSODate'} asc={areaSortAsc} /></th>
                                             <th className="text-center px-3 py-2.5 text-gray-500 font-semibold">Truk</th>
-                                            <th className="text-center px-3 py-2.5 text-gray-500 font-semibold">Detail</th>
+                                            <th className="text-center px-3 py-2.5 text-gray-500 font-semibold w-[50px]">Aksi</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filtered.map((row, idx) => {
+                                        {filteredAreas.map((row, idx) => {
                                             const isExpanded = expandedArea === `${row.area}||${row.cluster}`;
                                             const days = daysSince(row.oldestSODate);
-                                            const urgency = days > 7 ? 'text-red-600 font-bold' : days > 3 ? 'text-amber-600 font-medium' : 'text-gray-600';
 
                                             return (
                                                 <React.Fragment key={`${row.area}||${row.cluster}`}>
@@ -382,11 +638,17 @@ export const DeliveryRoutingView: React.FC = () => {
                                                         </td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-purple-700">{fmt(row.soCount)}</td>
                                                         <td className="px-3 py-2.5 text-right font-medium text-green-700">{fmt(row.customerCount)}</td>
-                                                        <td className="px-3 py-2.5 text-right font-mono font-medium text-blue-700">{fmtDec(row.totalWeightKg, 1)}</td>
-                                                        <td className="px-3 py-2.5 text-right font-mono font-medium text-teal-700">{fmtDec(row.totalVolumeM3, 4)}</td>
+                                                        <td className="px-3 py-2.5 text-right">
+                                                            <div className="font-mono font-medium text-blue-700 mb-0.5">{fmtDec(row.totalWeightKg, 1)}</div>
+                                                            <HorizBar value={row.totalWeightKg} maxValue={maxAreaWeight} color="bg-blue-400" />
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-right">
+                                                            <div className="font-mono font-medium text-teal-700 mb-0.5">{fmtDec(row.totalVolumeM3, 4)}</div>
+                                                            <HorizBar value={row.totalVolumeM3} maxValue={maxAreaVolume} color="bg-teal-400" />
+                                                        </td>
                                                         <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{fmtRp(row.totalValue)}</td>
-                                                        <td className={`px-3 py-2.5 text-center ${urgency}`}>
-                                                            {days > 0 ? `${days}h` : '-'}
+                                                        <td className="px-3 py-2.5 text-center">
+                                                            <UrgencyBadge days={days} />
                                                         </td>
                                                         <td className="px-3 py-2.5 text-center">
                                                             <TruckBadge weight={row.totalWeightKg} volume={row.totalVolumeM3} truckW={truckWeightKg} truckV={truckVolumeM3} />
@@ -395,25 +657,57 @@ export const DeliveryRoutingView: React.FC = () => {
                                                             <button
                                                                 onClick={() => setExpandedArea(isExpanded ? null : `${row.area}||${row.cluster}`)}
                                                                 className="text-blue-600 hover:text-blue-800 font-medium text-[11px] border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition"
-                                                            >{isExpanded ? '▲' : '▼'} SO</button>
+                                                            >{isExpanded ? '▲' : '▼'}</button>
                                                         </td>
                                                     </tr>
 
-                                                    {/* Expanded detail */}
+                                                    {/* Expanded: Area capacity + SO list */}
                                                     {isExpanded && (
                                                         <tr className="bg-blue-50/30">
                                                             <td colSpan={11} className="px-4 py-3">
-                                                                {/* Capacity bars for this area */}
+                                                                {/* Capacity bars */}
                                                                 <div className="mb-3 bg-white border border-blue-100 rounded-lg p-3">
-                                                                    <p className="text-[10px] text-gray-400 font-semibold mb-2">📊 Kapasitas Area Ini</p>
+                                                                    <p className="text-[10px] text-gray-400 font-semibold mb-2">📊 Kapasitas Area</p>
                                                                     <div className="flex gap-6">
                                                                         <CapacityBar used={row.totalWeightKg} max={truckWeightKg} label="Berat" unit="kg" />
                                                                         <CapacityBar used={row.totalVolumeM3} max={truckVolumeM3} label="Volume" unit="m³" />
                                                                     </div>
                                                                 </div>
 
+                                                                {/* Customer breakdown mini */}
+                                                                {row.customers.length > 1 && (
+                                                                    <div className="mb-3 bg-white border border-purple-100 rounded-lg p-3">
+                                                                        <p className="text-[10px] text-gray-400 font-semibold mb-2">👤 Breakdown per Customer ({row.customers.length})</p>
+                                                                        <div className="max-h-[180px] overflow-y-auto">
+                                                                            <table className="w-full text-[11px]">
+                                                                                <thead className="bg-gray-50 border-b sticky top-0">
+                                                                                    <tr>
+                                                                                        <th className="text-left px-2 py-1.5 text-gray-400">Customer</th>
+                                                                                        <th className="text-right px-2 py-1.5 text-gray-400">SO</th>
+                                                                                        <th className="text-right px-2 py-1.5 text-gray-400">Berat (kg)</th>
+                                                                                        <th className="text-right px-2 py-1.5 text-gray-400">Volume (m³)</th>
+                                                                                        <th className="text-right px-2 py-1.5 text-gray-400">Nilai</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    {row.customers.map(c => (
+                                                                                        <tr key={c.customerName} className="border-b border-gray-50 hover:bg-gray-50">
+                                                                                            <td className="px-2 py-1.5 text-gray-700 truncate max-w-[200px]">{c.customerName}</td>
+                                                                                            <td className="px-2 py-1.5 text-right text-purple-600 font-medium">{c.soCount}</td>
+                                                                                            <td className="px-2 py-1.5 text-right font-mono text-blue-600">{fmtDec(c.totalWeightKg, 1)}</td>
+                                                                                            <td className="px-2 py-1.5 text-right font-mono text-teal-600">{fmtDec(c.totalVolumeM3, 4)}</td>
+                                                                                            <td className="px-2 py-1.5 text-right text-gray-600">{fmtRp(c.totalValue)}</td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
                                                                 {/* SO list */}
                                                                 <div className="bg-white rounded-lg border overflow-hidden">
+                                                                    <p className="text-[10px] text-gray-400 font-semibold px-3 pt-2 pb-1">📋 Daftar SO ({row.soItems.length})</p>
                                                                     <table className="w-full text-xs">
                                                                         <thead className="bg-gray-50 border-b">
                                                                             <tr>
@@ -421,35 +715,30 @@ export const DeliveryRoutingView: React.FC = () => {
                                                                                 <th className="text-left px-3 py-2 text-gray-500">Customer</th>
                                                                                 <th className="text-left px-3 py-2 text-gray-500">Tanggal</th>
                                                                                 <th className="text-left px-3 py-2 text-gray-500">Status</th>
-                                                                                <th className="text-right px-3 py-2 text-gray-500">Item</th>
+                                                                                <th className="text-left px-3 py-2 text-gray-500">Kiriman</th>
+                                                                                <th className="text-right px-3 py-2 text-gray-500">Items</th>
                                                                                 <th className="text-right px-3 py-2 text-gray-500">Berat (kg)</th>
                                                                                 <th className="text-right px-3 py-2 text-gray-500">Volume (m³)</th>
                                                                                 <th className="text-right px-3 py-2 text-gray-500">Nilai</th>
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody>
-                                                                            {row.soItems.map(so => {
-                                                                                const statusColor = so.statusName.includes('Terproses') ? 'bg-green-100 text-green-700'
-                                                                                    : so.statusName.includes('Diajukan') ? 'bg-blue-100 text-blue-700'
-                                                                                        : 'bg-yellow-100 text-yellow-700';
-                                                                                return (
-                                                                                    <tr key={so.soNumber} className="border-b border-gray-50 hover:bg-gray-50">
-                                                                                        <td className="px-3 py-2 font-mono text-blue-600 font-medium">{so.soNumber}</td>
-                                                                                        <td className="px-3 py-2 text-gray-700 max-w-[180px] truncate">{so.customerName}</td>
-                                                                                        <td className="px-3 py-2 text-gray-500">{so.transDate}</td>
-                                                                                        <td className="px-3 py-2">
-                                                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusColor}`}>{so.statusName}</span>
-                                                                                        </td>
-                                                                                        <td className="px-3 py-2 text-right text-gray-600">{so.itemCount}</td>
-                                                                                        <td className="px-3 py-2 text-right font-mono text-blue-600">{fmtDec(so.totalWeightKg, 1)}</td>
-                                                                                        <td className="px-3 py-2 text-right font-mono text-teal-600">{fmtDec(so.totalVolumeM3, 4)}</td>
-                                                                                        <td className="px-3 py-2 text-right text-gray-600">{fmtRp(so.totalValue)}</td>
-                                                                                    </tr>
-                                                                                );
-                                                                            })}
+                                                                            {row.soItems.map(so => (
+                                                                                <tr key={so.soNumber} className="border-b border-gray-50 hover:bg-gray-50">
+                                                                                    <td className="px-3 py-2 font-mono text-blue-600 font-medium">{so.soNumber}</td>
+                                                                                    <td className="px-3 py-2 text-gray-700 max-w-[180px] truncate">{so.customerName}</td>
+                                                                                    <td className="px-3 py-2 text-gray-500">{fmtDateSlash(so.transDate)}</td>
+                                                                                    <td className="px-3 py-2"><StatusBadge status={so.statusName} /></td>
+                                                                                    <td className="px-3 py-2"><DeliveryBadge status={so.deliveryStatus} /></td>
+                                                                                    <td className="px-3 py-2 text-right text-gray-600">{so.itemCount}</td>
+                                                                                    <td className="px-3 py-2 text-right font-mono text-blue-600">{fmtDec(so.totalWeightKg, 1)}</td>
+                                                                                    <td className="px-3 py-2 text-right font-mono text-teal-600">{fmtDec(so.totalVolumeM3, 4)}</td>
+                                                                                    <td className="px-3 py-2 text-right text-gray-600">{fmtRp(so.totalValue)}</td>
+                                                                                </tr>
+                                                                            ))}
                                                                             {/* Total row */}
                                                                             <tr className="bg-gray-50 font-bold border-t">
-                                                                                <td colSpan={5} className="px-3 py-2 text-right text-gray-500">Total Area:</td>
+                                                                                <td colSpan={6} className="px-3 py-2 text-right text-gray-500">Total Area:</td>
                                                                                 <td className="px-3 py-2 text-right font-mono text-blue-700">{fmtDec(row.totalWeightKg, 1)}</td>
                                                                                 <td className="px-3 py-2 text-right font-mono text-teal-700">{fmtDec(row.totalVolumeM3, 4)}</td>
                                                                                 <td className="px-3 py-2 text-right text-gray-700">{fmtRp(row.totalValue)}</td>
@@ -463,6 +752,207 @@ export const DeliveryRoutingView: React.FC = () => {
                                                 </React.Fragment>
                                             );
                                         })}
+
+                                        {/* Grand Total Row */}
+                                        <tr className="bg-slate-100 font-bold border-t-2">
+                                            <td colSpan={3} className="px-3 py-3 text-right text-slate-600 text-xs">GRAND TOTAL ({filteredAreas.length} area):</td>
+                                            <td className="px-3 py-3 text-right text-purple-800">{fmt(areaGrandTotal.soCount)}</td>
+                                            <td className="px-3 py-3 text-right text-green-800">{fmt(areaGrandTotal.customerCount)}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-blue-800">{fmtDec(areaGrandTotal.weight, 1)}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-teal-800">{fmtDec(areaGrandTotal.volume, 4)}</td>
+                                            <td className="px-3 py-3 text-right text-slate-700">{fmtRp(areaGrandTotal.value)}</td>
+                                            <td colSpan={3} />
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* ═══════════════════════════════════════════
+                TAB 2: PIVOT PER CUSTOMER
+               ═══════════════════════════════════════════ */}
+            {!loading && !error && activeTab === 'customer' && (
+                <>
+                    {filteredCustomers.length === 0 ? (
+                        <div className="text-center py-16 text-gray-400">
+                            <p className="text-4xl mb-3">👤</p>
+                            <p className="text-sm">Tidak ada data customer untuk filter ini</p>
+                        </div>
+                    ) : (
+                        <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead className="bg-gray-50 border-b">
+                                        <tr>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold w-6">#</th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleCustSort('area')}>
+                                                Area <SortIcon active={custSortKey === 'area'} asc={custSortAsc} /></th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleCustSort('customerName')}>
+                                                Customer <SortIcon active={custSortKey === 'customerName'} asc={custSortAsc} /></th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleCustSort('city')}>
+                                                Kota <SortIcon active={custSortKey === 'city'} asc={custSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleCustSort('soCount')}>
+                                                SO <SortIcon active={custSortKey === 'soCount'} asc={custSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none min-w-[140px]" onClick={() => handleCustSort('totalWeightKg')}>
+                                                Berat (kg) <SortIcon active={custSortKey === 'totalWeightKg'} asc={custSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none min-w-[140px]" onClick={() => handleCustSort('totalVolumeM3')}>
+                                                Volume (m³) <SortIcon active={custSortKey === 'totalVolumeM3'} asc={custSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleCustSort('totalValue')}>
+                                                Nilai <SortIcon active={custSortKey === 'totalValue'} asc={custSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold">Outstanding</th>
+                                            <th className="text-center px-3 py-2.5 text-gray-500 font-semibold w-[50px]">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredCustomers.map((cust, idx) => {
+                                            const isExpanded = expandedCustomer === `${cust.area}||${cust.customerName}`;
+                                            return (
+                                                <React.Fragment key={`${cust.area}||${cust.customerName}`}>
+                                                    <tr className={`border-b transition-colors ${isExpanded ? 'bg-purple-50 border-purple-200' : 'hover:bg-gray-50'}`}>
+                                                        <td className="px-3 py-2.5 text-gray-400">{idx + 1}</td>
+                                                        <td className="px-3 py-2.5">
+                                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-medium">{cust.area}</span>
+                                                            {cust.cluster !== '-' && <span className="text-[10px] text-gray-400 ml-1">{cust.cluster}</span>}
+                                                        </td>
+                                                        <td className="px-3 py-2.5">
+                                                            <div className="font-medium text-gray-800 truncate max-w-[200px]">{cust.customerName}</div>
+                                                            {cust.customerNo && <div className="text-[10px] text-gray-400 font-mono">{cust.customerNo}</div>}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-gray-500 text-[11px]">{cust.city}</td>
+                                                        <td className="px-3 py-2.5 text-right font-medium text-purple-700">{cust.soCount}</td>
+                                                        <td className="px-3 py-2.5 text-right">
+                                                            <div className="font-mono font-medium text-blue-700 mb-0.5">{fmtDec(cust.totalWeightKg, 1)}</div>
+                                                            <HorizBar value={cust.totalWeightKg} maxValue={maxCustWeight} color="bg-blue-400" />
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-right font-mono font-medium text-teal-700">{fmtDec(cust.totalVolumeM3, 4)}</td>
+                                                        <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{fmtRp(cust.totalValue)}</td>
+                                                        <td className="px-3 py-2.5 text-right">
+                                                            {cust.totalOutstandingPcs > 0
+                                                                ? <span className="text-orange-600 font-medium">{fmt(cust.totalOutstandingPcs)}</span>
+                                                                : <span className="text-green-600">0</span>
+                                                            }
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center">
+                                                            <button
+                                                                onClick={() => setExpandedCustomer(isExpanded ? null : `${cust.area}||${cust.customerName}`)}
+                                                                className="text-purple-600 hover:text-purple-800 font-medium text-[11px] border border-purple-200 rounded px-2 py-0.5 hover:bg-purple-50 transition"
+                                                            >{isExpanded ? '▲' : '▼'}</button>
+                                                        </td>
+                                                    </tr>
+
+                                                    {/* Expanded: SO numbers */}
+                                                    {isExpanded && (
+                                                        <tr className="bg-purple-50/30">
+                                                            <td colSpan={10} className="px-4 py-3">
+                                                                <div className="bg-white rounded-lg border p-3">
+                                                                    <p className="text-[10px] text-gray-400 font-semibold mb-2">📋 SO dari {cust.customerName}</p>
+                                                                    <div className="flex flex-wrap gap-1.5">
+                                                                        {cust.soNumbers.map(sn => (
+                                                                            <span key={sn} className="text-[11px] font-mono bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5">{sn}</span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
+
+                                        {/* Grand Total Row */}
+                                        <tr className="bg-slate-100 font-bold border-t-2">
+                                            <td colSpan={4} className="px-3 py-3 text-right text-slate-600 text-xs">GRAND TOTAL ({filteredCustomers.length} customer):</td>
+                                            <td className="px-3 py-3 text-right text-purple-800">{fmt(custGrandTotal.soCount)}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-blue-800">{fmtDec(custGrandTotal.weight, 1)}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-teal-800">{fmtDec(custGrandTotal.volume, 4)}</td>
+                                            <td className="px-3 py-3 text-right text-slate-700">{fmtRp(custGrandTotal.value)}</td>
+                                            <td colSpan={2} />
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* ═══════════════════════════════════════════
+                TAB 3: SEMUA SO (DETAIL)
+               ═══════════════════════════════════════════ */}
+            {!loading && !error && activeTab === 'detail' && (
+                <>
+                    {filteredDetails.length === 0 ? (
+                        <div className="text-center py-16 text-gray-400">
+                            <p className="text-4xl mb-3">📋</p>
+                            <p className="text-sm">Tidak ada SO untuk filter ini</p>
+                        </div>
+                    ) : (
+                        <div className="border rounded-xl overflow-hidden bg-white shadow-sm">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead className="bg-gray-50 border-b">
+                                        <tr>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold w-6">#</th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('soNumber')}>
+                                                No. SO <SortIcon active={detailSortKey === 'soNumber'} asc={detailSortAsc} /></th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('customerName')}>
+                                                Customer <SortIcon active={detailSortKey === 'customerName'} asc={detailSortAsc} /></th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Area</th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Kota</th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('transDate')}>
+                                                Tanggal <SortIcon active={detailSortKey === 'transDate'} asc={detailSortAsc} /></th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Status</th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Kiriman</th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold">Items</th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('totalWeightKg')}>
+                                                Berat (kg) <SortIcon active={detailSortKey === 'totalWeightKg'} asc={detailSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('totalVolumeM3')}>
+                                                Volume (m³) <SortIcon active={detailSortKey === 'totalVolumeM3'} asc={detailSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('totalValue')}>
+                                                Nilai <SortIcon active={detailSortKey === 'totalValue'} asc={detailSortAsc} /></th>
+                                            <th className="text-right px-3 py-2.5 text-gray-500 font-semibold">Outstanding</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredDetails.map((so, idx) => (
+                                            <tr key={`${so.soNumber}-${idx}`} className="border-b hover:bg-gray-50 transition-colors">
+                                                <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
+                                                <td className="px-3 py-2 font-mono text-blue-600 font-medium">{so.soNumber}</td>
+                                                <td className="px-3 py-2">
+                                                    <div className="text-gray-700 max-w-[180px] truncate">{so.customerName}</div>
+                                                    {so.customerNo && <div className="text-[10px] text-gray-400 font-mono">{so.customerNo}</div>}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-medium">{so.area}</span>
+                                                </td>
+                                                <td className="px-3 py-2 text-gray-500 text-[11px]">{so.city || '-'}</td>
+                                                <td className="px-3 py-2 text-gray-500">{fmtDateSlash(so.transDate)}</td>
+                                                <td className="px-3 py-2"><StatusBadge status={so.statusName} /></td>
+                                                <td className="px-3 py-2"><DeliveryBadge status={so.deliveryStatus} /></td>
+                                                <td className="px-3 py-2 text-right text-gray-600">{so.itemCount}</td>
+                                                <td className="px-3 py-2 text-right font-mono text-blue-600 font-medium">{fmtDec(so.totalWeightKg, 1)}</td>
+                                                <td className="px-3 py-2 text-right font-mono text-teal-600 font-medium">{fmtDec(so.totalVolumeM3, 4)}</td>
+                                                <td className="px-3 py-2 text-right text-gray-600">{fmtRp(so.totalValue)}</td>
+                                                <td className="px-3 py-2 text-right">
+                                                    {so.outstandingPcs > 0
+                                                        ? <span className="text-orange-600 font-medium">{fmt(so.outstandingPcs)}</span>
+                                                        : <span className="text-green-600">0</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        ))}
+
+                                        {/* Grand Total */}
+                                        <tr className="bg-slate-100 font-bold border-t-2">
+                                            <td colSpan={9} className="px-3 py-3 text-right text-slate-600 text-xs">GRAND TOTAL ({filteredDetails.length} SO):</td>
+                                            <td className="px-3 py-3 text-right font-mono text-blue-800">{fmtDec(detailGrandTotal.weight, 1)}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-teal-800">{fmtDec(detailGrandTotal.volume, 4)}</td>
+                                            <td className="px-3 py-3 text-right text-slate-700">{fmtRp(detailGrandTotal.value)}</td>
+                                            <td />
+                                        </tr>
                                     </tbody>
                                 </table>
                             </div>

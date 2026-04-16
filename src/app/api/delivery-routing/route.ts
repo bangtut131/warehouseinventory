@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { loadSOCache } from '@/lib/accurate';
+import { loadSOCache, fetchItemUnitMap } from '@/lib/accurate';
 import { prisma } from '@/lib/prisma';
 
 // ─── Types ──────────────────────────────────────────────────
@@ -14,11 +14,26 @@ interface AreaSOItem {
     transDate: string;
     statusName: string;
     deliveryStatus?: string;
+    city?: string;
     itemCount: number;
     totalWeightKg: number;
     totalVolumeM3: number;
     totalValue: number;
     outstandingPcs: number;
+}
+
+interface CustomerGroup {
+    customerName: string;
+    customerNo?: string;
+    city: string;
+    area: string;
+    cluster: string;
+    soCount: number;
+    totalWeightKg: number;
+    totalVolumeM3: number;
+    totalValue: number;
+    totalOutstandingPcs: number;
+    soNumbers: string[];
 }
 
 interface AreaGroup {
@@ -35,6 +50,7 @@ interface AreaGroup {
     totalOutstandingPcs: number;
     oldestSODate: string;
     soItems: AreaSOItem[];
+    customers: CustomerGroup[];
 }
 
 // ─── GET ────────────────────────────────────────────────────
@@ -51,7 +67,8 @@ export async function GET(request: NextRequest) {
         if (!soList) {
             return NextResponse.json({
                 areas: [],
-                summary: { totalAreas: 0, totalSO: 0, totalWeight: 0, totalVolume: 0, totalValue: 0, totalTrucks: 0 },
+                customers: [],
+                summary: { totalAreas: 0, totalSO: 0, totalCustomers: 0, totalWeight: 0, totalVolume: 0, totalValue: 0, totalTrucks: 0 },
                 message: 'Belum ada data SO. Sync SO terlebih dahulu.',
             });
         }
@@ -61,18 +78,22 @@ export async function GET(request: NextRequest) {
             const deliveredStatuses = ['dikirim', 'difaktur'];
             soList = soList.filter(so => {
                 const ds = (so.deliveryStatus || 'Belum dikirim').toLowerCase().trim();
-                // "Belum dikirim" → include (belum kirim)
-                // "Dikirim" → exclude (sudah selesai kirim)
-                // "Difaktur" → exclude (sudah difaktur)
-                // "Diajukan", "Draf", "Menunggu diproses" → include
                 return !deliveredStatuses.includes(ds);
             });
         }
 
-        // Load product dimensions for weight/volume
+        // Load master data: city clusters + product dimensions + unit conversions
+        let clusterMap = new Map<string, { area: string; cluster: string | null; subCluster: string | null }>();
         let dimMap = new Map<string, { weightKg: number | null; lengthCm: number | null; widthCm: number | null; heightCm: number | null; qtyPerCarton: number | null }>();
+        let unitMap = new Map<string, { unitConversion: number; salesUnitName: string; baseUnitName: string }>();
+
         try {
-            const dims = await prisma.productDimension.findMany();
+            const [clusters, dims, units] = await Promise.all([
+                prisma.cityCluster.findMany(),
+                prisma.productDimension.findMany(),
+                fetchItemUnitMap(),
+            ]);
+            clusters.forEach(c => clusterMap.set(c.city, { area: c.area, cluster: c.cluster, subCluster: c.subCluster }));
             dims.forEach(d => dimMap.set(d.itemNo, {
                 weightKg: d.weightKg,
                 lengthCm: d.lengthCm,
@@ -80,17 +101,27 @@ export async function GET(request: NextRequest) {
                 heightCm: d.heightCm,
                 qtyPerCarton: d.qtyPerCarton,
             }));
+            unitMap = units;
         } catch (e: any) {
-            console.warn('[Delivery Routing] Could not load dims:', e.message);
+            console.warn('[Delivery Routing] Could not load master data:', e.message);
         }
 
-        // Group SO by area
+        // ─── Group SO by area ───────────────────────────────
         const areaMap = new Map<string, {
             area: string;
             cluster: string;
             cities: Set<string>;
             province: string;
-            customers: Set<string>;
+            customerMap: Map<string, {
+                customerName: string;
+                customerNo?: string;
+                city: string;
+                totalWeightKg: number;
+                totalVolumeM3: number;
+                totalValue: number;
+                totalOutstandingPcs: number;
+                soNumbers: string[];
+            }>;
             soItems: AreaSOItem[];
             totalWeightKg: number;
             totalVolumeM3: number;
@@ -101,8 +132,10 @@ export async function GET(request: NextRequest) {
         }>();
 
         for (const so of soList) {
-            const area = so.area || 'Tidak Diketahui';
-            const cluster = so.cluster || '-';
+            // ★ Critical fix: join area from cityCluster (same logic as SO API)
+            const clusterInfo = so.shipCity ? clusterMap.get(so.shipCity) : undefined;
+            const area = clusterInfo?.area || so.area || 'Tidak Diketahui';
+            const cluster = clusterInfo?.cluster || so.cluster || '-';
             const city = so.shipCity || '-';
             const province = so.shipProvince || '-';
             const key = `${area}||${cluster}`;
@@ -113,7 +146,7 @@ export async function GET(request: NextRequest) {
                     cluster,
                     cities: new Set(),
                     province,
-                    customers: new Set(),
+                    customerMap: new Map(),
                     soItems: [],
                     totalWeightKg: 0,
                     totalVolumeM3: 0,
@@ -126,7 +159,6 @@ export async function GET(request: NextRequest) {
 
             const group = areaMap.get(key)!;
             group.cities.add(city);
-            group.customers.add(so.customerName);
 
             // Parse SO date for oldest tracking
             const parts = so.transDate.split('/');
@@ -135,7 +167,7 @@ export async function GET(request: NextRequest) {
                 group.oldestDate = isoDate;
             }
 
-            // Calculate weight/volume per SO
+            // Calculate weight/volume per SO (with proper unit conversion like SO API)
             let soWeight = 0;
             let soVolume = 0;
             let soValue = 0;
@@ -144,7 +176,16 @@ export async function GET(request: NextRequest) {
 
             for (const di of so.detailItems) {
                 const dimInfo = dimMap.get(di.itemNo);
+                const unitInfo = unitMap.get(di.itemNo);
                 const qtyKarton = (dimInfo?.qtyPerCarton && dimInfo.qtyPerCarton > 1) ? dimInfo.qtyPerCarton : 1;
+
+                // Apply unit conversion (same logic as SO API)
+                const isiPerBox = unitInfo?.unitConversion || 0;
+                const soUnit = (di.unitName || '').toLowerCase().trim();
+                const salesUnit = (unitInfo?.salesUnitName || '').toLowerCase().trim();
+                const isSalesUnit = isiPerBox > 1 && salesUnit && soUnit === salesUnit;
+                const qtyPcs = isSalesUnit ? di.quantity * isiPerBox : di.quantity;
+                const outPcs = isSalesUnit ? di.outstanding * isiPerBox : di.outstanding;
 
                 // Weight is per-pcs, volume needs dividing by qtyPerCarton
                 const weightPerPcs = dimInfo?.weightKg || 0;
@@ -152,11 +193,10 @@ export async function GET(request: NextRequest) {
                     ? (dimInfo.lengthCm * dimInfo.widthCm * dimInfo.heightCm) / 1_000_000 / qtyKarton
                     : 0;
 
-                const qty = di.quantity || 0;
-                soWeight += weightPerPcs * qty;
-                soVolume += volumePerPcs * qty;
+                soWeight += weightPerPcs * qtyPcs;
+                soVolume += volumePerPcs * qtyPcs;
                 soValue += di.totalPrice || 0;
-                soOutstanding += di.outstanding || 0;
+                soOutstanding += outPcs;
                 soItemCount++;
             }
 
@@ -166,6 +206,27 @@ export async function GET(request: NextRequest) {
             group.totalOutstandingPcs += soOutstanding;
             group.totalItemCount += soItemCount;
 
+            // ─── Customer-level aggregation ─────────────────
+            const custKey = so.customerName || 'Unknown';
+            if (!group.customerMap.has(custKey)) {
+                group.customerMap.set(custKey, {
+                    customerName: so.customerName,
+                    customerNo: so.customerNo,
+                    city,
+                    totalWeightKg: 0,
+                    totalVolumeM3: 0,
+                    totalValue: 0,
+                    totalOutstandingPcs: 0,
+                    soNumbers: [],
+                });
+            }
+            const cust = group.customerMap.get(custKey)!;
+            cust.totalWeightKg += soWeight;
+            cust.totalVolumeM3 += soVolume;
+            cust.totalValue += soValue;
+            cust.totalOutstandingPcs += soOutstanding;
+            cust.soNumbers.push(so.soNumber);
+
             group.soItems.push({
                 soNumber: so.soNumber,
                 customerName: so.customerName,
@@ -173,6 +234,7 @@ export async function GET(request: NextRequest) {
                 transDate: so.transDate,
                 statusName: so.statusName,
                 deliveryStatus: so.deliveryStatus,
+                city,
                 itemCount: soItemCount,
                 totalWeightKg: Math.round(soWeight * 100) / 100,
                 totalVolumeM3: Math.round(soVolume * 10000) / 10000,
@@ -183,6 +245,7 @@ export async function GET(request: NextRequest) {
 
         // Convert to array and calculate truck estimates
         const areas: AreaGroup[] = [];
+        const allCustomers: CustomerGroup[] = [];
         let grandTotalWeight = 0;
         let grandTotalVolume = 0;
         let grandTotalValue = 0;
@@ -200,13 +263,36 @@ export async function GET(request: NextRequest) {
             const trucksByVolume = truckVolumeM3 > 0 ? Math.ceil(group.totalVolumeM3 / truckVolumeM3) : 0;
             const estimatedTrucks = Math.max(trucksByWeight, trucksByVolume, group.soItems.length > 0 ? 1 : 0);
 
+            // Build customer list for this area
+            const customers: CustomerGroup[] = [];
+            for (const [, cust] of group.customerMap) {
+                const custGroup: CustomerGroup = {
+                    customerName: cust.customerName,
+                    customerNo: cust.customerNo,
+                    city: cust.city,
+                    area: group.area,
+                    cluster: group.cluster,
+                    soCount: cust.soNumbers.length,
+                    totalWeightKg: Math.round(cust.totalWeightKg * 100) / 100,
+                    totalVolumeM3: Math.round(cust.totalVolumeM3 * 10000) / 10000,
+                    totalValue: cust.totalValue,
+                    totalOutstandingPcs: cust.totalOutstandingPcs,
+                    soNumbers: cust.soNumbers,
+                };
+                customers.push(custGroup);
+                allCustomers.push(custGroup);
+            }
+
+            // Sort customers by weight desc
+            customers.sort((a, b) => b.totalWeightKg - a.totalWeightKg);
+
             areas.push({
                 area: group.area,
                 cluster: group.cluster,
                 cities: [...group.cities].sort(),
                 province: group.province,
                 soCount: group.soItems.length,
-                customerCount: group.customers.size,
+                customerCount: group.customerMap.size,
                 itemCount: group.totalItemCount,
                 totalWeightKg: Math.round(group.totalWeightKg * 100) / 100,
                 totalVolumeM3: Math.round(group.totalVolumeM3 * 10000) / 10000,
@@ -214,6 +300,7 @@ export async function GET(request: NextRequest) {
                 totalOutstandingPcs: group.totalOutstandingPcs,
                 oldestSODate: group.oldestDate,
                 soItems: group.soItems,
+                customers,
             });
 
             grandTotalWeight += group.totalWeightKg;
@@ -227,9 +314,11 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             areas,
+            customers: allCustomers,
             summary: {
                 totalAreas: areas.length,
                 totalSO: soList.length,
+                totalCustomers: allCustomers.length,
                 totalWeight: Math.round(grandTotalWeight * 100) / 100,
                 totalVolume: Math.round(grandTotalVolume * 10000) / 10000,
                 totalValue: grandTotalValue,
