@@ -198,6 +198,8 @@ export const DeliveryRoutingView: React.FC = () => {
     const [globalSearch, setGlobalSearch] = useState('');
     const [filterProvince, setFilterProvince] = useState('');
     const [filterArea, setFilterArea] = useState('');
+    const [filterStatus, setFilterStatus] = useState('');
+    const [filterDeliveryStatus, setFilterDeliveryStatus] = useState('');
 
     // Sort states per tab
     const [areaSortKey, setAreaSortKey] = useState<AreaSortKey>('totalWeightKg');
@@ -250,6 +252,29 @@ export const DeliveryRoutingView: React.FC = () => {
     const areaNames = useMemo(() =>
         [...new Set(areas.map(a => a.area).filter(a => a && a !== 'Tidak Diketahui'))].sort(), [areas]);
 
+    // Unique status values for filter dropdowns
+    const allStatuses = useMemo(() => {
+        const set = new Set<string>();
+        for (const a of areas) a.soItems.forEach(s => { if (s.statusName) set.add(s.statusName); });
+        return [...set].sort();
+    }, [areas]);
+
+    const allDeliveryStatuses = useMemo(() => {
+        const set = new Set<string>();
+        for (const a of areas) a.soItems.forEach(s => set.add(s.deliveryStatus || 'Belum dikirim'));
+        return [...set].sort();
+    }, [areas]);
+
+    // Helper: check if an SO item matches status filters
+    const matchesStatusFilters = useCallback((so: AreaSOItem) => {
+        if (filterStatus && so.statusName.toLowerCase() !== filterStatus.toLowerCase()) return false;
+        if (filterDeliveryStatus) {
+            const ds = (so.deliveryStatus || 'Belum dikirim').toLowerCase();
+            if (ds !== filterDeliveryStatus.toLowerCase()) return false;
+        }
+        return true;
+    }, [filterStatus, filterDeliveryStatus]);
+
     // All SO items flattened for detail tab
     const allSOItems = useMemo(() => {
         const items: (AreaSOItem & { area: string; cluster: string })[] = [];
@@ -262,9 +287,51 @@ export const DeliveryRoutingView: React.FC = () => {
     }, [areas]);
 
     // ─── Filtered + Sorted: Area Tab ──────────────
+    // When status filters are active, re-aggregate area totals from filtered SO items
+
+    const hasStatusFilter = filterStatus || filterDeliveryStatus;
 
     const filteredAreas = useMemo(() => {
-        let data = areas.filter(a => {
+        let data = areas.map(a => {
+            // If status filters are active, filter soItems and recalculate totals
+            if (hasStatusFilter) {
+                const filteredSO = a.soItems.filter(matchesStatusFilters);
+                if (filteredSO.length === 0) return null; // exclude area with no matching SOs
+                // Rebuild customer list from filtered SOs
+                const custMap = new Map<string, CustomerGroup>();
+                for (const so of filteredSO) {
+                    const key = so.customerName;
+                    if (!custMap.has(key)) {
+                        custMap.set(key, {
+                            customerName: so.customerName, customerNo: so.customerNo,
+                            city: so.city || '-', area: a.area, cluster: a.cluster,
+                            soCount: 0, totalWeightKg: 0, totalVolumeM3: 0, totalValue: 0, totalOutstandingPcs: 0, soNumbers: [],
+                        });
+                    }
+                    const c = custMap.get(key)!;
+                    c.soCount++;
+                    c.totalWeightKg += so.totalWeightKg;
+                    c.totalVolumeM3 += so.totalVolumeM3;
+                    c.totalValue += so.totalValue;
+                    c.totalOutstandingPcs += so.outstandingPcs;
+                    c.soNumbers.push(so.soNumber);
+                }
+                return {
+                    ...a,
+                    soItems: filteredSO,
+                    soCount: filteredSO.length,
+                    customerCount: custMap.size,
+                    totalWeightKg: filteredSO.reduce((s, i) => s + i.totalWeightKg, 0),
+                    totalVolumeM3: filteredSO.reduce((s, i) => s + i.totalVolumeM3, 0),
+                    totalValue: filteredSO.reduce((s, i) => s + i.totalValue, 0),
+                    totalOutstandingPcs: filteredSO.reduce((s, i) => s + i.outstandingPcs, 0),
+                    customers: [...custMap.values()].sort((x, y) => y.totalWeightKg - x.totalWeightKg),
+                } as AreaGroup;
+            }
+            return a;
+        }).filter((a): a is AreaGroup => a !== null);
+
+        data = data.filter(a => {
             const matchSearch = !globalSearch || a.area.toLowerCase().includes(globalSearch.toLowerCase())
                 || a.cluster.toLowerCase().includes(globalSearch.toLowerCase())
                 || a.cities.some(c => c.toLowerCase().includes(globalSearch.toLowerCase()))
@@ -281,12 +348,16 @@ export const DeliveryRoutingView: React.FC = () => {
             if (typeof av === 'string') return areaSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
             return areaSortAsc ? av - bv : bv - av;
         });
-    }, [areas, globalSearch, filterProvince, filterArea, areaSortKey, areaSortAsc]);
+    }, [areas, globalSearch, filterProvince, filterArea, areaSortKey, areaSortAsc, hasStatusFilter, matchesStatusFilters]);
 
     // ─── Filtered + Sorted: Customer Tab ──────────
 
     const filteredCustomers = useMemo(() => {
-        let data = allCustomers.filter(c => {
+        // When status filters are active, use the already-filtered area data
+        const source = hasStatusFilter
+            ? filteredAreas.flatMap(a => a.customers)
+            : allCustomers;
+        let data = source.filter(c => {
             const matchSearch = !globalSearch
                 || c.customerName.toLowerCase().includes(globalSearch.toLowerCase())
                 || (c.customerNo || '').toLowerCase().includes(globalSearch.toLowerCase())
@@ -304,12 +375,13 @@ export const DeliveryRoutingView: React.FC = () => {
             if (typeof av === 'string') return custSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
             return custSortAsc ? av - bv : bv - av;
         });
-    }, [allCustomers, globalSearch, filterArea, custSortKey, custSortAsc]);
+    }, [allCustomers, filteredAreas, globalSearch, filterArea, custSortKey, custSortAsc, hasStatusFilter]);
 
     // ─── Filtered + Sorted: Detail Tab ────────────
 
     const filteredDetails = useMemo(() => {
         let data = allSOItems.filter(so => {
+            if (!matchesStatusFilters(so)) return false;
             const matchSearch = !globalSearch
                 || so.soNumber.toLowerCase().includes(globalSearch.toLowerCase())
                 || so.customerName.toLowerCase().includes(globalSearch.toLowerCase())
@@ -330,7 +402,7 @@ export const DeliveryRoutingView: React.FC = () => {
             if (typeof av === 'string') return detailSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
             return detailSortAsc ? av - bv : bv - av;
         });
-    }, [allSOItems, globalSearch, filterArea, detailSortKey, detailSortAsc]);
+    }, [allSOItems, globalSearch, filterArea, detailSortKey, detailSortAsc, matchesStatusFilters]);
 
     // ─── Grand totals per tab ─────────────────────
 
@@ -559,6 +631,24 @@ export const DeliveryRoutingView: React.FC = () => {
                 >
                     <option value="">Semua Area</option>
                     {areaNames.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+                {/* Status filter */}
+                <select
+                    value={filterStatus}
+                    onChange={e => setFilterStatus(e.target.value)}
+                    className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-300 outline-none"
+                >
+                    <option value="">Semua Status</option>
+                    {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                {/* Delivery status filter */}
+                <select
+                    value={filterDeliveryStatus}
+                    onChange={e => setFilterDeliveryStatus(e.target.value)}
+                    className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-300 outline-none"
+                >
+                    <option value="">Semua Kiriman</option>
+                    {allDeliveryStatuses.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <Button variant="outline" size="sm" onClick={handleExport} className="text-xs h-7">📥 Export</Button>
                 <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading} className="text-xs h-7 border-blue-300 text-blue-700 hover:bg-blue-50">
