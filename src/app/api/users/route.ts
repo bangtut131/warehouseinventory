@@ -10,7 +10,8 @@ function isAdmin(request: NextRequest): boolean {
     if (!token) return false;
     const session = verifySessionToken(token);
     if (!session) return false;
-    return session.isSuperAdmin || session.roleName === 'Admin';
+    // Allow: superadmin, role named 'Admin', or any user with access to general-settings
+    return session.isSuperAdmin || session.roleName === 'Admin' || (session.allowedMenus || []).includes('general-settings');
 }
 
 // GET: List all users
