@@ -198,8 +198,8 @@ export const DeliveryRoutingView: React.FC = () => {
     const [globalSearch, setGlobalSearch] = useState('');
     const [filterProvince, setFilterProvince] = useState('');
     const [filterArea, setFilterArea] = useState('');
-    const [filterStatus, setFilterStatus] = useState('');
-    const [filterDeliveryStatus, setFilterDeliveryStatus] = useState('');
+    const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
+    const [filterDeliveryStatuses, setFilterDeliveryStatuses] = useState<string[]>([]);
 
     // Sort states per tab
     const [areaSortKey, setAreaSortKey] = useState<AreaSortKey>('totalWeightKg');
@@ -265,15 +265,19 @@ export const DeliveryRoutingView: React.FC = () => {
         return [...set].sort();
     }, [areas]);
 
+    // Toggle helpers for multi-select
+    const toggleStatus = (s: string) => setFilterStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+    const toggleDeliveryStatus = (s: string) => setFilterDeliveryStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+
     // Helper: check if an SO item matches status filters
     const matchesStatusFilters = useCallback((so: AreaSOItem) => {
-        if (filterStatus && so.statusName.toLowerCase() !== filterStatus.toLowerCase()) return false;
-        if (filterDeliveryStatus) {
+        if (filterStatuses.length > 0 && !filterStatuses.some(f => so.statusName.toLowerCase() === f.toLowerCase())) return false;
+        if (filterDeliveryStatuses.length > 0) {
             const ds = (so.deliveryStatus || 'Belum dikirim').toLowerCase();
-            if (ds !== filterDeliveryStatus.toLowerCase()) return false;
+            if (!filterDeliveryStatuses.some(f => f.toLowerCase() === ds)) return false;
         }
         return true;
-    }, [filterStatus, filterDeliveryStatus]);
+    }, [filterStatuses, filterDeliveryStatuses]);
 
     // All SO items flattened for detail tab
     const allSOItems = useMemo(() => {
@@ -289,7 +293,7 @@ export const DeliveryRoutingView: React.FC = () => {
     // ─── Filtered + Sorted: Area Tab ──────────────
     // When status filters are active, re-aggregate area totals from filtered SO items
 
-    const hasStatusFilter = filterStatus || filterDeliveryStatus;
+    const hasStatusFilter = filterStatuses.length > 0 || filterDeliveryStatuses.length > 0;
 
     const filteredAreas = useMemo(() => {
         let data = areas.map(a => {
@@ -555,14 +559,14 @@ export const DeliveryRoutingView: React.FC = () => {
                 </div>
             )}
 
-            {/* ─── Top 5 Area Chart ──────────────────── */}
-            {!loading && !error && areas.length > 0 && (
+            {/* ─── Top 5 Area Chart (follows all filters) ── */}
+            {!loading && !error && filteredAreas.length > 0 && (
                 <div className="bg-white border rounded-xl p-4 shadow-sm">
-                    <h3 className="text-xs font-semibold text-gray-500 mb-3">📈 Top 5 Area — Berat & Volume</h3>
+                    <h3 className="text-xs font-semibold text-gray-500 mb-3">📈 Top 5 Area — Berat & Volume {(hasStatusFilter || filterArea || filterProvince || globalSearch) ? <span className="text-blue-500 font-normal">(filtered)</span> : ''}</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <p className="text-[10px] text-gray-400 font-semibold mb-1.5">⚖️ BERAT (kg)</p>
-                            {areas.slice(0, 5).map(a => (
+                            {[...filteredAreas].sort((a, b) => b.totalWeightKg - a.totalWeightKg).slice(0, 5).map(a => (
                                 <div key={`w-${a.area}-${a.cluster}`} className="mb-1.5">
                                     <div className="flex justify-between text-[10px] mb-0.5">
                                         <span className="text-gray-700 font-medium truncate max-w-[160px]">{a.area}</span>
@@ -574,7 +578,7 @@ export const DeliveryRoutingView: React.FC = () => {
                         </div>
                         <div>
                             <p className="text-[10px] text-gray-400 font-semibold mb-1.5">📦 VOLUME (m³)</p>
-                            {areas.slice(0, 5).map(a => (
+                            {[...filteredAreas].sort((a, b) => b.totalVolumeM3 - a.totalVolumeM3).slice(0, 5).map(a => (
                                 <div key={`v-${a.area}-${a.cluster}`} className="mb-1.5">
                                     <div className="flex justify-between text-[10px] mb-0.5">
                                         <span className="text-gray-700 font-medium truncate max-w-[160px]">{a.area}</span>
@@ -632,28 +636,47 @@ export const DeliveryRoutingView: React.FC = () => {
                     <option value="">Semua Area</option>
                     {areaNames.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
-                {/* Status filter */}
-                <select
-                    value={filterStatus}
-                    onChange={e => setFilterStatus(e.target.value)}
-                    className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-300 outline-none"
-                >
-                    <option value="">Semua Status</option>
-                    {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                {/* Delivery status filter */}
-                <select
-                    value={filterDeliveryStatus}
-                    onChange={e => setFilterDeliveryStatus(e.target.value)}
-                    className="text-xs border rounded-lg px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-300 outline-none"
-                >
-                    <option value="">Semua Kiriman</option>
-                    {allDeliveryStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
                 <Button variant="outline" size="sm" onClick={handleExport} className="text-xs h-7">📥 Export</Button>
                 <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading} className="text-xs h-7 border-blue-300 text-blue-700 hover:bg-blue-50">
                     {loading ? '⟳ Memuat...' : '🔄 Refresh'}
                 </Button>
+            </div>
+
+            {/* ─── Status & Delivery Status Multi-select ── */}
+            <div className="flex flex-wrap items-center gap-3 bg-indigo-50/50 rounded-lg px-3 py-2 border border-indigo-200">
+                <span className="text-xs font-medium text-indigo-600">📋 Status:</span>
+                {allStatuses.map(status => (
+                    <label key={status} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={filterStatuses.includes(status)}
+                            onChange={() => toggleStatus(status)}
+                            className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                        />
+                        <span className="text-xs text-gray-700">{status}</span>
+                    </label>
+                ))}
+                <span className="text-xs text-muted-foreground ml-1">
+                    ({filterStatuses.length === 0 ? 'semua' : filterStatuses.length + ' dipilih'})
+                </span>
+
+                <span className="text-gray-300 mx-1">|</span>
+
+                <span className="text-xs font-medium text-teal-600">📦 Kiriman:</span>
+                {allDeliveryStatuses.map(status => (
+                    <label key={status} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={filterDeliveryStatuses.includes(status)}
+                            onChange={() => toggleDeliveryStatus(status)}
+                            className="rounded border-teal-300 text-teal-600 focus:ring-teal-500 h-3.5 w-3.5"
+                        />
+                        <span className="text-xs text-gray-700">{status}</span>
+                    </label>
+                ))}
+                <span className="text-xs text-muted-foreground ml-1">
+                    ({filterDeliveryStatuses.length === 0 ? 'semua' : filterDeliveryStatuses.length + ' dipilih'})
+                </span>
             </div>
 
             {/* ─── Error ──────────────────────────────── */}
