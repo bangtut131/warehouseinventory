@@ -237,10 +237,11 @@ export default function InventoryDashboard() {
     const hasButton = (btnId: string): boolean => {
         if (!session) return true; // no session = all access
         if (session.isSuperAdmin) return true;
+        const menus = session.allowedMenus || [];
         // If allowedMenus has no btn: entries at all, it's a legacy role → allow all buttons
-        const hasBtnEntries = session.allowedMenus.some(m => m.startsWith('btn:'));
+        const hasBtnEntries = menus.some(m => m.startsWith('btn:'));
         if (!hasBtnEntries) return true;
-        return session.allowedMenus.includes(btnId);
+        return menus.includes(btnId);
     };
 
     const renderContent = () => {
