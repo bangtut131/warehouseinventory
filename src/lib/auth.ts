@@ -1,6 +1,10 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { ALL_MENUS, ALL_DATA_COLUMNS } from '@/lib/menu-constants';
+
+// Re-export for backward compatibility
+export { ALL_MENUS, ALL_DATA_COLUMNS };
 
 // Auth credentials from environment variables (superadmin fallback)
 const AUTH_USERNAME = process.env.AUTH_USERNAME || 'admin';
@@ -11,35 +15,6 @@ const TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'inventory-warehouse-secre
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const SESSION_COOKIE_NAME = 'inventory-session';
-
-// All available menus for role assignment
-export const ALL_MENUS = [
-    { id: 'dashboard', label: 'Dashboard', category: 'Inventory', icon: '📊' },
-    { id: 'rop', label: 'ROP Analysis', category: 'Inventory', icon: '🎯' },
-    { id: 'abc', label: 'ABC-XYZ Matrix', category: 'Inventory', icon: '🔠' },
-    { id: 'eoq', label: 'EOQ Analysis', category: 'Inventory', icon: '📦' },
-    { id: 'trends', label: 'Trends', category: 'Inventory', icon: '📈' },
-    { id: 'alerts', label: 'Alerts', category: 'Inventory', icon: '🚨' },
-    { id: 'overstock', label: 'Overstock', category: 'Inventory', icon: '📦' },
-    { id: 'top', label: 'Top Items', category: 'Inventory', icon: '🏆' },
-    { id: 'so', label: 'Kontrol SO', category: 'Sales', icon: '📋' },
-    { id: 'regional', label: 'Wilayah SO', category: 'Sales', icon: '📍' },
-    { id: 'sla', label: 'SLA Pengiriman', category: 'Sales', icon: '🚚' },
-    { id: 'price', label: 'Analisa Harga', category: 'Sales', icon: '💰' },
-    { id: 'routing', label: 'Delivery Routing', category: 'Logistics', icon: '🚛' },
-    { id: 'settings', label: 'Master Data', category: 'Admin', icon: '⚙️' },
-    { id: 'general-settings', label: 'Settings General', category: 'Admin', icon: '🛠️' },
-];
-
-// All available data columns that can be hidden per role
-export const ALL_DATA_COLUMNS = [
-    { id: 'col:value', label: 'Nilai / Total Rupiah', description: 'Kolom nilai transaksi (Rp)' },
-    { id: 'col:cost', label: 'Harga Pokok / HPP', description: 'Harga beli / cost per item' },
-    { id: 'col:margin', label: 'Margin / Profit', description: 'Margin keuntungan' },
-    { id: 'col:price', label: 'Harga Jual', description: 'Harga jual per unit' },
-    { id: 'col:customer_no', label: 'No. Customer', description: 'Nomor ID customer' },
-    { id: 'col:fleet_cost', label: 'Biaya Kendaraan', description: 'Biaya per trip kendaraan' },
-];
 
 export interface SessionPayload {
     username: string;

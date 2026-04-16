@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ALL_MENUS, ALL_DATA_COLUMNS, MENU_CATEGORIES } from '@/lib/menu-constants';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -26,19 +27,6 @@ interface AppUser {
     role: { id: number; name: string };
 }
 
-interface MenuItem {
-    id: string;
-    label: string;
-    category: string;
-    icon: string;
-}
-
-interface ColumnItem {
-    id: string;
-    label: string;
-    description: string;
-}
-
 type SettingsTab = 'users' | 'roles';
 
 // ─── Main Component ─────────────────────────────────────────
@@ -49,8 +37,7 @@ export const GeneralSettingsView: React.FC = () => {
     // Data
     const [users, setUsers] = useState<AppUser[]>([]);
     const [roles, setRoles] = useState<AppRole[]>([]);
-    const [menuRegistry, setMenuRegistry] = useState<MenuItem[]>([]);
-    const [columnRegistry, setColumnRegistry] = useState<ColumnItem[]>([]);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
     // User form
@@ -73,13 +60,17 @@ export const GeneralSettingsView: React.FC = () => {
                 fetch(`/api/users?t=${timestamp}`, { cache: 'no-store' }),
                 fetch(`/api/roles?t=${timestamp}`, { cache: 'no-store' }),
             ]);
-            const usersData = await usersRes.json();
-            const rolesData = await rolesRes.json();
-            setUsers(usersData.users || []);
-            setRoles(rolesData.roles || []);
-            setMenuRegistry(rolesData.menuRegistry || []);
-            setColumnRegistry(rolesData.columnRegistry || []);
-        } catch { /* ignore */ }
+            if (usersRes.ok) {
+                const usersData = await usersRes.json();
+                setUsers(usersData.users || []);
+            }
+            if (rolesRes.ok) {
+                const rolesData = await rolesRes.json();
+                setRoles(rolesData.roles || []);
+            }
+        } catch (err) {
+            console.error('[Settings] fetchAll error:', err);
+        }
         setLoading(false);
     }, []);
 
@@ -141,18 +132,31 @@ export const GeneralSettingsView: React.FC = () => {
     // ─── Role CRUD handlers ─────────────────────
 
     const handleSaveRole = async () => {
-        if (!editingRole?.name) return;
+        if (!editingRole?.name) {
+            setSaveError('Nama role wajib diisi');
+            return;
+        }
         setSaving(true);
+        setSaveError(null);
         try {
             const method = editingRole.id ? 'PUT' : 'POST';
-            await fetch('/api/roles', {
+            const res = await fetch('/api/roles', {
                 method, headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(editingRole),
             });
+            const data = await res.json();
+            if (!res.ok) {
+                setSaveError(data.error || `Gagal menyimpan role (${res.status})`);
+                setSaving(false);
+                return;
+            }
+            setSaveError(null);
             setShowRoleForm(false);
             setEditingRole(null);
             await fetchAll();
-        } catch { /* ignore */ }
+        } catch (err: any) {
+            setSaveError(err.message || 'Gagal menyimpan role');
+        }
         setSaving(false);
     };
 
@@ -166,30 +170,30 @@ export const GeneralSettingsView: React.FC = () => {
 
     const toggleMenu = (menuId: string) => {
         if (!editingRole) return;
-        const current = editingRole.allowedMenus || [];
+        const current = [...(editingRole.allowedMenus || [])];
         const updated = current.includes(menuId)
             ? current.filter(m => m !== menuId)
             : [...current, menuId];
-        setEditingRole({ ...editingRole, allowedMenus: updated });
+        setEditingRole(prev => ({ ...prev!, allowedMenus: updated }));
     };
 
     const toggleColumn = (colId: string) => {
         if (!editingRole) return;
-        const current = editingRole.hiddenColumns || [];
+        const current = [...(editingRole.hiddenColumns || [])];
         const updated = current.includes(colId)
             ? current.filter(c => c !== colId)
             : [...current, colId];
-        setEditingRole({ ...editingRole, hiddenColumns: updated });
+        setEditingRole(prev => ({ ...prev!, hiddenColumns: updated }));
     };
 
     const selectAllMenus = () => {
         if (!editingRole) return;
-        setEditingRole({ ...editingRole, allowedMenus: menuRegistry.map(m => m.id) });
+        setEditingRole(prev => ({ ...prev!, allowedMenus: ALL_MENUS.map(m => m.id) }));
     };
 
     const clearAllMenus = () => {
         if (!editingRole) return;
-        setEditingRole({ ...editingRole, allowedMenus: [] });
+        setEditingRole(prev => ({ ...prev!, allowedMenus: [] }));
     };
 
     // ─── Status badge ───────────────────────────
@@ -386,10 +390,10 @@ export const GeneralSettingsView: React.FC = () => {
                                     {role.description && <p className="text-[10px] text-gray-500 mb-2">{role.description}</p>}
 
                                     <div className="mb-2">
-                                        <p className="text-[9px] text-gray-400 font-semibold mb-1">MENU AKSES ({(role.allowedMenus as string[]).length}/{menuRegistry.length})</p>
+                                        <p className="text-[9px] text-gray-400 font-semibold mb-1">MENU AKSES ({(role.allowedMenus as string[]).length}/{ALL_MENUS.length})</p>
                                         <div className="flex flex-wrap gap-1">
                                             {(role.allowedMenus as string[]).slice(0, 6).map(m => {
-                                                const reg = menuRegistry.find(r => r.id === m);
+                                                const reg = ALL_MENUS.find(r => r.id === m);
                                                 return <span key={m} className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{reg?.icon} {reg?.label || m}</span>;
                                             })}
                                             {(role.allowedMenus as string[]).length > 6 && <span className="text-[9px] text-gray-400">+{(role.allowedMenus as string[]).length - 6} lainnya</span>}
@@ -401,7 +405,7 @@ export const GeneralSettingsView: React.FC = () => {
                                             <p className="text-[9px] text-gray-400 font-semibold mb-1">DATA TERSEMBUNYI</p>
                                             <div className="flex flex-wrap gap-1">
                                                 {(role.hiddenColumns as string[]).map(c => {
-                                                    const reg = columnRegistry.find(r => r.id === c);
+                                                    const reg = ALL_DATA_COLUMNS.find(r => r.id === c);
                                                     return <span key={c} className="text-[9px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded">🔒 {reg?.label || c}</span>;
                                                 })}
                                             </div>
@@ -459,11 +463,11 @@ export const GeneralSettingsView: React.FC = () => {
                                         </div>
                                     </div>
                                     {/* Group by category */}
-                                    {['Inventory', 'Sales', 'Logistics', 'Admin'].map(cat => (
+                                    {MENU_CATEGORIES.map(cat => (
                                         <div key={cat} className="mb-2">
                                             <p className="text-[9px] text-gray-400 font-semibold uppercase mb-1">{cat}</p>
                                             <div className="flex flex-wrap gap-2">
-                                                {menuRegistry.filter(m => m.category === cat).map(m => (
+                                                {ALL_MENUS.filter(m => m.category === cat).map(m => (
                                                     <label key={m.id} className="flex items-center gap-1.5 text-[11px] cursor-pointer bg-white border rounded px-2 py-1 hover:bg-blue-50">
                                                         <input type="checkbox"
                                                             checked={(editingRole.allowedMenus || []).includes(m.id)}
@@ -481,7 +485,7 @@ export const GeneralSettingsView: React.FC = () => {
                                 <div className="mb-4">
                                     <p className="text-[10px] text-gray-500 font-semibold mb-2">🔒 DATA YANG DISEMBUNYIKAN (kolom yang di-hide untuk role ini)</p>
                                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                        {columnRegistry.map(col => (
+                                        {ALL_DATA_COLUMNS.map(col => (
                                             <label key={col.id} className="flex items-start gap-2 text-[11px] cursor-pointer bg-white border rounded px-2 py-1.5 hover:bg-red-50">
                                                 <input type="checkbox"
                                                     checked={(editingRole.hiddenColumns || []).includes(col.id)}
@@ -496,12 +500,18 @@ export const GeneralSettingsView: React.FC = () => {
                                     </div>
                                 </div>
 
+                                {saveError && (
+                                    <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3 text-xs text-red-700">
+                                        ⚠️ {saveError}
+                                    </div>
+                                )}
+
                                 <div className="flex gap-2">
                                     <button onClick={handleSaveRole} disabled={saving}
                                         className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
                                         {saving ? 'Menyimpan...' : 'Simpan Role'}
                                     </button>
-                                    <button onClick={() => { setShowRoleForm(false); setEditingRole(null); }}
+                                    <button onClick={() => { setShowRoleForm(false); setEditingRole(null); setSaveError(null); }}
                                         className="text-xs bg-gray-200 text-gray-600 px-4 py-1.5 rounded hover:bg-gray-300">Batal</button>
                                 </div>
                             </div>
