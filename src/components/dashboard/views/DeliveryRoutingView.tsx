@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useMask } from '@/lib/SessionContext';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -282,6 +283,10 @@ const DeliveryBadge = ({ status }: { status?: string }) => {
 // ─── Main Component ─────────────────────────────────────────
 
 export const DeliveryRoutingView: React.FC = () => {
+    const { isHidden } = useMask();
+    const mRp = (n: number) => isHidden('col:value') ? '***' : fmtRp(n);
+    const mFleetCost = (n: number) => isHidden('col:fleet_cost') ? '***' : `~Rp ${(n / 1_000_000).toFixed(1)}jt`;
+
     const [areas, setAreas] = useState<AreaGroup[]>([]);
     const [allCustomers, setAllCustomers] = useState<CustomerGroup[]>([]);
     const [summary, setSummary] = useState<Summary | null>(null);
@@ -780,7 +785,7 @@ export const DeliveryRoutingView: React.FC = () => {
                         { label: 'Customer', value: fmt(summary.totalCustomers), icon: '👤', color: 'bg-pink-50 border-pink-200' },
                         { label: 'Total Berat', value: `${fmtDec(summary.totalWeight, 1)} kg`, icon: '⚖️', color: 'bg-emerald-50 border-emerald-200' },
                         { label: 'Total Volume', value: `${fmtDec(summary.totalVolume, 2)} m³`, icon: '📦', color: 'bg-amber-50 border-amber-200' },
-                        { label: 'Total Nilai', value: fmtRp(summary.totalValue), icon: '💰', color: 'bg-indigo-50 border-indigo-200' },
+                        { label: 'Total Nilai', value: mRp(summary.totalValue), icon: '💰', color: 'bg-indigo-50 border-indigo-200' },
                         { label: 'Fleet', value: `${vehicles.filter(v => v.isActive).length} jenis`, icon: '🚚', color: 'bg-orange-50 border-orange-200' },
                     ].map(card => (
                         <Card key={card.label} className={`border ${card.color}`}>
@@ -1022,7 +1027,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                             <div className="font-mono font-medium text-teal-700 mb-0.5">{fmtDec(row.totalVolumeM3, 4)}</div>
                                                             <HorizBar value={row.totalVolumeM3} maxValue={maxAreaVolume} color="bg-teal-400" />
                                                         </td>
-                                                        <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{fmtRp(row.totalValue)}</td>
+                                                        <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{mRp(row.totalValue)}</td>
                                                         <td className="px-3 py-2.5 text-center">
                                                             <UrgencyBadge days={days} />
                                                         </td>
@@ -1072,7 +1077,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                                                             <td className="px-2 py-1.5 text-right text-purple-600 font-medium">{c.soCount}</td>
                                                                                             <td className="px-2 py-1.5 text-right font-mono text-blue-600">{fmtDec(c.totalWeightKg, 1)}</td>
                                                                                             <td className="px-2 py-1.5 text-right font-mono text-teal-600">{fmtDec(c.totalVolumeM3, 4)}</td>
-                                                                                            <td className="px-2 py-1.5 text-right text-gray-600">{fmtRp(c.totalValue)}</td>
+                                                                                            <td className="px-2 py-1.5 text-right text-gray-600">{mRp(c.totalValue)}</td>
                                                                                         </tr>
                                                                                     ))}
                                                                                 </tbody>
@@ -1109,7 +1114,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                                                     <td className="px-3 py-2 text-right text-gray-600">{so.itemCount}</td>
                                                                                     <td className="px-3 py-2 text-right font-mono text-blue-600">{fmtDec(so.totalWeightKg, 1)}</td>
                                                                                     <td className="px-3 py-2 text-right font-mono text-teal-600">{fmtDec(so.totalVolumeM3, 4)}</td>
-                                                                                    <td className="px-3 py-2 text-right text-gray-600">{fmtRp(so.totalValue)}</td>
+                                                                                    <td className="px-3 py-2 text-right text-gray-600">{mRp(so.totalValue)}</td>
                                                                                 </tr>
                                                                             ))}
                                                                             {/* Total row */}
@@ -1117,7 +1122,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                                                 <td colSpan={6} className="px-3 py-2 text-right text-gray-500">Total Area:</td>
                                                                                 <td className="px-3 py-2 text-right font-mono text-blue-700">{fmtDec(row.totalWeightKg, 1)}</td>
                                                                                 <td className="px-3 py-2 text-right font-mono text-teal-700">{fmtDec(row.totalVolumeM3, 4)}</td>
-                                                                                <td className="px-3 py-2 text-right text-gray-700">{fmtRp(row.totalValue)}</td>
+                                                                                <td className="px-3 py-2 text-right text-gray-700">{mRp(row.totalValue)}</td>
                                                                             </tr>
                                                                         </tbody>
                                                                     </table>
@@ -1136,7 +1141,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                             <td className="px-3 py-3 text-right text-green-800">{fmt(areaGrandTotal.customerCount)}</td>
                                             <td className="px-3 py-3 text-right font-mono text-blue-800">{fmtDec(areaGrandTotal.weight, 1)}</td>
                                             <td className="px-3 py-3 text-right font-mono text-teal-800">{fmtDec(areaGrandTotal.volume, 4)}</td>
-                                            <td className="px-3 py-3 text-right text-slate-700">{fmtRp(areaGrandTotal.value)}</td>
+                                            <td className="px-3 py-3 text-right text-slate-700">{mRp(areaGrandTotal.value)}</td>
                                             <td colSpan={3} />
                                         </tr>
                                     </tbody>
@@ -1204,7 +1209,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                             <HorizBar value={cust.totalWeightKg} maxValue={maxCustWeight} color="bg-blue-400" />
                                                         </td>
                                                         <td className="px-3 py-2.5 text-right font-mono font-medium text-teal-700">{fmtDec(cust.totalVolumeM3, 4)}</td>
-                                                        <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{fmtRp(cust.totalValue)}</td>
+                                                        <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{mRp(cust.totalValue)}</td>
                                                         <td className="px-3 py-2.5 text-right">
                                                             {cust.totalOutstandingPcs > 0
                                                                 ? <span className="text-orange-600 font-medium">{fmt(cust.totalOutstandingPcs)}</span>
@@ -1244,7 +1249,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                             <td className="px-3 py-3 text-right text-purple-800">{fmt(custGrandTotal.soCount)}</td>
                                             <td className="px-3 py-3 text-right font-mono text-blue-800">{fmtDec(custGrandTotal.weight, 1)}</td>
                                             <td className="px-3 py-3 text-right font-mono text-teal-800">{fmtDec(custGrandTotal.volume, 4)}</td>
-                                            <td className="px-3 py-3 text-right text-slate-700">{fmtRp(custGrandTotal.value)}</td>
+                                            <td className="px-3 py-3 text-right text-slate-700">{mRp(custGrandTotal.value)}</td>
                                             <td colSpan={2} />
                                         </tr>
                                     </tbody>
@@ -1311,7 +1316,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                 <td className="px-3 py-2 text-right text-gray-600">{so.itemCount}</td>
                                                 <td className="px-3 py-2 text-right font-mono text-blue-600 font-medium">{fmtDec(so.totalWeightKg, 1)}</td>
                                                 <td className="px-3 py-2 text-right font-mono text-teal-600 font-medium">{fmtDec(so.totalVolumeM3, 4)}</td>
-                                                <td className="px-3 py-2 text-right text-gray-600">{fmtRp(so.totalValue)}</td>
+                                                <td className="px-3 py-2 text-right text-gray-600">{mRp(so.totalValue)}</td>
                                                 <td className="px-3 py-2 text-right">
                                                     {so.outstandingPcs > 0
                                                         ? <span className="text-orange-600 font-medium">{fmt(so.outstandingPcs)}</span>
@@ -1326,7 +1331,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                             <td colSpan={9} className="px-3 py-3 text-right text-slate-600 text-xs">GRAND TOTAL ({filteredDetails.length} SO):</td>
                                             <td className="px-3 py-3 text-right font-mono text-blue-800">{fmtDec(detailGrandTotal.weight, 1)}</td>
                                             <td className="px-3 py-3 text-right font-mono text-teal-800">{fmtDec(detailGrandTotal.volume, 4)}</td>
-                                            <td className="px-3 py-3 text-right text-slate-700">{fmtRp(detailGrandTotal.value)}</td>
+                                            <td className="px-3 py-3 text-right text-slate-700">{mRp(detailGrandTotal.value)}</td>
                                             <td />
                                         </tr>
                                     </tbody>

@@ -21,7 +21,6 @@ export async function GET(request: NextRequest) {
     try {
         const users = await prisma.appUser.findMany({
             orderBy: { createdAt: 'desc' },
-            include: { role: { select: { id: true, name: true } } },
             select: {
                 id: true,
                 username: true,

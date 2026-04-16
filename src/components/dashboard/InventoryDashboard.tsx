@@ -18,6 +18,7 @@ import { PriceAnalysisView } from './views/PriceAnalysisView';
 import { MasterDataView } from './views/MasterDataView';
 import { DeliveryRoutingView } from './views/DeliveryRoutingView';
 import { GeneralSettingsView } from './views/GeneralSettingsView';
+import { SessionProvider, SessionContextType } from '@/lib/SessionContext';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { exportAllAnalysis } from '@/lib/exportExcel';
@@ -25,15 +26,7 @@ import { SchedulerPanel } from './SchedulerPanel';
 import { BroadcastPanel } from './BroadcastPanel';
 import { PriceSyncPanel } from './PriceSyncPanel';
 
-interface UserSession {
-    username: string;
-    fullName?: string;
-    roleName: string;
-    roleId: number;
-    allowedMenus: string[];
-    hiddenColumns: string[];
-    isSuperAdmin: boolean;
-}
+type UserSession = SessionContextType;
 
 function formatDateParam(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -264,6 +257,7 @@ export default function InventoryDashboard() {
     const isSyncing = syncStatus?.status === 'running';
 
     return (
+        <SessionProvider value={session}>
         <div className="space-y-6">
             <div className="flex flex-col gap-4 border-b pb-4">
                 {/* Row 1: Title + Data Source */}
@@ -494,5 +488,6 @@ export default function InventoryDashboard() {
                 {renderContent()}
             </div>
         </div>
+        </SessionProvider>
     );
 }

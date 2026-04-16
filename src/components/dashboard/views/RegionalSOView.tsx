@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useMask } from '@/lib/SessionContext';
 import { SOBroadcastPanel } from "@/components/dashboard/SOBroadcastPanel";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -96,6 +97,8 @@ const UnitBreakdown = ({ breakdown, outstanding }: { breakdown: Record<string, n
 // ─── Component ───────────────────────────────────────────────
 
 export const RegionalSOView: React.FC = () => {
+    const { isHidden } = useMask();
+    const mRp = (n: number) => isHidden('col:value') ? '***' : fmtRp(n);
     const [regional, setRegional] = useState<RegionalEntry[]>([]);
     const [summary, setSummary] = useState<RegionalSummary | null>(null);
     const [loading, setLoading] = useState(true);
@@ -254,7 +257,7 @@ export const RegionalSOView: React.FC = () => {
                                     { label: 'Customer', value: fmt(summary.totalCustomers), icon: '🏪', color: 'bg-green-50 border-green-200' },
                                     { label: 'Total SO', value: fmt(summary.totalSOs), icon: '📋', color: 'bg-purple-50 border-purple-200' },
                                     { label: 'Outstanding', value: fmt(summary.totalOutstanding) + ' pcs', icon: '⏳', color: 'bg-orange-50 border-orange-200' },
-                                    { label: 'Total Nilai', value: fmtRp(summary.totalValue), icon: '💰', color: 'bg-indigo-50 border-indigo-200' },
+                                    { label: 'Total Nilai', value: mRp(summary.totalValue), icon: '💰', color: 'bg-indigo-50 border-indigo-200' },
                                 ].map(card => (
                                     <Card key={card.label} className={`border ${card.color}`}>
                                         <CardContent className="p-3">
@@ -351,7 +354,7 @@ export const RegionalSOView: React.FC = () => {
                                                                 ? <span className="text-orange-600 font-medium">{fmt(row.totalOutstanding)}</span>
                                                                 : <span className="text-gray-300">-</span>}
                                                         </td>
-                                                        <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{fmtRp(row.totalValue)}</td>
+                                                        <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{mRp(row.totalValue)}</td>
                                                         <td className="px-3 py-2.5 text-center">
                                                             <button
                                                                 onClick={() => { setExpandedCity(isExpanded ? null : row.city); setExpandTab('customers'); }}
@@ -415,7 +418,7 @@ export const RegionalSOView: React.FC = () => {
                                                                                         <td className="px-3 py-2 text-right text-purple-600">{c.soCount}</td>
                                                                                         <td className="px-3 py-2 text-right text-blue-600 font-medium">{fmt(c.totalQty)}</td>
                                                                                         <td className="px-3 py-2 text-right">{c.totalOutstanding > 0 ? <span className="text-orange-500">{fmt(c.totalOutstanding)}</span> : <span className="text-gray-300">-</span>}</td>
-                                                                                        <td className="px-3 py-2 text-right text-gray-600">{fmtRp(c.totalValue)}</td>
+                                                                                        <td className="px-3 py-2 text-right text-gray-600">{mRp(c.totalValue)}</td>
                                                                                         <td className="px-3 py-2 text-gray-400 text-[10px]">
                                                                                             {c.soNumbers.slice(0, 4).join(', ')}
                                                                                             {c.soNumbers.length > 4 && <span className="italic"> +{c.soNumbers.length - 4} lagi</span>}
@@ -450,7 +453,7 @@ export const RegionalSOView: React.FC = () => {
                                                                                         <td className="px-3 py-2 text-right text-blue-600 font-medium">{fmt(item.totalQty)}</td>
                                                                                         <td className="px-3 py-2 text-gray-500">{item.unitName}</td>
                                                                                         <td className="px-3 py-2 text-right">{item.totalOutstanding > 0 ? <span className="text-orange-500">{fmt(item.totalOutstanding)}</span> : <span className="text-gray-300">-</span>}</td>
-                                                                                        <td className="px-3 py-2 text-right text-gray-600">{fmtRp(item.totalValue)}</td>
+                                                                                        <td className="px-3 py-2 text-right text-gray-600">{mRp(item.totalValue)}</td>
                                                                                     </tr>
                                                                                 ))}
                                                                             </tbody>

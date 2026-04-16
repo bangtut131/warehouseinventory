@@ -7,6 +7,7 @@ import { PriceAnalysisItem, CategoryPrice } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { useMask } from '@/lib/SessionContext';
 
 const fmt = (n: number) => n.toLocaleString('id-ID');
 const fmtRp = (n: number) => `Rp ${fmt(n)}`;
@@ -62,12 +63,14 @@ function MarginBadge({ margin, hasData, healthy, thin }: { margin: number; hasDa
 function PriceCell({ price, rawPrice, unitName, ratio, baseUnit }: {
     price: number; rawPrice: number; unitName: string; ratio: number; baseUnit: string;
 }) {
+    const { isHidden } = useMask();
+    const hp = isHidden('col:price');
     const isConverted = ratio > 1;
     return (
         <div className="group relative">
-            <span className="font-mono text-sm">{fmtRp(price)}</span>
+            <span className="font-mono text-sm">{hp ? '***' : fmtRp(price)}</span>
             <span className="text-[10px] text-muted-foreground ml-0.5">/{baseUnit}</span>
-            {isConverted && (
+            {isConverted && !hp && (
                 <div className="absolute z-50 hidden group-hover:block bottom-full left-0 mb-1 p-2 bg-slate-800 text-white text-[11px] rounded-lg shadow-lg whitespace-nowrap min-w-[200px]">
                     <div className="font-medium mb-1">📦 Detail Konversi</div>
                     <div>Harga master: {fmtRp(rawPrice)}/{unitName}</div>
@@ -231,6 +234,11 @@ function CategoryMultiSelect({ allCategories, selected, onChange }: {
 }
 
 export function PriceAnalysisView() {
+    const { isHidden } = useMask();
+    const hidePrice = isHidden('col:price');
+    const hideCost = isHidden('col:cost');
+    const hideMargin = isHidden('col:margin');
+
     const [items, setItems] = useState<PriceAnalysisItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -698,7 +706,7 @@ export function PriceAnalysisView() {
                                         <td className="px-3 py-2 text-right">
                                             {item.avgPurchasePrice > 0 ? (
                                                 <div>
-                                                    <span className="font-mono text-sm">{fmtRp(item.avgPurchasePrice)}</span>
+                                                    <span className="font-mono text-sm">{hideCost ? '***' : fmtRp(item.avgPurchasePrice)}</span>
                                                     <span className="text-[10px] text-muted-foreground ml-0.5">/{item.baseUnitName}</span>
                                                     <div className="text-[10px] text-muted-foreground">
                                                         {fmt(item.purchaseInvoiceCount)} faktur
