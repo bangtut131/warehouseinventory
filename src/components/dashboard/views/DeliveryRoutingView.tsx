@@ -794,38 +794,66 @@ export const DeliveryRoutingView: React.FC = () => {
                 </div>
             )}
 
-            {/* ─── Top 5 Area Chart (follows all filters) ── */}
-            {!loading && !error && filteredAreas.length > 0 && (
-                <div className="bg-white border rounded-xl p-4 shadow-sm">
-                    <h3 className="text-xs font-semibold text-gray-500 mb-3">📈 Top 5 Area — Berat & Volume {(hasStatusFilter || filterArea || filterProvince || globalSearch) ? <span className="text-blue-500 font-normal">(filtered)</span> : ''}</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <p className="text-[10px] text-gray-400 font-semibold mb-1.5">⚖️ BERAT (kg)</p>
-                            {[...filteredAreas].sort((a, b) => b.totalWeightKg - a.totalWeightKg).slice(0, 5).map(a => (
-                                <div key={`w-${a.area}-${a.cluster}`} className="mb-1.5">
-                                    <div className="flex justify-between text-[10px] mb-0.5">
-                                        <span className="text-gray-700 font-medium truncate max-w-[160px]">{a.area}</span>
-                                        <span className="text-blue-700 font-bold">{fmtDec(a.totalWeightKg, 1)} kg</span>
-                                    </div>
-                                    <HorizBar value={a.totalWeightKg} maxValue={maxAreaWeight} color="bg-blue-500" />
-                                </div>
-                            ))}
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-gray-400 font-semibold mb-1.5">📦 VOLUME (m³)</p>
-                            {[...filteredAreas].sort((a, b) => b.totalVolumeM3 - a.totalVolumeM3).slice(0, 5).map(a => (
-                                <div key={`v-${a.area}-${a.cluster}`} className="mb-1.5">
-                                    <div className="flex justify-between text-[10px] mb-0.5">
-                                        <span className="text-gray-700 font-medium truncate max-w-[160px]">{a.area}</span>
-                                        <span className="text-teal-700 font-bold">{fmtDec(a.totalVolumeM3, 4)} m³</span>
-                                    </div>
-                                    <HorizBar value={a.totalVolumeM3} maxValue={maxAreaVolume} color="bg-teal-500" />
-                                </div>
-                            ))}
+            {/* ─── Pareto Chart (dynamic by tab) ──────────── */}
+            {!loading && !error && (activeTab === 'area' ? filteredAreas.length > 0 : activeTab === 'customer' ? filteredCustomers.length > 0 : false) && (() => {
+                const isCustomerTab = activeTab === 'customer';
+                const title = isCustomerTab ? 'Pareto 5 Besar Customer' : 'Pareto 5 Besar Area';
+                const hasFilter = hasStatusFilter || filterArea || filterProvince || globalSearch;
+
+                // Prepare top 5 data
+                const topByWeight = isCustomerTab
+                    ? [...filteredCustomers].sort((a, b) => b.totalWeightKg - a.totalWeightKg).slice(0, 5)
+                    : [...filteredAreas].sort((a, b) => b.totalWeightKg - a.totalWeightKg).slice(0, 5);
+                const topByVolume = isCustomerTab
+                    ? [...filteredCustomers].sort((a, b) => b.totalVolumeM3 - a.totalVolumeM3).slice(0, 5)
+                    : [...filteredAreas].sort((a, b) => b.totalVolumeM3 - a.totalVolumeM3).slice(0, 5);
+                const maxW = isCustomerTab ? maxCustWeight : maxAreaWeight;
+                const maxV = isCustomerTab
+                    ? Math.max(...filteredCustomers.map(c => c.totalVolumeM3), 0.001)
+                    : maxAreaVolume;
+
+                return (
+                    <div className="bg-white border rounded-xl p-4 shadow-sm">
+                        <h3 className="text-xs font-semibold text-gray-500 mb-3">
+                            {'\ud83d\udcc8'} {title} — Berat & Volume {hasFilter ? <span className="text-blue-500 font-normal">(filtered)</span> : ''}
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <p className="text-[10px] text-gray-400 font-semibold mb-1.5">{'\u2696\ufe0f'} BERAT (kg)</p>
+                                {topByWeight.map((item: any, i: number) => {
+                                    const label = isCustomerTab ? item.customerName : item.area;
+                                    const key = isCustomerTab ? `w-c-${item.customerName}-${i}` : `w-a-${item.area}-${item.cluster}`;
+                                    return (
+                                        <div key={key} className="mb-1.5">
+                                            <div className="flex justify-between text-[10px] mb-0.5">
+                                                <span className="text-gray-700 font-medium truncate max-w-[180px]">{label}</span>
+                                                <span className="text-blue-700 font-bold">{fmtDec(item.totalWeightKg, 1)} kg</span>
+                                            </div>
+                                            <HorizBar value={item.totalWeightKg} maxValue={maxW} color="bg-blue-500" />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div>
+                                <p className="text-[10px] text-gray-400 font-semibold mb-1.5">{'\ud83d\udce6'} VOLUME (m{'\u00b3'})</p>
+                                {topByVolume.map((item: any, i: number) => {
+                                    const label = isCustomerTab ? item.customerName : item.area;
+                                    const key = isCustomerTab ? `v-c-${item.customerName}-${i}` : `v-a-${item.area}-${item.cluster}`;
+                                    return (
+                                        <div key={key} className="mb-1.5">
+                                            <div className="flex justify-between text-[10px] mb-0.5">
+                                                <span className="text-gray-700 font-medium truncate max-w-[180px]">{label}</span>
+                                                <span className="text-teal-700 font-bold">{fmtDec(item.totalVolumeM3, 4)} m{'\u00b3'}</span>
+                                            </div>
+                                            <HorizBar value={item.totalVolumeM3} maxValue={maxV} color="bg-teal-500" />
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* ─── Tabs + Filters ─────────────────────── */}
             <div className="flex flex-wrap gap-2 items-center">

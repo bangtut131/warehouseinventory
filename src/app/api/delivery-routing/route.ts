@@ -73,14 +73,8 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        // Filter: hanya SO yang belum selesai dikirim
-        if (onlyOutstanding) {
-            const deliveredStatuses = ['dikirim', 'difaktur'];
-            soList = soList.filter(so => {
-                const ds = (so.deliveryStatus || 'Belum dikirim').toLowerCase().trim();
-                return !deliveredStatuses.includes(ds);
-            });
-        }
+        // Note: No server-side filtering of delivery status.
+        // All SO statuses are passed to the frontend so the user can filter via checkboxes.
 
         // Load master data: city clusters + product dimensions + unit conversions
         let clusterMap = new Map<string, { area: string; cluster: string | null; subCluster: string | null }>();
