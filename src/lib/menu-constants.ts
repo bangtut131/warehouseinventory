@@ -1,9 +1,17 @@
-// Shared menu & column registry constants
+// Shared menu, button & column registry constants
 // Used by both server-side (auth.ts, roles API) and client-side (GeneralSettingsView)
 
 export interface MenuRegistryItem {
     id: string;
     label: string;
+    category: string;
+    icon: string;
+}
+
+export interface ButtonRegistryItem {
+    id: string;        // prefixed with 'btn:' e.g. 'btn:force_sync'
+    label: string;
+    description: string;
     category: string;
     icon: string;
 }
@@ -32,6 +40,23 @@ export const ALL_MENUS: MenuRegistryItem[] = [
     { id: 'settings', label: 'Master Data', category: 'Admin', icon: '⚙️' },
     { id: 'general-settings', label: 'Settings General', category: 'Admin', icon: '🛠️' },
 ];
+
+// All available header buttons/panels for role assignment
+// Stored in allowedMenus with 'btn:' prefix to avoid schema changes
+export const ALL_BUTTONS: ButtonRegistryItem[] = [
+    { id: 'btn:refresh', label: 'Refresh', description: 'Tombol refresh data inventory', category: 'Aksi', icon: '🔄' },
+    { id: 'btn:force_sync', label: 'Force Sync', description: 'Tombol force sync data dari Accurate', category: 'Aksi', icon: '🔃' },
+    { id: 'btn:export', label: 'Export', description: 'Tombol export data ke Excel', category: 'Aksi', icon: '📥' },
+    { id: 'btn:scheduler', label: 'Auto-Sync Panel', description: 'Panel pengaturan auto-sync', category: 'Panel', icon: '⏰' },
+    { id: 'btn:broadcast', label: 'WA Broadcast Panel', description: 'Panel broadcast WhatsApp', category: 'Panel', icon: '📱' },
+    { id: 'btn:price_sync', label: 'Price Sync Panel', description: 'Panel auto-sync harga', category: 'Panel', icon: '💰' },
+    { id: 'btn:filter_branch', label: 'Filter Cabang', description: 'Dropdown filter cabang', category: 'Filter', icon: '🏢' },
+    { id: 'btn:filter_warehouse', label: 'Filter Gudang', description: 'Dropdown filter gudang', category: 'Filter', icon: '🏭' },
+    { id: 'btn:filter_date', label: 'Filter Tanggal', description: 'Date range picker', category: 'Filter', icon: '📅' },
+];
+
+// Button categories for grouping in the UI
+export const BUTTON_CATEGORIES = ['Aksi', 'Panel', 'Filter'] as const;
 
 // All available data columns that can be hidden per role
 export const ALL_DATA_COLUMNS: ColumnRegistryItem[] = [

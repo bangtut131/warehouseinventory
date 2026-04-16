@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ALL_MENUS, ALL_DATA_COLUMNS, MENU_CATEGORIES } from '@/lib/menu-constants';
+import { ALL_MENUS, ALL_DATA_COLUMNS, ALL_BUTTONS, MENU_CATEGORIES, BUTTON_CATEGORIES } from '@/lib/menu-constants';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -186,14 +186,35 @@ export const GeneralSettingsView: React.FC = () => {
         setEditingRole(prev => ({ ...prev!, hiddenColumns: updated }));
     };
 
+    const toggleButton = (btnId: string) => {
+        if (!editingRole) return;
+        const current = [...(editingRole.allowedMenus || [])];
+        const updated = current.includes(btnId)
+            ? current.filter(m => m !== btnId)
+            : [...current, btnId];
+        setEditingRole(prev => ({ ...prev!, allowedMenus: updated }));
+    };
+
     const selectAllMenus = () => {
         if (!editingRole) return;
-        setEditingRole(prev => ({ ...prev!, allowedMenus: ALL_MENUS.map(m => m.id) }));
+        setEditingRole(prev => ({ ...prev!, allowedMenus: [...ALL_MENUS.map(m => m.id), ...ALL_BUTTONS.map(b => b.id)] }));
     };
 
     const clearAllMenus = () => {
         if (!editingRole) return;
         setEditingRole(prev => ({ ...prev!, allowedMenus: [] }));
+    };
+
+    const selectAllButtons = () => {
+        if (!editingRole) return;
+        const currentMenus = (editingRole.allowedMenus || []).filter(m => !m.startsWith('btn:'));
+        setEditingRole(prev => ({ ...prev!, allowedMenus: [...currentMenus, ...ALL_BUTTONS.map(b => b.id)] }));
+    };
+
+    const clearAllButtons = () => {
+        if (!editingRole) return;
+        const currentMenus = (editingRole.allowedMenus || []).filter(m => !m.startsWith('btn:'));
+        setEditingRole(prev => ({ ...prev!, allowedMenus: currentMenus }));
     };
 
     // ─── Status badge ───────────────────────────
@@ -390,15 +411,28 @@ export const GeneralSettingsView: React.FC = () => {
                                     {role.description && <p className="text-[10px] text-gray-500 mb-2">{role.description}</p>}
 
                                     <div className="mb-2">
-                                        <p className="text-[9px] text-gray-400 font-semibold mb-1">MENU AKSES ({(role.allowedMenus as string[]).length}/{ALL_MENUS.length})</p>
+                                        <p className="text-[9px] text-gray-400 font-semibold mb-1">MENU AKSES ({(role.allowedMenus as string[]).filter(m => !m.startsWith('btn:')).length}/{ALL_MENUS.length})</p>
                                         <div className="flex flex-wrap gap-1">
-                                            {(role.allowedMenus as string[]).slice(0, 6).map(m => {
+                                            {(role.allowedMenus as string[]).filter(m => !m.startsWith('btn:')).slice(0, 6).map(m => {
                                                 const reg = ALL_MENUS.find(r => r.id === m);
                                                 return <span key={m} className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{reg?.icon} {reg?.label || m}</span>;
                                             })}
-                                            {(role.allowedMenus as string[]).length > 6 && <span className="text-[9px] text-gray-400">+{(role.allowedMenus as string[]).length - 6} lainnya</span>}
+                                            {(role.allowedMenus as string[]).filter(m => !m.startsWith('btn:')).length > 6 && <span className="text-[9px] text-gray-400">+{(role.allowedMenus as string[]).filter(m => !m.startsWith('btn:')).length - 6} lainnya</span>}
                                         </div>
                                     </div>
+
+                                    {(role.allowedMenus as string[]).some(m => m.startsWith('btn:')) && (
+                                        <div className="mb-2">
+                                            <p className="text-[9px] text-gray-400 font-semibold mb-1">TOMBOL AKSES ({(role.allowedMenus as string[]).filter(m => m.startsWith('btn:')).length}/{ALL_BUTTONS.length})</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {(role.allowedMenus as string[]).filter(m => m.startsWith('btn:')).slice(0, 4).map(m => {
+                                                    const reg = ALL_BUTTONS.find(r => r.id === m);
+                                                    return <span key={m} className="text-[9px] bg-cyan-50 text-cyan-700 px-1.5 py-0.5 rounded">{reg?.icon} {reg?.label || m}</span>;
+                                                })}
+                                                {(role.allowedMenus as string[]).filter(m => m.startsWith('btn:')).length > 4 && <span className="text-[9px] text-gray-400">+{(role.allowedMenus as string[]).filter(m => m.startsWith('btn:')).length - 4} lainnya</span>}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {(role.hiddenColumns as string[]).length > 0 && (
                                         <div className="mb-2">
@@ -474,6 +508,36 @@ export const GeneralSettingsView: React.FC = () => {
                                                             onChange={() => toggleMenu(m.id)}
                                                             className="rounded h-3 w-3" />
                                                         <span>{m.icon} {m.label}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Button access checkboxes */}
+                                <div className="mb-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <p className="text-[10px] text-gray-500 font-semibold">🔘 TOMBOL YANG BISA DIAKSES (header halaman)</p>
+                                        <div className="flex gap-2">
+                                            <button onClick={selectAllButtons} className="text-[9px] text-blue-600 hover:underline">Pilih Semua</button>
+                                            <button onClick={clearAllButtons} className="text-[9px] text-red-500 hover:underline">Hapus Semua</button>
+                                        </div>
+                                    </div>
+                                    {BUTTON_CATEGORIES.map(cat => (
+                                        <div key={cat} className="mb-2">
+                                            <p className="text-[9px] text-gray-400 font-semibold uppercase mb-1">{cat}</p>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                {ALL_BUTTONS.filter(b => b.category === cat).map(b => (
+                                                    <label key={b.id} className="flex items-start gap-2 text-[11px] cursor-pointer bg-white border rounded px-2 py-1.5 hover:bg-cyan-50">
+                                                        <input type="checkbox"
+                                                            checked={(editingRole.allowedMenus || []).includes(b.id)}
+                                                            onChange={() => toggleButton(b.id)}
+                                                            className="rounded h-3 w-3 mt-0.5" />
+                                                        <div>
+                                                            <span className="font-medium text-gray-700">{b.icon} {b.label}</span>
+                                                            <p className="text-[9px] text-gray-400">{b.description}</p>
+                                                        </div>
                                                     </label>
                                                 ))}
                                             </div>

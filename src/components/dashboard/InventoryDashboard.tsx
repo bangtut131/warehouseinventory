@@ -233,6 +233,16 @@ export default function InventoryDashboard() {
         ? allTabs.filter(t => session.allowedMenus.includes(t.id))
         : allTabs; // superadmin or no session = all tabs
 
+    // Button permission helper: superadmin gets all, legacy tokens (no btn: entries) get all
+    const hasButton = (btnId: string): boolean => {
+        if (!session) return true; // no session = all access
+        if (session.isSuperAdmin) return true;
+        // If allowedMenus has no btn: entries at all, it's a legacy role → allow all buttons
+        const hasBtnEntries = session.allowedMenus.some(m => m.startsWith('btn:'));
+        if (!hasBtnEntries) return true;
+        return session.allowedMenus.includes(btnId);
+    };
+
     const renderContent = () => {
         switch (activeTab) {
             case 'dashboard': return <DashboardView items={items} />;
@@ -292,33 +302,39 @@ export default function InventoryDashboard() {
                                 👤 {session.fullName || session.username} ({session.roleName})
                             </Badge>
                         )}
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => fetchData()}
-                            disabled={loading}
-                            className="flex items-center gap-1.5"
-                        >
-                            {loading ? '⏳ Loading...' : '🔄 Refresh'}
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={startForceSync}
-                            disabled={loading || isSyncing}
-                            className="flex items-center gap-1.5 border-orange-300 text-orange-700 hover:bg-orange-50"
-                        >
-                            {isSyncing ? '⏳ Syncing...' : '🔃 Force Sync'}
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => exportAllAnalysis(items)}
-                            disabled={items.length === 0}
-                            className="flex items-center gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
-                        >
-                            📥 Export
-                        </Button>
+                        {hasButton('btn:refresh') && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fetchData()}
+                                disabled={loading}
+                                className="flex items-center gap-1.5"
+                            >
+                                {loading ? '⏳ Loading...' : '🔄 Refresh'}
+                            </Button>
+                        )}
+                        {hasButton('btn:force_sync') && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={startForceSync}
+                                disabled={loading || isSyncing}
+                                className="flex items-center gap-1.5 border-orange-300 text-orange-700 hover:bg-orange-50"
+                            >
+                                {isSyncing ? '⏳ Syncing...' : '🔃 Force Sync'}
+                            </Button>
+                        )}
+                        {hasButton('btn:export') && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => exportAllAnalysis(items)}
+                                disabled={items.length === 0}
+                                className="flex items-center gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
+                            >
+                                📥 Export
+                            </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="sm"
@@ -336,6 +352,7 @@ export default function InventoryDashboard() {
                 {/* Row 2: Filters — Branch, Warehouse, Date Range */}
                 <div className="flex flex-wrap items-center gap-3">
                     {/* Branch Selector */}
+                    {hasButton('btn:filter_branch') && (
                     <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-1.5 border">
                         <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">🏢 Cabang:</span>
                         <select
@@ -352,8 +369,10 @@ export default function InventoryDashboard() {
                             ))}
                         </select>
                     </div>
+                    )}
 
                     {/* Warehouse Selector */}
+                    {hasButton('btn:filter_warehouse') && (
                     <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-1.5 border">
                         <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">🏭 Gudang:</span>
                         <select
@@ -370,8 +389,10 @@ export default function InventoryDashboard() {
                             ))}
                         </select>
                     </div>
+                    )}
 
                     {/* Date Range */}
+                    {hasButton('btn:filter_date') && (
                     <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-1.5 border">
                         <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">📅 Range:</span>
                         <input
@@ -388,6 +409,7 @@ export default function InventoryDashboard() {
                             className="bg-transparent text-sm border-none outline-none w-[130px] cursor-pointer"
                         />
                     </div>
+                    )}
                 </div>
             </div>
 
@@ -461,13 +483,13 @@ export default function InventoryDashboard() {
             )}
 
             {/* Auto-Sync Scheduler Panel */}
-            <SchedulerPanel branches={branches} />
+            {hasButton('btn:scheduler') && <SchedulerPanel branches={branches} />}
 
             {/* WA Broadcast Panel */}
-            <BroadcastPanel branches={branches} warehouses={warehouses} />
+            {hasButton('btn:broadcast') && <BroadcastPanel branches={branches} warehouses={warehouses} />}
 
             {/* Price Analysis Auto-Sync Panel */}
-            <PriceSyncPanel />
+            {hasButton('btn:price_sync') && <PriceSyncPanel />}
 
             {/* Tabs */}
             <div className="flex flex-wrap gap-1.5">

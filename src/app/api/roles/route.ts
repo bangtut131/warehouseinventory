@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifySessionToken, SESSION_COOKIE_NAME, ALL_MENUS, ALL_DATA_COLUMNS } from '@/lib/auth';
+import { verifySessionToken, SESSION_COOKIE_NAME, ALL_MENUS, ALL_DATA_COLUMNS, ALL_BUTTONS } from '@/lib/auth';
 
 function getAdminSession(request: NextRequest): { session: any; error?: string } {
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
@@ -14,7 +14,7 @@ function getAdminSession(request: NextRequest): { session: any; error?: string }
     // Legacy token support: tokens created before RBAC was added won't have role fields
     // Treat them as admin since only admins could log in before RBAC existed
     if (session.roleName === undefined && session.isSuperAdmin === undefined) {
-        return { session: { ...session, isSuperAdmin: true, roleName: 'Legacy Admin', allowedMenus: ALL_MENUS.map(m => m.id) } };
+        return { session: { ...session, isSuperAdmin: true, roleName: 'Legacy Admin', allowedMenus: [...ALL_MENUS.map(m => m.id), ...ALL_BUTTONS.map(b => b.id)] } };
     }
     
     const isAllowed = session.isSuperAdmin || session.roleName === 'Admin' || (session.allowedMenus || []).includes('general-settings');

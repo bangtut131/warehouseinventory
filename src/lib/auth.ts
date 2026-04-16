@@ -1,10 +1,10 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { ALL_MENUS, ALL_DATA_COLUMNS } from '@/lib/menu-constants';
+import { ALL_MENUS, ALL_DATA_COLUMNS, ALL_BUTTONS } from '@/lib/menu-constants';
 
 // Re-export for backward compatibility
-export { ALL_MENUS, ALL_DATA_COLUMNS };
+export { ALL_MENUS, ALL_DATA_COLUMNS, ALL_BUTTONS };
 
 // Auth credentials from environment variables (superadmin fallback)
 const AUTH_USERNAME = process.env.AUTH_USERNAME || 'admin';
@@ -76,7 +76,7 @@ export async function validateCredentials(username: string, password: string): P
                 fullName: 'Administrator',
                 roleId: 0,
                 roleName: 'Superadmin',
-                allowedMenus: ALL_MENUS.map(m => m.id),
+                allowedMenus: [...ALL_MENUS.map(m => m.id), ...ALL_BUTTONS.map(b => b.id)],
                 hiddenColumns: [],
                 isSuperAdmin: true,
             },
