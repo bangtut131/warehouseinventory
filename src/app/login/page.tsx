@@ -111,8 +111,14 @@ export default function LoginPage() {
                         </button>
                     </form>
 
+                    {/* Register link */}
+                    <p className="text-center text-xs text-blue-200/60 mt-4">
+                        Belum punya akun?{' '}
+                        <a href="/register" className="text-blue-400 hover:text-blue-300 underline transition">Daftar</a>
+                    </p>
+
                     {/* Footer */}
-                    <p className="text-center text-[10px] text-white/20 mt-6">
+                    <p className="text-center text-[10px] text-white/20 mt-4">
                         Powered by Accurate API
                     </p>
                 </div>

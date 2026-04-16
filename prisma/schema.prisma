@@ -76,3 +76,30 @@ model VehicleType {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
+
+// RBAC: Role definitions with menu access and data visibility control
+model AppRole {
+  id             Int       @id @default(autoincrement())
+  name           String    @unique       // "Admin", "Manager", "Staff"
+  description    String?
+  allowedMenus   Json      @default("[]") // ["dashboard","so","routing",...]
+  hiddenColumns  Json      @default("[]") // ["col:value","col:cost","col:margin",...]
+  isDefault      Boolean   @default(false) // auto-assign to new registered users
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  users          AppUser[]
+}
+
+// RBAC: User accounts
+model AppUser {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String                     // bcrypt hashed
+  fullName  String?
+  roleId    Int
+  role      AppRole  @relation(fields: [roleId], references: [id])
+  status    String   @default("pending") // pending, approved, rejected
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

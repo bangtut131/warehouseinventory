@@ -17,12 +17,23 @@ import { SLAPengirimanView } from './views/SLAPengirimanView';
 import { PriceAnalysisView } from './views/PriceAnalysisView';
 import { MasterDataView } from './views/MasterDataView';
 import { DeliveryRoutingView } from './views/DeliveryRoutingView';
+import { GeneralSettingsView } from './views/GeneralSettingsView';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { exportAllAnalysis } from '@/lib/exportExcel';
 import { SchedulerPanel } from './SchedulerPanel';
 import { BroadcastPanel } from './BroadcastPanel';
 import { PriceSyncPanel } from './PriceSyncPanel';
+
+interface UserSession {
+    username: string;
+    fullName?: string;
+    roleName: string;
+    roleId: number;
+    allowedMenus: string[];
+    hiddenColumns: string[];
+    isSuperAdmin: boolean;
+}
 
 function formatDateParam(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -56,6 +67,9 @@ export default function InventoryDashboard() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [dataSource, setDataSource] = useState<'API' | 'ESTIMATED'>('ESTIMATED');
 
+    // Session / RBAC state
+    const [session, setSession] = useState<UserSession | null>(null);
+
     // Date range state
     const [fromDate, setFromDate] = useState('2025-01-01');
     const [toDate, setToDate] = useState(formatDateParam(new Date()));
@@ -87,6 +101,20 @@ export default function InventoryDashboard() {
             }
         }
         loadLocations();
+    }, []);
+
+    // Fetch session info (RBAC)
+    useEffect(() => {
+        async function loadSession() {
+            try {
+                const res = await fetch('/api/auth/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    setSession(data);
+                }
+            } catch { /* env-based admin fallback */ }
+        }
+        loadSession();
     }, []);
 
     // ─── Fetch inventory data ────────────────────────────────────
@@ -189,7 +217,7 @@ export default function InventoryDashboard() {
         );
     }
 
-    const tabs = [
+    const allTabs = [
         { id: 'dashboard', label: '📊 Dashboard', color: '' },
         { id: 'rop', label: '🎯 ROP Analysis', color: '' },
         { id: 'abc', label: '🔠 ABC-XYZ Matrix', color: '' },
@@ -204,7 +232,13 @@ export default function InventoryDashboard() {
         { id: 'price', label: '💰 Analisa Harga', color: 'text-amber-600 border-amber-200 hover:bg-amber-50' },
         { id: 'routing', label: '🚛 Delivery Routing', color: 'text-cyan-600 border-cyan-200 hover:bg-cyan-50' },
         { id: 'settings', label: '⚙️ Master Data', color: 'text-gray-600 border-gray-200 hover:bg-gray-50' },
+        { id: 'general-settings', label: '🛠️ Settings', color: 'text-gray-600 border-gray-200 hover:bg-gray-50' },
     ];
+
+    // Filter tabs by role permissions
+    const tabs = session?.allowedMenus
+        ? allTabs.filter(t => session.allowedMenus.includes(t.id))
+        : allTabs; // superadmin or no session = all tabs
 
     const renderContent = () => {
         switch (activeTab) {
@@ -222,6 +256,7 @@ export default function InventoryDashboard() {
             case 'price': return <PriceAnalysisView />;
             case 'routing': return <DeliveryRoutingView />;
             case 'settings': return <MasterDataView />;
+            case 'general-settings': return <GeneralSettingsView />;
             default: return <DashboardView items={items} />;
         }
     };
@@ -258,6 +293,11 @@ export default function InventoryDashboard() {
                     </div>
                     {/* Action Buttons */}
                     <div className="flex items-center gap-2">
+                        {session && (
+                            <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-300 text-[10px]">
+                                👤 {session.fullName || session.username} ({session.roleName})
+                            </Badge>
+                        )}
                         <Button
                             variant="outline"
                             size="sm"

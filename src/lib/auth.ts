@@ -1,36 +1,125 @@
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import { prisma } from '@/lib/prisma';
 
-// Auth credentials from environment variables
+// Auth credentials from environment variables (superadmin fallback)
 const AUTH_USERNAME = process.env.AUTH_USERNAME || 'admin';
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD || 'admin123';
 
-// Session token secret — used to sign/verify tokens
+// Session token secret
 const TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'inventory-warehouse-secret-key-2025';
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const SESSION_COOKIE_NAME = 'inventory-session';
 
+// All available menus for role assignment
+export const ALL_MENUS = [
+    { id: 'dashboard', label: 'Dashboard', category: 'Inventory', icon: '📊' },
+    { id: 'rop', label: 'ROP Analysis', category: 'Inventory', icon: '🎯' },
+    { id: 'abc', label: 'ABC-XYZ Matrix', category: 'Inventory', icon: '🔠' },
+    { id: 'eoq', label: 'EOQ Analysis', category: 'Inventory', icon: '📦' },
+    { id: 'trends', label: 'Trends', category: 'Inventory', icon: '📈' },
+    { id: 'alerts', label: 'Alerts', category: 'Inventory', icon: '🚨' },
+    { id: 'overstock', label: 'Overstock', category: 'Inventory', icon: '📦' },
+    { id: 'top', label: 'Top Items', category: 'Inventory', icon: '🏆' },
+    { id: 'so', label: 'Kontrol SO', category: 'Sales', icon: '📋' },
+    { id: 'regional', label: 'Wilayah SO', category: 'Sales', icon: '📍' },
+    { id: 'sla', label: 'SLA Pengiriman', category: 'Sales', icon: '🚚' },
+    { id: 'price', label: 'Analisa Harga', category: 'Sales', icon: '💰' },
+    { id: 'routing', label: 'Delivery Routing', category: 'Logistics', icon: '🚛' },
+    { id: 'settings', label: 'Master Data', category: 'Admin', icon: '⚙️' },
+    { id: 'general-settings', label: 'Settings General', category: 'Admin', icon: '🛠️' },
+];
+
+// All available data columns that can be hidden per role
+export const ALL_DATA_COLUMNS = [
+    { id: 'col:value', label: 'Nilai / Total Rupiah', description: 'Kolom nilai transaksi (Rp)' },
+    { id: 'col:cost', label: 'Harga Pokok / HPP', description: 'Harga beli / cost per item' },
+    { id: 'col:margin', label: 'Margin / Profit', description: 'Margin keuntungan' },
+    { id: 'col:price', label: 'Harga Jual', description: 'Harga jual per unit' },
+    { id: 'col:customer_no', label: 'No. Customer', description: 'Nomor ID customer' },
+    { id: 'col:fleet_cost', label: 'Biaya Kendaraan', description: 'Biaya per trip kendaraan' },
+];
+
 export interface SessionPayload {
     username: string;
-    exp: number; // expiration timestamp
+    fullName?: string;
+    roleId: number;
+    roleName: string;
+    allowedMenus: string[];
+    hiddenColumns: string[];
+    isSuperAdmin: boolean;
+    exp: number;
 }
 
 /**
- * Validate login credentials against environment variables
+ * Validate login — check DB users first, then env fallback for superadmin
  */
-export function validateCredentials(username: string, password: string): boolean {
-    return username === AUTH_USERNAME && password === AUTH_PASSWORD;
+export async function validateCredentials(username: string, password: string): Promise<{
+    valid: boolean;
+    payload?: Omit<SessionPayload, 'exp'>;
+}> {
+    // 1. Check DB users first
+    try {
+        const user = await prisma.appUser.findUnique({
+            where: { username },
+            include: { role: true },
+        });
+
+        if (user && user.isActive && user.status === 'approved') {
+            const passwordMatch = await bcrypt.compare(password, user.password);
+            if (passwordMatch) {
+                return {
+                    valid: true,
+                    payload: {
+                        username: user.username,
+                        fullName: user.fullName || undefined,
+                        roleId: user.role.id,
+                        roleName: user.role.name,
+                        allowedMenus: (user.role.allowedMenus as string[]) || [],
+                        hiddenColumns: (user.role.hiddenColumns as string[]) || [],
+                        isSuperAdmin: false,
+                    },
+                };
+            }
+        }
+
+        if (user && user.status === 'pending') {
+            return { valid: false }; // pending approval
+        }
+    } catch (e) {
+        // DB might not be available, fall through to env check
+        console.warn('[Auth] DB check failed:', (e as any).message);
+    }
+
+    // 2. Fallback: check env-based superadmin
+    if (username === AUTH_USERNAME && password === AUTH_PASSWORD) {
+        return {
+            valid: true,
+            payload: {
+                username,
+                fullName: 'Administrator',
+                roleId: 0,
+                roleName: 'Superadmin',
+                allowedMenus: ALL_MENUS.map(m => m.id),
+                hiddenColumns: [],
+                isSuperAdmin: true,
+            },
+        };
+    }
+
+    return { valid: false };
 }
 
 /**
  * Create a signed session token
  */
-export function createSessionToken(username: string): string {
-    const payload: SessionPayload = {
-        username,
+export function createSessionToken(payload: Omit<SessionPayload, 'exp'>): string {
+    const full: SessionPayload = {
+        ...payload,
         exp: Date.now() + TOKEN_EXPIRY_MS,
     };
-    const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const data = Buffer.from(JSON.stringify(full)).toString('base64url');
     const signature = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('base64url');
     return `${data}.${signature}`;
 }
@@ -43,18 +132,21 @@ export function verifySessionToken(token: string): SessionPayload | null {
         const [data, signature] = token.split('.');
         if (!data || !signature) return null;
 
-        // Verify signature
         const expectedSig = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('base64url');
         if (signature !== expectedSig) return null;
 
-        // Decode payload
         const payload: SessionPayload = JSON.parse(Buffer.from(data, 'base64url').toString());
-
-        // Check expiry
         if (Date.now() > payload.exp) return null;
 
         return payload;
     } catch {
         return null;
     }
+}
+
+/**
+ * Hash a password
+ */
+export async function hashPassword(password: string): Promise<string> {
+    return bcrypt.hash(password, 10);
 }

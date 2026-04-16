@@ -14,23 +14,34 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (!validateCredentials(username, password)) {
+        const result = await validateCredentials(username, password);
+
+        if (!result.valid || !result.payload) {
             return NextResponse.json(
-                { error: 'Username atau password salah' },
+                { error: 'Username atau password salah, atau akun belum disetujui' },
                 { status: 401 }
             );
         }
 
-        // Create session token
-        const token = createSessionToken(username);
+        // Create session token with role info
+        const token = createSessionToken(result.payload);
 
         // Set cookie
-        const response = NextResponse.json({ success: true, message: 'Login berhasil' });
+        const response = NextResponse.json({
+            success: true,
+            message: 'Login berhasil',
+            user: {
+                username: result.payload.username,
+                fullName: result.payload.fullName,
+                roleName: result.payload.roleName,
+                isSuperAdmin: result.payload.isSuperAdmin,
+            },
+        });
         response.cookies.set(SESSION_COOKIE_NAME, token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 24 * 60 * 60, // 24 hours in seconds
+            maxAge: 24 * 60 * 60,
             path: '/',
         });
 

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const SESSION_COOKIE_NAME = 'inventory-session';
 
 // Routes that don't require authentication
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/logout'];
+const PUBLIC_PATHS = ['/login', '/register', '/api/auth/login', '/api/auth/logout', '/api/auth/register'];
 
 export function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
