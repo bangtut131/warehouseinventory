@@ -10,6 +10,13 @@ function getAdminSession(request: NextRequest): { session: any; error?: string }
     if (!token) return { session: null, error: 'No session token found' };
     const session = verifySessionToken(token);
     if (!session) return { session: null, error: 'Token invalid or expired - please re-login' };
+    
+    // Legacy token support: tokens created before RBAC was added won't have role fields
+    // Treat them as admin since only admins could log in before RBAC existed
+    if (session.roleName === undefined && session.isSuperAdmin === undefined) {
+        return { session: { ...session, isSuperAdmin: true, roleName: 'Legacy Admin', allowedMenus: ALL_MENUS.map(m => m.id) } };
+    }
+    
     const isAllowed = session.isSuperAdmin || session.roleName === 'Admin' || (session.allowedMenus || []).includes('general-settings');
     if (!isAllowed) {
         return { session: null, error: `Insufficient permissions (role: ${session.roleName}, isSuperAdmin: ${session.isSuperAdmin}, menus: ${JSON.stringify(session.allowedMenus)})` };

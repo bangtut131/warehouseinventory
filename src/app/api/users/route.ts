@@ -3,21 +3,31 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifySessionToken, SESSION_COOKIE_NAME, hashPassword } from '@/lib/auth';
+import { verifySessionToken, SESSION_COOKIE_NAME, hashPassword, ALL_MENUS } from '@/lib/auth';
 
-function isAdmin(request: NextRequest): boolean {
+function getAdminSession(request: NextRequest): { session: any; error?: string } {
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-    if (!token) return false;
+    if (!token) return { session: null, error: 'No session token found' };
     const session = verifySessionToken(token);
-    if (!session) return false;
-    // Allow: superadmin, role named 'Admin', or any user with access to general-settings
-    return session.isSuperAdmin || session.roleName === 'Admin' || (session.allowedMenus || []).includes('general-settings');
+    if (!session) return { session: null, error: 'Token invalid or expired - please re-login' };
+    
+    // Legacy token support: tokens created before RBAC was added won't have role fields
+    if (session.roleName === undefined && session.isSuperAdmin === undefined) {
+        return { session: { ...session, isSuperAdmin: true, roleName: 'Legacy Admin', allowedMenus: ALL_MENUS.map(m => m.id) } };
+    }
+    
+    const isAllowed = session.isSuperAdmin || session.roleName === 'Admin' || (session.allowedMenus || []).includes('general-settings');
+    if (!isAllowed) {
+        return { session: null, error: `Insufficient permissions (role: ${session.roleName})` };
+    }
+    return { session };
 }
 
 // GET: List all users
 export async function GET(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const users = await prisma.appUser.findMany({
@@ -41,8 +51,9 @@ export async function GET(request: NextRequest) {
 
 // POST: Create a new user (admin-created, auto-approved)
 export async function POST(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const { username, password, fullName, roleId } = await request.json();
@@ -78,8 +89,9 @@ export async function POST(request: NextRequest) {
 
 // PUT: Update user (approve, reject, change role, reset password)
 export async function PUT(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const body = await request.json();
@@ -108,8 +120,9 @@ export async function PUT(request: NextRequest) {
 
 // DELETE: Remove a user
 export async function DELETE(request: NextRequest) {
-    if (!isAdmin(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    const { session, error } = getAdminSession(request);
+    if (!session) {
+        return NextResponse.json({ error: error || 'Unauthorized' }, { status: 403 });
     }
     try {
         const { searchParams } = new URL(request.url);
