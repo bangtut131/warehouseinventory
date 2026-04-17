@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchDispatchOrders, DispatchRecord, buildDispatchLookup } from '@/lib/google-sheets';
+import { fetchDispatchOrders, DispatchRecord, buildDispatchLookup, lastDispatchError, lastDispatchSheetNames } from '@/lib/google-sheets';
 import { prisma } from '@/lib/prisma';
 
 const CACHE_KEY = 'dispatch-tms-cache';
@@ -70,6 +70,8 @@ export async function GET(request: NextRequest) {
             envGoogleEmail: process.env.GOOGLE_CLIENT_EMAIL ? 'SET' : 'NOT SET',
             envGoogleKey: process.env.GOOGLE_PRIVATE_KEY ? 'SET' : 'NOT SET',
             rawFetchCount: records.length,
+            lastError: lastDispatchError,
+            sheetNames: lastDispatchSheetNames,
         };
 
         // Apply filters

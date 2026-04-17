@@ -185,7 +185,12 @@ function calcDurationMinutes(startStr: string, endStr: string): number | null {
  * Sheet: "Delivery Orders"
  * Spreadsheet: DISPATCH_SPREADSHEET_ID
  */
+export let lastDispatchError: string | null = null;
+export let lastDispatchSheetNames: string[] = [];
+
 export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
+    lastDispatchError = null;
+    lastDispatchSheetNames = [];
     try {
         const auth = getGoogleAuth();
         const spreadsheetId = process.env.DISPATCH_SPREADSHEET_ID;
@@ -201,9 +206,35 @@ export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
 
         const sheets = google.sheets({ version: 'v4', auth });
 
+        // First: auto-discover sheet names
+        try {
+            const meta = await sheets.spreadsheets.get({ spreadsheetId });
+            lastDispatchSheetNames = (meta.data.sheets || []).map(s => s.properties?.title || '').filter(Boolean);
+            console.log(`[Dispatch Sheets] Available sheets: ${lastDispatchSheetNames.join(', ')}`);
+        } catch (e: any) {
+            console.warn(`[Dispatch Sheets] Could not list sheets: ${e.message}`);
+            lastDispatchError = `Failed to list sheets: ${e.message}`;
+        }
+
+        // Try exact name first, then fallback to first sheet
+        let sheetName = 'Delivery Orders';
+        if (lastDispatchSheetNames.length > 0 && !lastDispatchSheetNames.includes(sheetName)) {
+            // Try case-insensitive match
+            const match = lastDispatchSheetNames.find(s => s.toLowerCase() === sheetName.toLowerCase());
+            if (match) {
+                sheetName = match;
+            } else {
+                // Use first sheet as fallback
+                sheetName = lastDispatchSheetNames[0];
+                console.warn(`[Dispatch Sheets] Sheet "Delivery Orders" not found. Using "${sheetName}" instead.`);
+            }
+        }
+
+        console.log(`[Dispatch Sheets] Reading sheet: "${sheetName}"`);
+
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: 'Delivery Orders!A:Z',
+            range: `'${sheetName}'!A:Z`,
         });
 
         const rows = response.data.values;
@@ -276,6 +307,7 @@ export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
         console.log(`[Dispatch Sheets] Berhasil fetch ${records.length} dispatch records dari TMS.`);
         return records;
     } catch (error: any) {
+        lastDispatchError = error.message;
         console.error('[Dispatch Sheets] Fetch Error:', error.message);
         return [];
     }
