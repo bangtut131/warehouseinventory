@@ -17,6 +17,7 @@ import { SLAPengirimanView } from './views/SLAPengirimanView';
 import { PriceAnalysisView } from './views/PriceAnalysisView';
 import { MasterDataView } from './views/MasterDataView';
 import { DeliveryRoutingView } from './views/DeliveryRoutingView';
+import { DispatchView } from './views/DispatchView';
 import { GeneralSettingsView } from './views/GeneralSettingsView';
 import { SessionProvider, SessionContextType } from '@/lib/SessionContext';
 import { Button } from "@/components/ui/button";
@@ -224,6 +225,7 @@ export default function InventoryDashboard() {
         { id: 'sla', label: '🚚 SLA Pengiriman', color: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' },
         { id: 'price', label: '💰 Analisa Harga', color: 'text-amber-600 border-amber-200 hover:bg-amber-50' },
         { id: 'routing', label: '🚛 Delivery Routing', color: 'text-cyan-600 border-cyan-200 hover:bg-cyan-50' },
+        { id: 'dispatch', label: '📦 Dispatch Armada', color: 'text-violet-600 border-violet-200 hover:bg-violet-50' },
         { id: 'settings', label: '⚙️ Master Data', color: 'text-gray-600 border-gray-200 hover:bg-gray-50' },
         { id: 'general-settings', label: '🛠️ Settings', color: 'text-gray-600 border-gray-200 hover:bg-gray-50' },
     ];
@@ -259,6 +261,7 @@ export default function InventoryDashboard() {
             case 'sla': return <SLAPengirimanView branches={branches} />;
             case 'price': return <PriceAnalysisView />;
             case 'routing': return <DeliveryRoutingView />;
+            case 'dispatch': return <DispatchView />;
             case 'settings': return <MasterDataView />;
             case 'general-settings': return <GeneralSettingsView />;
             default: return <DashboardView items={items} />;

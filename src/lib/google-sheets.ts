@@ -1,32 +1,70 @@
 import { google } from 'googleapis';
 
+// ─── Existing SLA Sheet Types ────────────────────────────────
+
 export interface SheetOrder {
     doName: string;
     completedAt: string | null;
 }
 
+// ─── Dispatch (TMS) Types ────────────────────────────────────
+
+export interface DispatchRecord {
+    scheduledDate: string;        // Dijadwalkan Tanggal
+    customerName: string;         // Nama Pelanggan
+    customerCode: string;         // Kode Pelanggan
+    taskNumber: string;           // Nomor Tugas (DO number — key matching)
+    taskType: string;             // Jenis Tugas
+    destination: string;          // Lokasi Tujuan
+    officeLocation: string;       // Lokasi Kantor
+    assignmentStatus: string;     // Status Penugasan
+    driver: string;               // Driver Bertugas
+    coDriver: string;             // Co-Driver
+    proofOfDelivery: string;      // Bukti Selesai (URL)
+    completionDetails: string;    // Rincian Penyelesaian
+    taskCreatedAt: string;        // Waktu Tugas Dibuat
+    assignedAt: string;           // Waktu Penugasan
+    taskStartedAt: string;        // Waktu Tugas Dijalankan
+    taskCompletedAt: string;      // Waktu Tugas Diselesaikan
+    // Derived
+    isDeparted: boolean;          // true if taskStartedAt has value
+    isCompleted: boolean;         // true if taskCompletedAt has value
+    durationMinutes: number | null; // taskCompletedAt - taskStartedAt in minutes
+}
+
+// ─── Shared Auth Helper ──────────────────────────────────────
+
+function getGoogleAuth() {
+    const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+    if (!clientEmail || !privateKey) {
+        return null;
+    }
+
+    return new google.auth.GoogleAuth({
+        credentials: {
+            client_email: clientEmail,
+            private_key: privateKey,
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+}
+
+// ─── Existing: Fetch SLA Orders ──────────────────────────────
+
 export async function fetchSpreadsheetOrders(): Promise<SheetOrder[]> {
     try {
-        const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-        const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+        const auth = getGoogleAuth();
         const spreadsheetId = process.env.SPREADSHEET_ID;
 
-        if (!clientEmail || !privateKey || !spreadsheetId) {
+        if (!auth || !spreadsheetId) {
             console.warn('[Google Sheets] Kredensial tidak lengkap di .env, mode sheets di-skip');
             return [];
         }
 
-        const auth = new google.auth.GoogleAuth({
-            credentials: {
-                client_email: clientEmail,
-                private_key: privateKey,
-            },
-            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-        });
-
         const sheets = google.sheets({ version: 'v4', auth });
         
-        // Fetch data dari sheet "Orders"
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
             range: 'Orders!A:Z', 
@@ -39,21 +77,10 @@ export async function fetchSpreadsheetOrders(): Promise<SheetOrder[]> {
         }
 
         const headers: string[] = rows[0];
-        
-        // Cari index kolom "Nama Tugas" atau "DO Name" yang relevan.
-        // Berdasarkan info dari user: "menggunakan data nama DO" dan "Waktu Tugas Diselesaikan"
-        const doColumnIndex = headers.findIndex(h => 
-            h.toLowerCase().includes('do') || h.toLowerCase().includes('nama do') || h.toLowerCase().includes('tugas') || h.toLowerCase().includes('order')
-        ); // You might need to adjust this depending on exact header, assuming we just try to find it or we can check exact match
-        
-        // Let's do exact match or includes based on common terms.
-        // For DO, user said "di spreadsheet menggunakan data nama DO", so header might just be "Nama DO".
-        // Let's search broadly just in case.
         const headerLower = headers.map(h => h ? String(h).toLowerCase().trim() : '');
         
         let idxDO = headerLower.findIndex(h => h === 'nama do' || h === 'no do' || h === 'do' || h === 'nomor tugas');
         if (idxDO === -1) {
-             // Fallback
              idxDO = headerLower.findIndex(h => h.includes('do') || h.includes('tugas'));
         }
 
@@ -66,7 +93,6 @@ export async function fetchSpreadsheetOrders(): Promise<SheetOrder[]> {
 
         const orders: SheetOrder[] = [];
 
-        // Loop dari row ke-2 (index 1) sampai akhir
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
             const doName = row[idxDO];
@@ -86,4 +112,184 @@ export async function fetchSpreadsheetOrders(): Promise<SheetOrder[]> {
         console.error('[Google Sheets] Fetch Error:', error.message);
         return [];
     }
+}
+
+// ─── NEW: Fetch Dispatch Orders from TMS ─────────────────────
+
+// Column header mappings (case-insensitive matching)
+const DISPATCH_COLUMN_MAP: Record<keyof Omit<DispatchRecord, 'isDeparted' | 'isCompleted' | 'durationMinutes'>, string[]> = {
+    scheduledDate: ['dijadwalkan tanggal', 'tanggal'],
+    customerName: ['nama pelanggan', 'customer'],
+    customerCode: ['kode pelanggan', 'kode customer'],
+    taskNumber: ['nomor tugas', 'no tugas', 'no do'],
+    taskType: ['jenis tugas', 'tipe tugas'],
+    destination: ['lokasi tujuan', 'tujuan', 'alamat'],
+    officeLocation: ['lokasi kantor', 'kantor'],
+    assignmentStatus: ['status penugasan', 'status'],
+    driver: ['driver bertugas', 'driver', 'nama driver'],
+    coDriver: ['co-driver', 'co driver', 'codriver'],
+    proofOfDelivery: ['bukti selesai', 'bukti'],
+    completionDetails: ['rincian penyelesaian', 'rincian', 'catatan'],
+    taskCreatedAt: ['waktu tugas dibuat', 'dibuat'],
+    assignedAt: ['waktu penugasan', 'penugasan'],
+    taskStartedAt: ['waktu tugas dijalankan', 'dijalankan'],
+    taskCompletedAt: ['waktu tugas diselesaikan', 'diselesaikan'],
+};
+
+function findColumnIndex(headers: string[], aliases: string[]): number {
+    const headerLower = headers.map(h => h ? String(h).toLowerCase().trim() : '');
+    for (const alias of aliases) {
+        const idx = headerLower.findIndex(h => h === alias || h.includes(alias));
+        if (idx !== -1) return idx;
+    }
+    return -1;
+}
+
+function parseDispatchDatetime(val: string): Date | null {
+    if (!val) return null;
+    // Try formats: "14/05/2025 11:20", "5/14/2025 11:20:00", "2025-05-14T11:20:00"
+    const trimmed = val.trim();
+    
+    // dd/mm/yyyy HH:mm or dd/mm/yyyy HH:mm:ss
+    const dmyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (dmyMatch) {
+        const [, d, m, y, hh, mm, ss] = dmyMatch;
+        return new Date(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(hh), parseInt(mm), parseInt(ss || '0'));
+    }
+
+    // mm/dd/yyyy HH:mm (US format — Google Sheets default)
+    const mdyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (mdyMatch) {
+        const [, m, d, y, hh, mm, ss] = mdyMatch;
+        const date = new Date(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(hh), parseInt(mm), parseInt(ss || '0'));
+        if (!isNaN(date.getTime())) return date;
+    }
+
+    // ISO format
+    const iso = new Date(trimmed);
+    if (!isNaN(iso.getTime())) return iso;
+
+    return null;
+}
+
+function calcDurationMinutes(startStr: string, endStr: string): number | null {
+    const start = parseDispatchDatetime(startStr);
+    const end = parseDispatchDatetime(endStr);
+    if (!start || !end) return null;
+    const diff = (end.getTime() - start.getTime()) / 60000;
+    return diff > 0 ? Math.round(diff) : null;
+}
+
+/**
+ * Fetch dispatch/fleet data from TMS Google Sheets.
+ * Sheet: "Delivery Orders"
+ * Spreadsheet: DISPATCH_SPREADSHEET_ID
+ */
+export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
+    try {
+        const auth = getGoogleAuth();
+        const spreadsheetId = process.env.DISPATCH_SPREADSHEET_ID;
+
+        if (!auth) {
+            console.warn('[Dispatch Sheets] Google credentials tidak ditemukan');
+            return [];
+        }
+        if (!spreadsheetId) {
+            console.warn('[Dispatch Sheets] DISPATCH_SPREADSHEET_ID tidak diset di .env');
+            return [];
+        }
+
+        const sheets = google.sheets({ version: 'v4', auth });
+
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: 'Delivery Orders!A:Z',
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) {
+            console.log('[Dispatch Sheets] Sheet "Delivery Orders" kosong.');
+            return [];
+        }
+
+        const headers: string[] = rows[0];
+        console.log(`[Dispatch Sheets] Headers: ${headers.join(' | ')}`);
+
+        // Map column indices
+        const colIdx: Record<string, number> = {};
+        for (const [field, aliases] of Object.entries(DISPATCH_COLUMN_MAP)) {
+            colIdx[field] = findColumnIndex(headers, aliases);
+        }
+
+        // Log unmapped columns
+        const unmapped = Object.entries(colIdx).filter(([, idx]) => idx === -1).map(([k]) => k);
+        if (unmapped.length > 0) {
+            console.warn(`[Dispatch Sheets] Kolom tidak ditemukan: ${unmapped.join(', ')}`);
+        }
+
+        // Must have taskNumber at minimum
+        if (colIdx.taskNumber === -1) {
+            console.error('[Dispatch Sheets] Kolom "Nomor Tugas" tidak ditemukan! Batal fetch.');
+            return [];
+        }
+
+        const records: DispatchRecord[] = [];
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const taskNumber = row[colIdx.taskNumber] ? String(row[colIdx.taskNumber]).trim() : '';
+            if (!taskNumber) continue;
+
+            const get = (field: string): string => {
+                const idx = colIdx[field];
+                if (idx === -1 || idx === undefined) return '';
+                return row[idx] ? String(row[idx]).trim() : '';
+            };
+
+            const taskStartedAt = get('taskStartedAt');
+            const taskCompletedAt = get('taskCompletedAt');
+
+            records.push({
+                scheduledDate: get('scheduledDate'),
+                customerName: get('customerName'),
+                customerCode: get('customerCode'),
+                taskNumber,
+                taskType: get('taskType'),
+                destination: get('destination'),
+                officeLocation: get('officeLocation'),
+                assignmentStatus: get('assignmentStatus'),
+                driver: get('driver'),
+                coDriver: get('coDriver'),
+                proofOfDelivery: get('proofOfDelivery'),
+                completionDetails: get('completionDetails'),
+                taskCreatedAt: get('taskCreatedAt'),
+                assignedAt: get('assignedAt'),
+                taskStartedAt,
+                taskCompletedAt,
+                // Derived fields
+                isDeparted: !!taskStartedAt,
+                isCompleted: !!taskCompletedAt,
+                durationMinutes: calcDurationMinutes(taskStartedAt, taskCompletedAt),
+            });
+        }
+
+        console.log(`[Dispatch Sheets] Berhasil fetch ${records.length} dispatch records dari TMS.`);
+        return records;
+    } catch (error: any) {
+        console.error('[Dispatch Sheets] Fetch Error:', error.message);
+        return [];
+    }
+}
+
+/**
+ * Build a lookup map: DO number → DispatchRecord
+ * Used by Kontrol SO and Delivery Routing to show departure status
+ */
+export function buildDispatchLookup(records: DispatchRecord[]): Map<string, DispatchRecord> {
+    const map = new Map<string, DispatchRecord>();
+    for (const r of records) {
+        // Key: full DO number (e.g., "DO.645.2025.05.00513")
+        map.set(r.taskNumber, r);
+    }
+    return map;
 }

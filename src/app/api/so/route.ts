@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchAllSOData, loadSOCache, fetchAllInventory, fetchItemUnitMap } from '@/lib/accurate';
 import { SOData } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
+import { DispatchRecord } from '@/lib/google-sheets';
 
 // ─── In-memory sync state ────────────────────────────────────
 let soSyncState = {
@@ -143,6 +144,50 @@ export async function GET(request: NextRequest) {
             });
         } catch {
             console.warn('[SO API] Could not join stock/unit data');
+        }
+
+        // Join dispatch (TMS) data: fleet departure status
+        try {
+            const dispatchCache = await prisma.dataCache.findUnique({ where: { key: 'dispatch-tms-cache' } });
+            if (dispatchCache?.data) {
+                const c = dispatchCache.data as any;
+                const dispatchRecords: DispatchRecord[] = c.data || [];
+                // Build lookup: DO number → dispatch record
+                const dispatchMap = new Map<string, DispatchRecord>();
+                dispatchRecords.forEach(r => dispatchMap.set(r.taskNumber, r));
+
+                if (dispatchMap.size > 0) {
+                    soList = soList.map(so => {
+                        // Match by SO number → DO number pattern
+                        // SO: SO.2026.03.01376 → DO might be: DO.XXX.2026.03.XXXXX
+                        // For now, try matching via customer code or iterate dispatch records
+                        // Since dispatch uses DO numbers, we need to find DOs related to this SO
+                        // Best approach: check if any dispatch record's customerCode matches this SO's customerNo
+                        const matchedDispatches: DispatchRecord[] = [];
+                        dispatchMap.forEach(dr => {
+                            if (so.customerNo && dr.customerCode && dr.customerCode === so.customerNo) {
+                                matchedDispatches.push(dr);
+                            }
+                        });
+
+                        if (matchedDispatches.length > 0) {
+                            const latestDispatch = matchedDispatches[0]; // take first match
+                            return {
+                                ...so,
+                                dispatchStatus: latestDispatch.isDeparted ? 'Sudah Berangkat' : 'Belum Berangkat',
+                                dispatchDriver: latestDispatch.driver || undefined,
+                                dispatchCoDriver: latestDispatch.coDriver || undefined,
+                                dispatchDepartedAt: latestDispatch.taskStartedAt || undefined,
+                                dispatchCompletedAt: latestDispatch.taskCompletedAt || undefined,
+                            };
+                        }
+                        return so;
+                    });
+                    console.log(`[SO API] Dispatch merge: ${dispatchMap.size} dispatch records, matched with SO data`);
+                }
+            }
+        } catch (e: any) {
+            console.warn('[SO API] Could not join dispatch data:', e.message);
         }
 
         return NextResponse.json({

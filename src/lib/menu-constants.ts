@@ -37,6 +37,7 @@ export const ALL_MENUS: MenuRegistryItem[] = [
     { id: 'sla', label: 'SLA Pengiriman', category: 'Sales', icon: '🚚' },
     { id: 'price', label: 'Analisa Harga', category: 'Sales', icon: '💰' },
     { id: 'routing', label: 'Delivery Routing', category: 'Logistics', icon: '🚛' },
+    { id: 'dispatch', label: 'Dispatch Armada', category: 'Logistics', icon: '📦' },
     { id: 'settings', label: 'Master Data', category: 'Admin', icon: '⚙️' },
     { id: 'general-settings', label: 'Settings General', category: 'Admin', icon: '🛠️' },
 ];

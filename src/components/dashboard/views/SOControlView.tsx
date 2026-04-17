@@ -687,19 +687,20 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                             <th className="px-3 py-2 font-medium">Sub Cluster</th>
                             <th className="px-3 py-2 font-medium">Status</th>
                             <th className="px-3 py-2 font-medium">Status Kiriman</th>
+                            <th className="px-3 py-2 font-medium">Status Armada</th>
                             <th className="px-3 py-2 font-medium text-center">Items</th>
                             <th className="px-3 py-2 font-medium text-right">Outstanding</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={14} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={15} className="text-center py-8 text-muted-foreground">
                                 <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
                                 Memuat data SO...
                             </td></tr>
                         )}
                         {!loading && filtered.length === 0 && (
-                            <tr><td colSpan={14} className="text-center py-8 text-muted-foreground">
+                            <tr><td colSpan={15} className="text-center py-8 text-muted-foreground">
                                 Tidak ada data SO. {soList.length === 0 ? 'Klik Sync SO untuk mengambil data.' : 'Coba ubah filter.'}
                             </td></tr>
                         )}
@@ -731,6 +732,20 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                             {so.deliveryStatus || 'Belum dikirim'}
                                         </Badge>
                                     </td>
+                                    <td className="px-3 py-2">
+                                        {(so as any).dispatchStatus ? (
+                                            <Badge variant="outline" className={`text-xs ${
+                                                (so as any).dispatchStatus === 'Sudah Berangkat'
+                                                    ? 'bg-green-100 text-green-700 border-green-300'
+                                                    : 'bg-amber-100 text-amber-700 border-amber-300'
+                                            }`}>
+                                                {(so as any).dispatchStatus === 'Sudah Berangkat' ? '🚛 ' : '⏳ '}
+                                                {(so as any).dispatchStatus}
+                                            </Badge>
+                                        ) : (
+                                            <span className="text-xs text-gray-300">-</span>
+                                        )}
+                                    </td>
                                     <td className="px-3 py-2 text-center">{so.detailItems.length}</td>
                                     <td className="px-3 py-2 text-right font-medium">
                                         {so.totalOutstanding > 0 ? (
@@ -744,7 +759,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                 {/* Expanded Detail */}
                                 {expandedId === so.id && (
                                     <tr>
-                                        <td colSpan={14} className="bg-muted/20 px-4 py-3">
+                                        <td colSpan={15} className="bg-muted/20 px-4 py-3">
                                             <div className="text-xs font-medium text-muted-foreground mb-2">
                                                 Detail Item — {so.soNumber}
                                             </div>
