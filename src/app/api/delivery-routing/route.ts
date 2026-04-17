@@ -268,20 +268,26 @@ export async function GET(request: NextRequest) {
             let dispatchStatus: string | undefined;
             let dispatchDriver: string | undefined;
             {
-                let matched: DispatchRecord[] = [];
-                if (so.customerNo && dispatchByCode.has(so.customerNo)) {
-                    matched = dispatchByCode.get(so.customerNo)!;
-                } else if (so.customerName) {
-                    const key = so.customerName.toLowerCase().trim();
-                    if (dispatchByName.has(key)) matched = dispatchByName.get(key)!;
-                }
-                if (matched.length > 0) {
-                    const latest = matched[matched.length - 1];
-                    const allCompleted = matched.every(d => d.isCompleted);
-                    const allDeparted = matched.every(d => d.isDeparted);
-                    const someDeparted = matched.some(d => d.isDeparted);
-                    dispatchStatus = allCompleted ? 'Selesai' : allDeparted ? 'Sudah Berangkat' : someDeparted ? 'Sebagian Berangkat' : 'Belum Berangkat';
-                    dispatchDriver = latest.driver || undefined;
+                // Only assign dispatch status to SOs that have been shipped/invoiced
+                const dds = (so.deliveryStatus || '').toLowerCase();
+                const hasShipped = dds.includes('dikirim') || dds.includes('difaktur');
+
+                if (hasShipped) {
+                    let matched: DispatchRecord[] = [];
+                    if (so.customerNo && dispatchByCode.has(so.customerNo)) {
+                        matched = dispatchByCode.get(so.customerNo)!;
+                    } else if (so.customerName) {
+                        const key = so.customerName.toLowerCase().trim();
+                        if (dispatchByName.has(key)) matched = dispatchByName.get(key)!;
+                    }
+                    if (matched.length > 0) {
+                        const latest = matched[matched.length - 1];
+                        const allCompleted = matched.every(d => d.isCompleted);
+                        const allDeparted = matched.every(d => d.isDeparted);
+                        const someDeparted = matched.some(d => d.isDeparted);
+                        dispatchStatus = allCompleted ? 'Selesai' : allDeparted ? 'Sudah Berangkat' : someDeparted ? 'Sebagian Berangkat' : 'Belum Berangkat';
+                        dispatchDriver = latest.driver || undefined;
+                    }
                 }
             }
 

@@ -193,6 +193,12 @@ export async function GET(request: NextRequest) {
                 }
 
                 soList = soList.map(so => {
+                    // Only assign dispatch status to SOs that have been shipped/invoiced
+                    // SOs with status "Diajukan"/"Menunggu diproses" can't logically have dispatched
+                    const ds = (so.deliveryStatus || '').toLowerCase();
+                    const hasShipped = ds.includes('dikirim') || ds.includes('difaktur');
+                    if (!hasShipped) return so;
+
                     // Match by customerCode first, then fallback to customerName
                     let matched: DispatchRecord[] = [];
                     if (so.customerNo && byCustomerCode.has(so.customerNo)) {
