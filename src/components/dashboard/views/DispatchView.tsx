@@ -507,6 +507,16 @@ export function DispatchView() {
                     <span>Auto-refresh setiap 5 menit</span>
                 </div>
             )}
+
+            {/* Debug info (temporary) */}
+            {(data as any)?.debug && (
+                <details className="text-[10px] text-gray-400 border rounded p-2 bg-gray-50">
+                    <summary className="cursor-pointer font-medium">🔧 Debug Info</summary>
+                    <pre className="mt-1 whitespace-pre-wrap text-[10px] text-gray-500">
+                        {JSON.stringify((data as any).debug, null, 2)}
+                    </pre>
+                </details>
+            )}
         </div>
     );
 }

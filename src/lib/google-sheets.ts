@@ -245,15 +245,41 @@ export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
 
         const rows = response.data.values;
         if (!rows || rows.length === 0) {
-            console.log('[Dispatch Sheets] Sheet "Delivery Orders" kosong.');
+            console.log('[Dispatch Sheets] Sheet kosong.');
+            lastDispatchError = 'Sheet kosong (0 rows)';
             return [];
         }
 
-        const headers: string[] = rows[0];
+        // Auto-detect header row: scan first 20 rows for one containing known column names
+        let headerRowIdx = -1;
+        const HEADER_MARKERS = ['nomor tugas', 'driver bertugas', 'status penugasan', 'jenis tugas', 'nama pelanggan'];
+        
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+            const row = rows[i];
+            if (!row || row.length === 0) continue;
+            const rowLower = row.map((c: any) => c ? String(c).toLowerCase().trim() : '');
+            const matchCount = HEADER_MARKERS.filter(marker => rowLower.some((cell: string) => cell.includes(marker))).length;
+            if (matchCount >= 2) {
+                headerRowIdx = i;
+                console.log(`[Dispatch Sheets] Header row found at index ${i} (row ${i + 1})`);
+                break;
+            }
+        }
+
+        if (headerRowIdx === -1) {
+            const sample = rows.slice(0, 5).map((r: any[], idx: number) => `Row ${idx + 1}: [${(r || []).slice(0, 5).join(', ')}]`).join(' | ');
+            lastDispatchError = `Header row not found in first 20 rows. Sample: ${sample}`;
+            lastDispatchHeaders = rows[0] || [];
+            lastDispatchRowCount = rows.length;
+            return [];
+        }
+
+        const headers: string[] = rows[headerRowIdx];
         lastDispatchHeaders = headers;
-        lastDispatchRowCount = rows.length - 1; // minus header row
-        console.log(`[Dispatch Sheets] Headers: ${headers.join(' | ')}`);
-        console.log(`[Dispatch Sheets] Data rows: ${rows.length - 1}`);
+        const dataStartIdx = headerRowIdx + 1;
+        lastDispatchRowCount = rows.length - dataStartIdx;
+        console.log(`[Dispatch Sheets] Headers (row ${headerRowIdx + 1}): ${headers.join(' | ')}`);
+        console.log(`[Dispatch Sheets] Data rows: ${lastDispatchRowCount}`);
 
         // Map column indices
         const colIdx: Record<string, number> = {};
@@ -270,13 +296,13 @@ export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
 
         // Must have taskNumber at minimum
         if (colIdx.taskNumber === -1) {
-            console.error('[Dispatch Sheets] Kolom "Nomor Tugas" tidak ditemukan! Batal fetch.');
+            lastDispatchError = `Kolom "Nomor Tugas" tidak ditemukan. Headers: ${headers.join(', ')}`;
             return [];
         }
 
         const records: DispatchRecord[] = [];
 
-        for (let i = 1; i < rows.length; i++) {
+        for (let i = dataStartIdx; i < rows.length; i++) {
             const row = rows[i];
             const taskNumber = row[colIdx.taskNumber] ? String(row[colIdx.taskNumber]).trim() : '';
             if (!taskNumber) continue;
