@@ -94,7 +94,7 @@ export function DispatchView() {
     const [error, setError] = useState<string | null>(null);
 
     // Filters
-    const [dateFilter, setDateFilter] = useState(todayStr());
+    const [dateFilter, setDateFilter] = useState('');
     const [driverFilter, setDriverFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
