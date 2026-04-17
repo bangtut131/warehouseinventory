@@ -43,20 +43,34 @@ export async function GET(request: NextRequest) {
         // Fetch from Google Sheets if no cache
         if (!records) {
             console.log('[Dispatch API] Fetching from Google Sheets...');
+            console.log('[Dispatch API] DISPATCH_SPREADSHEET_ID:', process.env.DISPATCH_SPREADSHEET_ID ? 'SET' : 'NOT SET');
+            console.log('[Dispatch API] GOOGLE_CLIENT_EMAIL:', process.env.GOOGLE_CLIENT_EMAIL ? 'SET' : 'NOT SET');
+            console.log('[Dispatch API] GOOGLE_PRIVATE_KEY:', process.env.GOOGLE_PRIVATE_KEY ? 'SET (' + process.env.GOOGLE_PRIVATE_KEY.length + ' chars)' : 'NOT SET');
             records = await fetchDispatchOrders();
+            console.log('[Dispatch API] Fetched records:', records.length);
 
-            // Save cache
-            try {
-                const cacheData: CachedDispatch = { timestamp: Date.now(), data: records };
-                await prisma.dataCache.upsert({
-                    where: { key: CACHE_KEY },
-                    update: { data: cacheData as any },
-                    create: { key: CACHE_KEY, data: cacheData as any },
-                });
-            } catch (e: any) {
-                console.warn('[Dispatch API] Cache save failed:', e.message);
+            // Save cache (only if we got data)
+            if (records.length > 0) {
+                try {
+                    const cacheData: CachedDispatch = { timestamp: Date.now(), data: records };
+                    await prisma.dataCache.upsert({
+                        where: { key: CACHE_KEY },
+                        update: { data: cacheData as any },
+                        create: { key: CACHE_KEY, data: cacheData as any },
+                    });
+                } catch (e: any) {
+                    console.warn('[Dispatch API] Cache save failed:', e.message);
+                }
             }
         }
+
+        // Debug info for troubleshooting
+        const debug = {
+            envDispatchId: process.env.DISPATCH_SPREADSHEET_ID ? 'SET' : 'NOT SET',
+            envGoogleEmail: process.env.GOOGLE_CLIENT_EMAIL ? 'SET' : 'NOT SET',
+            envGoogleKey: process.env.GOOGLE_PRIVATE_KEY ? 'SET' : 'NOT SET',
+            rawFetchCount: records.length,
+        };
 
         // Apply filters
         let filtered = records;
@@ -134,8 +148,8 @@ export async function GET(request: NextRequest) {
             summary: { totalTasks, completed, departed, pending },
             drivers,
             allDrivers,
-            cacheAge: records === filtered ? 0 : undefined,
             totalRecords: records.length,
+            debug,
         });
     } catch (err: any) {
         console.error('[Dispatch API] Error:', err.message);
