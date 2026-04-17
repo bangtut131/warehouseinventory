@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchDispatchOrders, DispatchRecord, buildDispatchLookup, lastDispatchError, lastDispatchSheetNames } from '@/lib/google-sheets';
+import { fetchDispatchOrders, DispatchRecord, buildDispatchLookup, lastDispatchError, lastDispatchSheetNames, lastDispatchHeaders, lastDispatchColIdx, lastDispatchRowCount } from '@/lib/google-sheets';
 import { prisma } from '@/lib/prisma';
 
 const CACHE_KEY = 'dispatch-tms-cache';
@@ -72,6 +72,9 @@ export async function GET(request: NextRequest) {
             rawFetchCount: records.length,
             lastError: lastDispatchError,
             sheetNames: lastDispatchSheetNames,
+            headers: lastDispatchHeaders,
+            colIdx: lastDispatchColIdx,
+            dataRowCount: lastDispatchRowCount,
         };
 
         // Apply filters

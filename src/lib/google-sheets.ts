@@ -187,10 +187,16 @@ function calcDurationMinutes(startStr: string, endStr: string): number | null {
  */
 export let lastDispatchError: string | null = null;
 export let lastDispatchSheetNames: string[] = [];
+export let lastDispatchHeaders: string[] = [];
+export let lastDispatchColIdx: Record<string, number> = {};
+export let lastDispatchRowCount: number = 0;
 
 export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
     lastDispatchError = null;
     lastDispatchSheetNames = [];
+    lastDispatchHeaders = [];
+    lastDispatchColIdx = {};
+    lastDispatchRowCount = 0;
     try {
         const auth = getGoogleAuth();
         const spreadsheetId = process.env.DISPATCH_SPREADSHEET_ID;
@@ -244,13 +250,17 @@ export async function fetchDispatchOrders(): Promise<DispatchRecord[]> {
         }
 
         const headers: string[] = rows[0];
+        lastDispatchHeaders = headers;
+        lastDispatchRowCount = rows.length - 1; // minus header row
         console.log(`[Dispatch Sheets] Headers: ${headers.join(' | ')}`);
+        console.log(`[Dispatch Sheets] Data rows: ${rows.length - 1}`);
 
         // Map column indices
         const colIdx: Record<string, number> = {};
         for (const [field, aliases] of Object.entries(DISPATCH_COLUMN_MAP)) {
             colIdx[field] = findColumnIndex(headers, aliases);
         }
+        lastDispatchColIdx = colIdx;
 
         // Log unmapped columns
         const unmapped = Object.entries(colIdx).filter(([, idx]) => idx === -1).map(([k]) => k);
