@@ -14,6 +14,8 @@ interface AreaSOItem {
     transDate: string;
     statusName: string;
     deliveryStatus?: string;
+    dispatchStatus?: string;
+    dispatchDriver?: string;
     city?: string;
     itemCount: number;
     totalWeightKg: number;
@@ -278,6 +280,22 @@ const DeliveryBadge = ({ status }: { status?: string }) => {
                 : s === 'diajukan' ? 'bg-orange-100 text-orange-700'
                     : 'bg-gray-100 text-gray-400';
     return <span className={`text-[10px] px-1.5 py-0.5 rounded ${color}`}>{status || 'Belum dikirim'}</span>;
+};
+
+const DispatchBadge = ({ status, driver }: { status?: string; driver?: string }) => {
+    if (!status) return <span className="text-[10px] text-gray-300">-</span>;
+    const s = status.toLowerCase();
+    const color = s === 'selesai' ? 'bg-green-100 text-green-700'
+        : s === 'sudah berangkat' ? 'bg-blue-100 text-blue-700'
+            : s === 'sebagian berangkat' ? 'bg-cyan-100 text-cyan-700'
+                : 'bg-amber-100 text-amber-700';
+    const icon = s === 'selesai' ? '✅' : s === 'sudah berangkat' ? '🚛' : s === 'sebagian berangkat' ? '🔄' : '⏳';
+    return (
+        <div>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${color}`}>{icon} {status}</span>
+            {driver && <p className="text-[9px] text-gray-400 mt-0.5 truncate max-w-[100px]" title={driver}>👤 {driver}</p>}
+        </div>
+    );
 };
 
 // ─── Main Component ─────────────────────────────────────────
@@ -1097,6 +1115,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                                                 <th className="text-left px-3 py-2 text-gray-500">Tanggal</th>
                                                                                 <th className="text-left px-3 py-2 text-gray-500">Status</th>
                                                                                 <th className="text-left px-3 py-2 text-gray-500">Kiriman</th>
+                                                                                <th className="text-left px-3 py-2 text-gray-500">Armada</th>
                                                                                 <th className="text-right px-3 py-2 text-gray-500">Items</th>
                                                                                 <th className="text-right px-3 py-2 text-gray-500">Berat (kg)</th>
                                                                                 <th className="text-right px-3 py-2 text-gray-500">Volume (m³)</th>
@@ -1111,6 +1130,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                                                     <td className="px-3 py-2 text-gray-500">{fmtDateSlash(so.transDate)}</td>
                                                                                     <td className="px-3 py-2"><StatusBadge status={so.statusName} /></td>
                                                                                     <td className="px-3 py-2"><DeliveryBadge status={so.deliveryStatus} /></td>
+                                                                                    <td className="px-3 py-2"><DispatchBadge status={so.dispatchStatus} driver={so.dispatchDriver} /></td>
                                                                                     <td className="px-3 py-2 text-right text-gray-600">{so.itemCount}</td>
                                                                                     <td className="px-3 py-2 text-right font-mono text-blue-600">{fmtDec(so.totalWeightKg, 1)}</td>
                                                                                     <td className="px-3 py-2 text-right font-mono text-teal-600">{fmtDec(so.totalVolumeM3, 4)}</td>
@@ -1119,7 +1139,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                                             ))}
                                                                             {/* Total row */}
                                                                             <tr className="bg-gray-50 font-bold border-t">
-                                                                                <td colSpan={6} className="px-3 py-2 text-right text-gray-500">Total Area:</td>
+                                                                                <td colSpan={7} className="px-3 py-2 text-right text-gray-500">Total Area:</td>
                                                                                 <td className="px-3 py-2 text-right font-mono text-blue-700">{fmtDec(row.totalWeightKg, 1)}</td>
                                                                                 <td className="px-3 py-2 text-right font-mono text-teal-700">{fmtDec(row.totalVolumeM3, 4)}</td>
                                                                                 <td className="px-3 py-2 text-right text-gray-700">{mRp(row.totalValue)}</td>
@@ -1287,6 +1307,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                 Tanggal <SortIcon active={detailSortKey === 'transDate'} asc={detailSortAsc} /></th>
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Status</th>
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Kiriman</th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Armada</th>
                                             <th className="text-right px-3 py-2.5 text-gray-500 font-semibold">Items</th>
                                             <th className="text-right px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('totalWeightKg')}>
                                                 Berat (kg) <SortIcon active={detailSortKey === 'totalWeightKg'} asc={detailSortAsc} /></th>
@@ -1313,6 +1334,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                                 <td className="px-3 py-2 text-gray-500">{fmtDateSlash(so.transDate)}</td>
                                                 <td className="px-3 py-2"><StatusBadge status={so.statusName} /></td>
                                                 <td className="px-3 py-2"><DeliveryBadge status={so.deliveryStatus} /></td>
+                                                <td className="px-3 py-2"><DispatchBadge status={so.dispatchStatus} driver={so.dispatchDriver} /></td>
                                                 <td className="px-3 py-2 text-right text-gray-600">{so.itemCount}</td>
                                                 <td className="px-3 py-2 text-right font-mono text-blue-600 font-medium">{fmtDec(so.totalWeightKg, 1)}</td>
                                                 <td className="px-3 py-2 text-right font-mono text-teal-600 font-medium">{fmtDec(so.totalVolumeM3, 4)}</td>

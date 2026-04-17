@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { loadSOCache, fetchItemUnitMap } from '@/lib/accurate';
 import { prisma } from '@/lib/prisma';
+import { DispatchRecord } from '@/lib/google-sheets';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ interface AreaSOItem {
     transDate: string;
     statusName: string;
     deliveryStatus?: string;
+    dispatchStatus?: string;
+    dispatchDriver?: string;
     city?: string;
     itemCount: number;
     totalWeightKg: number;
@@ -98,6 +101,46 @@ export async function GET(request: NextRequest) {
             unitMap = units;
         } catch (e: any) {
             console.warn('[Delivery Routing] Could not load master data:', e.message);
+        }
+
+        // ─── Load dispatch (TMS) data for fleet status ─────
+        let dispatchByCode = new Map<string, DispatchRecord[]>();
+        let dispatchByName = new Map<string, DispatchRecord[]>();
+        try {
+            let dispatchRecords: DispatchRecord[] = [];
+            const dispatchCache = await prisma.dataCache.findUnique({ where: { key: 'dispatch-tms-cache' } });
+            if (dispatchCache?.data) {
+                dispatchRecords = (dispatchCache.data as any).data || [];
+            }
+            if (dispatchRecords.length === 0) {
+                const { fetchDispatchOrders } = await import('@/lib/google-sheets');
+                dispatchRecords = await fetchDispatchOrders();
+                if (dispatchRecords.length > 0) {
+                    try {
+                        await prisma.dataCache.upsert({
+                            where: { key: 'dispatch-tms-cache' },
+                            update: { data: { timestamp: Date.now(), data: dispatchRecords } as any },
+                            create: { key: 'dispatch-tms-cache', data: { timestamp: Date.now(), data: dispatchRecords } as any },
+                        });
+                    } catch { }
+                }
+            }
+            for (const dr of dispatchRecords) {
+                if (dr.customerCode) {
+                    const arr = dispatchByCode.get(dr.customerCode) || [];
+                    arr.push(dr);
+                    dispatchByCode.set(dr.customerCode, arr);
+                }
+                if (dr.customerName) {
+                    const key = dr.customerName.toLowerCase().trim();
+                    const arr = dispatchByName.get(key) || [];
+                    arr.push(dr);
+                    dispatchByName.set(key, arr);
+                }
+            }
+            console.log(`[Delivery Routing] Dispatch data: ${dispatchRecords.length} records loaded`);
+        } catch (e: any) {
+            console.warn('[Delivery Routing] Could not load dispatch data:', e.message);
         }
 
         // ─── Group SO by area ───────────────────────────────
@@ -221,6 +264,27 @@ export async function GET(request: NextRequest) {
             cust.totalOutstandingPcs += soOutstanding;
             cust.soNumbers.push(so.soNumber);
 
+            // ─── Resolve dispatch status for this SO ────────
+            let dispatchStatus: string | undefined;
+            let dispatchDriver: string | undefined;
+            {
+                let matched: DispatchRecord[] = [];
+                if (so.customerNo && dispatchByCode.has(so.customerNo)) {
+                    matched = dispatchByCode.get(so.customerNo)!;
+                } else if (so.customerName) {
+                    const key = so.customerName.toLowerCase().trim();
+                    if (dispatchByName.has(key)) matched = dispatchByName.get(key)!;
+                }
+                if (matched.length > 0) {
+                    const latest = matched[matched.length - 1];
+                    const allCompleted = matched.every(d => d.isCompleted);
+                    const allDeparted = matched.every(d => d.isDeparted);
+                    const someDeparted = matched.some(d => d.isDeparted);
+                    dispatchStatus = allCompleted ? 'Selesai' : allDeparted ? 'Sudah Berangkat' : someDeparted ? 'Sebagian Berangkat' : 'Belum Berangkat';
+                    dispatchDriver = latest.driver || undefined;
+                }
+            }
+
             group.soItems.push({
                 soNumber: so.soNumber,
                 customerName: so.customerName,
@@ -228,6 +292,8 @@ export async function GET(request: NextRequest) {
                 transDate: so.transDate,
                 statusName: so.statusName,
                 deliveryStatus: so.deliveryStatus,
+                dispatchStatus,
+                dispatchDriver,
                 city,
                 itemCount: soItemCount,
                 totalWeightKg: Math.round(soWeight * 100) / 100,

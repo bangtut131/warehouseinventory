@@ -148,43 +148,88 @@ export async function GET(request: NextRequest) {
 
         // Join dispatch (TMS) data: fleet departure status
         try {
+            let dispatchRecords: DispatchRecord[] = [];
+            
+            // Try cache first
             const dispatchCache = await prisma.dataCache.findUnique({ where: { key: 'dispatch-tms-cache' } });
             if (dispatchCache?.data) {
                 const c = dispatchCache.data as any;
-                const dispatchRecords: DispatchRecord[] = c.data || [];
-                // Build lookup: DO number → dispatch record
-                const dispatchMap = new Map<string, DispatchRecord>();
-                dispatchRecords.forEach(r => dispatchMap.set(r.taskNumber, r));
+                dispatchRecords = c.data || [];
+            }
 
-                if (dispatchMap.size > 0) {
-                    soList = soList.map(so => {
-                        // Match by SO number → DO number pattern
-                        // SO: SO.2026.03.01376 → DO might be: DO.XXX.2026.03.XXXXX
-                        // For now, try matching via customer code or iterate dispatch records
-                        // Since dispatch uses DO numbers, we need to find DOs related to this SO
-                        // Best approach: check if any dispatch record's customerCode matches this SO's customerNo
-                        const matchedDispatches: DispatchRecord[] = [];
-                        dispatchMap.forEach(dr => {
-                            if (so.customerNo && dr.customerCode && dr.customerCode === so.customerNo) {
-                                matchedDispatches.push(dr);
-                            }
+            // If cache empty, auto-fetch from Google Sheets
+            if (dispatchRecords.length === 0) {
+                const { fetchDispatchOrders } = await import('@/lib/google-sheets');
+                dispatchRecords = await fetchDispatchOrders();
+                // Save to cache
+                if (dispatchRecords.length > 0) {
+                    try {
+                        await prisma.dataCache.upsert({
+                            where: { key: 'dispatch-tms-cache' },
+                            update: { data: { timestamp: Date.now(), data: dispatchRecords } as any },
+                            create: { key: 'dispatch-tms-cache', data: { timestamp: Date.now(), data: dispatchRecords } as any },
                         });
-
-                        if (matchedDispatches.length > 0) {
-                            const latestDispatch = matchedDispatches[0]; // take first match
-                            return {
-                                ...so,
-                                dispatchStatus: latestDispatch.isDeparted ? 'Sudah Berangkat' : 'Belum Berangkat',
-                                dispatchDriver: latestDispatch.driver || undefined,
-                                dispatchCoDriver: latestDispatch.coDriver || undefined,
-                                dispatchDepartedAt: latestDispatch.taskStartedAt || undefined,
-                                dispatchCompletedAt: latestDispatch.taskCompletedAt || undefined,
-                            };
-                        }
-                        return so;
-                    });
-                    console.log(`[SO API] Dispatch merge: ${dispatchMap.size} dispatch records, matched with SO data`);
+                    } catch { }
                 }
+            }
+
+            if (dispatchRecords.length > 0) {
+                // Build lookups: by customerCode AND by customerName (normalized)
+                const byCustomerCode = new Map<string, DispatchRecord[]>();
+                const byCustomerName = new Map<string, DispatchRecord[]>();
+                
+                for (const dr of dispatchRecords) {
+                    if (dr.customerCode) {
+                        const arr = byCustomerCode.get(dr.customerCode) || [];
+                        arr.push(dr);
+                        byCustomerCode.set(dr.customerCode, arr);
+                    }
+                    if (dr.customerName) {
+                        const key = dr.customerName.toLowerCase().trim();
+                        const arr = byCustomerName.get(key) || [];
+                        arr.push(dr);
+                        byCustomerName.set(key, arr);
+                    }
+                }
+
+                soList = soList.map(so => {
+                    // Match by customerCode first, then fallback to customerName
+                    let matched: DispatchRecord[] = [];
+                    if (so.customerNo && byCustomerCode.has(so.customerNo)) {
+                        matched = byCustomerCode.get(so.customerNo)!;
+                    } else if (so.customerName) {
+                        const key = so.customerName.toLowerCase().trim();
+                        if (byCustomerName.has(key)) {
+                            matched = byCustomerName.get(key)!;
+                        }
+                    }
+
+                    if (matched.length > 0) {
+                        // Use the most recent dispatch entry
+                        const latest = matched[matched.length - 1];
+                        const allDeparted = matched.every(d => d.isDeparted);
+                        const someDeparted = matched.some(d => d.isDeparted);
+                        const allCompleted = matched.every(d => d.isCompleted);
+                        
+                        let status = 'Belum Berangkat';
+                        if (allCompleted) status = 'Selesai';
+                        else if (allDeparted) status = 'Sudah Berangkat';
+                        else if (someDeparted) status = 'Sebagian Berangkat';
+
+                        return {
+                            ...so,
+                            dispatchStatus: status,
+                            dispatchDriver: latest.driver || undefined,
+                            dispatchCoDriver: latest.coDriver || undefined,
+                            dispatchDepartedAt: latest.taskStartedAt || undefined,
+                            dispatchCompletedAt: latest.taskCompletedAt || undefined,
+                            dispatchTaskCount: matched.length,
+                            dispatchAssignmentStatus: latest.assignmentStatus || undefined,
+                        };
+                    }
+                    return so;
+                });
+                console.log(`[SO API] Dispatch merge: ${dispatchRecords.length} records, byCode=${byCustomerCode.size}, byName=${byCustomerName.size}`);
             }
         } catch (e: any) {
             console.warn('[SO API] Could not join dispatch data:', e.message);

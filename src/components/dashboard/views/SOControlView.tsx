@@ -734,14 +734,28 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                     </td>
                                     <td className="px-3 py-2">
                                         {(so as any).dispatchStatus ? (
-                                            <Badge variant="outline" className={`text-xs ${
-                                                (so as any).dispatchStatus === 'Sudah Berangkat'
-                                                    ? 'bg-green-100 text-green-700 border-green-300'
-                                                    : 'bg-amber-100 text-amber-700 border-amber-300'
-                                            }`}>
-                                                {(so as any).dispatchStatus === 'Sudah Berangkat' ? '🚛 ' : '⏳ '}
-                                                {(so as any).dispatchStatus}
-                                            </Badge>
+                                            <div>
+                                                <Badge variant="outline" className={`text-xs ${
+                                                    (so as any).dispatchStatus === 'Selesai'
+                                                        ? 'bg-green-100 text-green-700 border-green-300'
+                                                        : (so as any).dispatchStatus === 'Sudah Berangkat'
+                                                        ? 'bg-blue-100 text-blue-700 border-blue-300'
+                                                        : (so as any).dispatchStatus === 'Sebagian Berangkat'
+                                                        ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
+                                                        : 'bg-amber-100 text-amber-700 border-amber-300'
+                                                }`}>
+                                                    {(so as any).dispatchStatus === 'Selesai' ? '✅ ' 
+                                                     : (so as any).dispatchStatus === 'Sudah Berangkat' ? '🚛 '
+                                                     : (so as any).dispatchStatus === 'Sebagian Berangkat' ? '🔄 '
+                                                     : '⏳ '}
+                                                    {(so as any).dispatchStatus}
+                                                </Badge>
+                                                {(so as any).dispatchDriver && (
+                                                    <p className="text-[10px] text-gray-400 mt-0.5 truncate max-w-[120px]" title={(so as any).dispatchDriver}>
+                                                        👤 {(so as any).dispatchDriver}
+                                                    </p>
+                                                )}
+                                            </div>
                                         ) : (
                                             <span className="text-xs text-gray-300">-</span>
                                         )}
