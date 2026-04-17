@@ -338,6 +338,7 @@ export const DeliveryRoutingView: React.FC = () => {
     const [filterArea, setFilterArea] = useState('');
     const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
     const [filterDeliveryStatuses, setFilterDeliveryStatuses] = useState<string[]>([]);
+    const [filterDispatchStatuses, setFilterDispatchStatuses] = useState<string[]>([]);
 
     // Sort states per tab
     const [areaSortKey, setAreaSortKey] = useState<AreaSortKey>('totalWeightKg');
@@ -444,9 +445,16 @@ export const DeliveryRoutingView: React.FC = () => {
         return [...set].sort();
     }, [areas]);
 
+    const allDispatchStatuses = useMemo(() => {
+        const set = new Set<string>();
+        for (const a of areas) a.soItems.forEach(s => { if (s.dispatchStatus) set.add(s.dispatchStatus); });
+        return [...set].sort();
+    }, [areas]);
+
     // Toggle helpers for multi-select
     const toggleStatus = (s: string) => setFilterStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
     const toggleDeliveryStatus = (s: string) => setFilterDeliveryStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+    const toggleDispatchStatus = (s: string) => setFilterDispatchStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
 
     // Helper: check if an SO item matches status filters
     const matchesStatusFilters = useCallback((so: AreaSOItem) => {
@@ -455,8 +463,13 @@ export const DeliveryRoutingView: React.FC = () => {
             const ds = (so.deliveryStatus || 'Belum dikirim').toLowerCase();
             if (!filterDeliveryStatuses.some(f => f.toLowerCase() === ds)) return false;
         }
+        if (filterDispatchStatuses.length > 0) {
+            const dp = (so.dispatchStatus || '').toLowerCase();
+            if (dp === '' && filterDispatchStatuses.some(f => f === '-')) return true;
+            if (!filterDispatchStatuses.some(f => f.toLowerCase() === dp)) return false;
+        }
         return true;
-    }, [filterStatuses, filterDeliveryStatuses]);
+    }, [filterStatuses, filterDeliveryStatuses, filterDispatchStatuses]);
 
     // All SO items flattened for detail tab
     const allSOItems = useMemo(() => {
@@ -472,7 +485,7 @@ export const DeliveryRoutingView: React.FC = () => {
     // ─── Filtered + Sorted: Area Tab ──────────────
     // When status filters are active, re-aggregate area totals from filtered SO items
 
-    const hasStatusFilter = filterStatuses.length > 0 || filterDeliveryStatuses.length > 0;
+    const hasStatusFilter = filterStatuses.length > 0 || filterDeliveryStatuses.length > 0 || filterDispatchStatuses.length > 0;
 
     const filteredAreas = useMemo(() => {
         let data = areas.map(a => {
@@ -963,6 +976,28 @@ export const DeliveryRoutingView: React.FC = () => {
                 <span className="text-xs text-muted-foreground ml-1">
                     ({filterDeliveryStatuses.length === 0 ? 'semua' : filterDeliveryStatuses.length + ' dipilih'})
                 </span>
+
+                {allDispatchStatuses.length > 0 && (
+                    <>
+                        <span className="text-gray-300 mx-1">|</span>
+
+                        <span className="text-xs font-medium text-blue-600">🚛 Keberangkatan Armada:</span>
+                        {allDispatchStatuses.map(status => (
+                            <label key={status} className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={filterDispatchStatuses.includes(status)}
+                                    onChange={() => toggleDispatchStatus(status)}
+                                    className="rounded border-blue-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                />
+                                <span className="text-xs text-gray-700">{status}</span>
+                            </label>
+                        ))}
+                        <span className="text-xs text-muted-foreground ml-1">
+                            ({filterDispatchStatuses.length === 0 ? 'semua' : filterDispatchStatuses.length + ' dipilih'})
+                        </span>
+                    </>
+                )}
             </div>
 
             {/* ─── Error ──────────────────────────────── */}

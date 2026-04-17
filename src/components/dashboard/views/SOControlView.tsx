@@ -54,6 +54,7 @@ const SO_INTERVAL_OPTIONS = [
 ];
 
 const ALL_DELIVERY_STATUSES = ['Dikirim', 'Difaktur Sebagian', 'Difaktur', 'Ditolak', 'Diajukan', 'Draf', 'Belum dikirim'];
+const ALL_DISPATCH_STATUSES = ['Selesai', 'Sudah Berangkat', 'Sebagian Berangkat', 'Belum Berangkat'];
 
 export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) => {
     const [soList, setSoList] = useState<SOData[]>([]);
@@ -68,6 +69,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
     const [branchFilter, setBranchFilter] = useState('');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
+    const [dispatchStatusFilter, setDispatchStatusFilter] = useState('');
 
     // Sync status filter (which statuses to fetch from API)
     const ALL_SO_STATUSES = ['Diajukan', 'Menunggu diproses', 'Sebagian diproses', 'Terproses'];
@@ -295,6 +297,12 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             if (soDelivery !== deliveryStatusFilter.toLowerCase()) return false;
         }
 
+        // Dispatch/armada status filter
+        if (dispatchStatusFilter) {
+            const soDispatch = ((so as any).dispatchStatus || '').toLowerCase();
+            if (soDispatch !== dispatchStatusFilter.toLowerCase()) return false;
+        }
+
         if (!search) return true;
         const q = search.toLowerCase();
         return so.soNumber.toLowerCase().includes(q) ||
@@ -512,6 +520,21 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                             checked={deliveryStatusFilter === status}
                             onChange={() => setDeliveryStatusFilter(deliveryStatusFilter === status ? '' : status)}
                             className="rounded border-teal-300 text-teal-600 focus:ring-teal-500 h-3.5 w-3.5"
+                        />
+                        <span className="text-xs text-gray-700">{status}</span>
+                    </label>
+                ))}
+
+                <span className="text-gray-300 mx-1">|</span>
+
+                <span className="text-xs font-medium text-blue-600">🚛 Keberangkatan Armada:</span>
+                {ALL_DISPATCH_STATUSES.map(status => (
+                    <label key={status} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={dispatchStatusFilter === status}
+                            onChange={() => setDispatchStatusFilter(dispatchStatusFilter === status ? '' : status)}
+                            className="rounded border-blue-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
                         />
                         <span className="text-xs text-gray-700">{status}</span>
                     </label>
