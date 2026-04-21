@@ -456,7 +456,7 @@ export const DeliveryRoutingView: React.FC = () => {
             });
         }
         const statuses = [...set].sort();
-        if (hasEmpty) statuses.push('-'); // add option for empty
+        if (hasEmpty) statuses.push('Belum Dijadwalkan'); // add option for empty
         return statuses;
     }, [areas]);
 
@@ -474,7 +474,7 @@ export const DeliveryRoutingView: React.FC = () => {
         }
         if (filterDispatchStatuses.length > 0) {
             const dp = (so.dispatchStatus || '').toLowerCase();
-            if (dp === '' && filterDispatchStatuses.some(f => f === '-')) return true;
+            if (dp === '' && filterDispatchStatuses.some(f => f === 'Belum Dijadwalkan')) return true;
             if (!filterDispatchStatuses.some(f => f.toLowerCase() === dp)) return false;
         }
         return true;

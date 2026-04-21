@@ -54,7 +54,7 @@ const SO_INTERVAL_OPTIONS = [
 ];
 
 const ALL_DELIVERY_STATUSES = ['Dikirim', 'Difaktur Sebagian', 'Difaktur', 'Ditolak', 'Diajukan', 'Draf', 'Belum dikirim'];
-const ALL_DISPATCH_STATUSES = ['Selesai', 'Sudah Berangkat', 'Sebagian Berangkat', 'Belum Berangkat'];
+const ALL_DISPATCH_STATUSES = ['Selesai', 'Sudah Berangkat', 'Sebagian Berangkat', 'Belum Berangkat', 'Belum Dijadwalkan'];
 
 export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) => {
     const [soList, setSoList] = useState<SOData[]>([]);
@@ -303,7 +303,11 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         // Dispatch/armada status filter
         if (dispatchStatusFilter) {
             const soDispatch = ((so as any).dispatchStatus || '').toLowerCase();
-            if (soDispatch !== dispatchStatusFilter.toLowerCase()) return false;
+            if (dispatchStatusFilter === 'Belum Dijadwalkan' && soDispatch === '') {
+                // match empty dispatch status
+            } else if (soDispatch !== dispatchStatusFilter.toLowerCase()) {
+                return false;
+            }
         }
 
         if (!search) return true;
