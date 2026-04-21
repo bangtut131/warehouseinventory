@@ -17,6 +17,7 @@ interface AreaSOItem {
     deliveryStatus?: string;
     dispatchStatus?: string;
     dispatchDriver?: string;
+    doNumberText?: string;
     city?: string;
     itemCount: number;
     totalWeightKg: number;
@@ -712,6 +713,7 @@ export const DeliveryRoutingView: React.FC = () => {
         } else {
             const dataToExport = filteredDetails.map(so => ({
                 'No. SO': so.soNumber,
+                'No. DO': so.doNumberText || '-',
                 'Customer': so.customerName,
                 'ID Customer': so.customerNo || '-',
                 'Tanggal': so.transDate,
@@ -730,6 +732,7 @@ export const DeliveryRoutingView: React.FC = () => {
             ws = XLSX.utils.json_to_sheet(dataToExport);
             ws['!cols'] = [
                 { wch: 15 }, // SO
+                { wch: 20 }, // DO
                 { wch: 30 }, // Customer
                 { wch: 15 }, // ID Cust
                 { wch: 12 }, // Tanggal
@@ -1398,6 +1401,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold w-6">#</th>
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('soNumber')}>
                                                 No. SO <SortIcon active={detailSortKey === 'soNumber'} asc={detailSortAsc} /></th>
+                                            <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">No. DO</th>
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold cursor-pointer hover:text-blue-600 select-none" onClick={() => handleDetailSort('customerName')}>
                                                 Customer <SortIcon active={detailSortKey === 'customerName'} asc={detailSortAsc} /></th>
                                             <th className="text-left px-3 py-2.5 text-gray-500 font-semibold">Area</th>
@@ -1422,6 +1426,7 @@ export const DeliveryRoutingView: React.FC = () => {
                                             <tr key={`${so.soNumber}-${idx}`} className="border-b hover:bg-gray-50 transition-colors">
                                                 <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
                                                 <td className="px-3 py-2 font-mono text-blue-600 font-medium">{so.soNumber}</td>
+                                                <td className="px-3 py-2 font-mono text-gray-500 max-w-[150px] truncate" title={so.doNumberText}>{so.doNumberText || '-'}</td>
                                                 <td className="px-3 py-2">
                                                     <div className="text-gray-700 max-w-[180px] truncate">{so.customerName}</div>
                                                     {so.customerNo && <div className="text-[10px] text-gray-400 font-mono">{so.customerNo}</div>}
@@ -1449,7 +1454,7 @@ export const DeliveryRoutingView: React.FC = () => {
 
                                         {/* Grand Total */}
                                         <tr className="bg-slate-100 font-bold border-t-2">
-                                            <td colSpan={9} className="px-3 py-3 text-right text-slate-600 text-xs">GRAND TOTAL ({filteredDetails.length} SO):</td>
+                                            <td colSpan={10} className="px-3 py-3 text-right text-slate-600 text-xs">GRAND TOTAL ({filteredDetails.length} SO):</td>
                                             <td className="px-3 py-3 text-right font-mono text-blue-800">{fmtDec(detailGrandTotal.weight, 1)}</td>
                                             <td className="px-3 py-3 text-right font-mono text-teal-800">{fmtDec(detailGrandTotal.volume, 4)}</td>
                                             <td className="px-3 py-3 text-right text-slate-700">{mRp(detailGrandTotal.value)}</td>

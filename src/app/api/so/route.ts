@@ -203,6 +203,11 @@ export async function GET(request: NextRequest) {
                 }
 
                 soList = soList.map(so => {
+                    const doNumbersArr = soToDO.get(so.soNumber);
+                    if (doNumbersArr && doNumbersArr.length > 0) {
+                        so.doNumberText = [...new Set(doNumbersArr.map(d => d.toUpperCase()))].join(', ');
+                    }
+
                     // Only assign dispatch status to SOs that have been shipped/invoiced
                     // SOs with status "Diajukan"/"Menunggu diproses" can't logically have dispatched
                     const ds = (so.deliveryStatus || '').toLowerCase();

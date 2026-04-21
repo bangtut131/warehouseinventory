@@ -17,6 +17,7 @@ interface AreaSOItem {
     deliveryStatus?: string;
     dispatchStatus?: string;
     dispatchDriver?: string;
+    doNumberText?: string;
     city?: string;
     itemCount: number;
     totalWeightKg: number;
@@ -280,7 +281,14 @@ export async function GET(request: NextRequest) {
             // ─── Resolve dispatch status for this SO ────────
             let dispatchStatus: string | undefined;
             let dispatchDriver: string | undefined;
+            let doNumberText: string | undefined;
+
             {
+                const doNumbersArr = soToDO.get(so.soNumber);
+                if (doNumbersArr && doNumbersArr.length > 0) {
+                    doNumberText = [...new Set(doNumbersArr.map(d => d.toUpperCase()))].join(', ');
+                }
+
                 // Only assign dispatch status to SOs that have been shipped/invoiced
                 const dds = (so.deliveryStatus || '').toLowerCase();
                 const hasShipped = dds.includes('dikirim') || dds.includes('difaktur');
@@ -318,6 +326,7 @@ export async function GET(request: NextRequest) {
                 deliveryStatus: so.deliveryStatus,
                 dispatchStatus,
                 dispatchDriver,
+                doNumberText,
                 city,
                 itemCount: soItemCount,
                 totalWeightKg: Math.round(soWeight * 100) / 100,

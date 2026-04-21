@@ -125,6 +125,7 @@ export interface SOData {
     subCluster?: string;
     statusName: string;      // Diajukan / Menunggu diproses / Terproses
     deliveryStatus?: string; // Status pengiriman DO: Dikirim / Difaktur / Difaktur Sebagian / Ditolak / Diajukan / Draf / Belum dikirim
+    doNumberText?: string;   // DO numbers mapping (comma separated)
     detailItems: SODetailItem[];
     totalOutstanding: number; // Sum of all outstanding items
 }

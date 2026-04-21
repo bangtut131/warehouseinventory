@@ -174,6 +174,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                 so.detailItems.forEach((item: any) => {
                     dataToExport.push({
                         'No. SO': so.soNumber,
+                        'No. DO': so.doNumberText || '-',
                         'Tanggal': so.transDate,
                         'ID Customer': so.customerNo || '-',
                         'Customer': so.customerName,
@@ -203,6 +204,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             } else {
                 dataToExport.push({
                     'No. SO': so.soNumber,
+                    'No. DO': so.doNumberText || '-',
                     'Tanggal': so.transDate,
                     'ID Customer': so.customerNo || '-',
                     'Customer': so.customerName,
@@ -236,6 +238,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         // Auto-sizing columns (basic approach)
         const colWidths = [
             { wch: 15 }, // SO
+            { wch: 20 }, // DO
             { wch: 12 }, // Tanggal
             { wch: 15 }, // ID Customer
             { wch: 30 }, // Customer
@@ -707,6 +710,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         <tr className="bg-muted/50 text-left">
                             <th className="px-3 py-2 font-medium w-8"></th>
                             <th className="px-3 py-2 font-medium">No. SO</th>
+                            <th className="px-3 py-2 font-medium">No. DO</th>
                             <th className="px-3 py-2 font-medium">Tanggal</th>
                             <th className="px-3 py-2 font-medium">ID Customer</th>
                             <th className="px-3 py-2 font-medium">Customer</th>
@@ -744,6 +748,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                         {expandedId === so.id ? '▼' : '▶'}
                                     </td>
                                     <td className="px-3 py-2 font-mono font-medium text-blue-700">{so.soNumber}</td>
+                                    <td className="px-3 py-2 font-mono text-xs">{so.doNumberText || <span className="text-muted-foreground">-</span>}</td>
                                     <td className="px-3 py-2 text-muted-foreground">{formatDate(so.transDate)}</td>
                                     <td className="px-3 py-2 font-mono text-xs">{so.customerNo || '-'}</td>
                                     <td className="px-3 py-2">{so.customerName || '-'}</td>
