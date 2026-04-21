@@ -174,21 +174,31 @@ export async function GET(request: NextRequest) {
             }
 
             if (dispatchRecords.length > 0) {
-                // Build lookups: by customerCode AND by customerName (normalized)
-                const byCustomerCode = new Map<string, DispatchRecord[]>();
-                const byCustomerName = new Map<string, DispatchRecord[]>();
+                // Load cached DO details to resolve SO -> DO mapping (SLA cache)
+                const doCache = await prisma.dataCache.findUnique({ where: { key: 'do-detail-map-cache' } });
+                const soToDO = new Map<string, string[]>();
+                if (doCache?.data) {
+                    const c = doCache.data as any;
+                    if (c.data) {
+                         Object.values(c.data).forEach((detail: any) => {
+                             if (detail.soNumber && detail.doNumber) {
+                                 const arr = soToDO.get(detail.soNumber) || [];
+                                 arr.push(detail.doNumber.toLowerCase().trim());
+                                 soToDO.set(detail.soNumber, arr);
+                             }
+                         });
+                    }
+                }
+
+                // Build lookup by taskNumber (DO number)
+                const dispatchByTask = new Map<string, DispatchRecord[]>();
                 
                 for (const dr of dispatchRecords) {
-                    if (dr.customerCode) {
-                        const arr = byCustomerCode.get(dr.customerCode) || [];
+                    if (dr.taskNumber) {
+                        const key = dr.taskNumber.toLowerCase().trim();
+                        const arr = dispatchByTask.get(key) || [];
                         arr.push(dr);
-                        byCustomerCode.set(dr.customerCode, arr);
-                    }
-                    if (dr.customerName) {
-                        const key = dr.customerName.toLowerCase().trim();
-                        const arr = byCustomerName.get(key) || [];
-                        arr.push(dr);
-                        byCustomerName.set(key, arr);
+                        dispatchByTask.set(key, arr);
                     }
                 }
 
@@ -199,15 +209,19 @@ export async function GET(request: NextRequest) {
                     const hasShipped = ds.includes('dikirim') || ds.includes('difaktur');
                     if (!hasShipped) return so;
 
-                    // Match by customerCode first, then fallback to customerName
+                    // Match by DO Number (or direct SO Number fallback)
                     let matched: DispatchRecord[] = [];
-                    if (so.customerNo && byCustomerCode.has(so.customerNo)) {
-                        matched = byCustomerCode.get(so.customerNo)!;
-                    } else if (so.customerName) {
-                        const key = so.customerName.toLowerCase().trim();
-                        if (byCustomerName.has(key)) {
-                            matched = byCustomerName.get(key)!;
+                    const doNumbers = soToDO.get(so.soNumber);
+                    if (doNumbers && doNumbers.length > 0) {
+                        for (const doNum of doNumbers) {
+                            const matches = dispatchByTask.get(doNum);
+                            if (matches) matched.push(...matches);
                         }
+                    }
+                    // Fallback to strict SO Number match in case user put SO in the sheet
+                    if (matched.length === 0) {
+                        const matches = dispatchByTask.get(so.soNumber.toLowerCase().trim());
+                        if (matches) matched.push(...matches);
                     }
 
                     if (matched.length > 0) {
@@ -235,7 +249,7 @@ export async function GET(request: NextRequest) {
                     }
                     return so;
                 });
-                console.log(`[SO API] Dispatch merge: ${dispatchRecords.length} records, byCode=${byCustomerCode.size}, byName=${byCustomerName.size}`);
+                console.log(`[SO API] Dispatch merge: ${dispatchRecords.length} records, DO map size=${soToDO.size}`);
             }
         } catch (e: any) {
             console.warn('[SO API] Could not join dispatch data:', e.message);

@@ -106,6 +106,8 @@ export async function GET(request: NextRequest) {
         // ─── Load dispatch (TMS) data for fleet status ─────
         let dispatchByCode = new Map<string, DispatchRecord[]>();
         let dispatchByName = new Map<string, DispatchRecord[]>();
+        let soToDO = new Map<string, string[]>();
+        let dispatchByTask = new Map<string, DispatchRecord[]>();
         try {
             let dispatchRecords: DispatchRecord[] = [];
             const dispatchCache = await prisma.dataCache.findUnique({ where: { key: 'dispatch-tms-cache' } });
@@ -125,20 +127,31 @@ export async function GET(request: NextRequest) {
                     } catch { }
                 }
             }
-            for (const dr of dispatchRecords) {
-                if (dr.customerCode) {
-                    const arr = dispatchByCode.get(dr.customerCode) || [];
-                    arr.push(dr);
-                    dispatchByCode.set(dr.customerCode, arr);
-                }
-                if (dr.customerName) {
-                    const key = dr.customerName.toLowerCase().trim();
-                    const arr = dispatchByName.get(key) || [];
-                    arr.push(dr);
-                    dispatchByName.set(key, arr);
+
+            // DO Mapping Cache
+            const doCache = await prisma.dataCache.findUnique({ where: { key: 'do-detail-map-cache' } });
+            if (doCache?.data) {
+                const c = doCache.data as any;
+                if (c.data) {
+                     Object.values(c.data).forEach((detail: any) => {
+                         if (detail.soNumber && detail.doNumber) {
+                             const arr = soToDO.get(detail.soNumber) || [];
+                             arr.push(detail.doNumber.toLowerCase().trim());
+                             soToDO.set(detail.soNumber, arr);
+                         }
+                     });
                 }
             }
-            console.log(`[Delivery Routing] Dispatch data: ${dispatchRecords.length} records loaded`);
+
+            for (const dr of dispatchRecords) {
+                if (dr.taskNumber) {
+                    const key = dr.taskNumber.toLowerCase().trim();
+                    const arr = dispatchByTask.get(key) || [];
+                    arr.push(dr);
+                    dispatchByTask.set(key, arr);
+                }
+            }
+            console.log(`[Delivery Routing] Dispatch data: ${dispatchRecords.length} records, DO map size=${soToDO.size}`);
         } catch (e: any) {
             console.warn('[Delivery Routing] Could not load dispatch data:', e.message);
         }
@@ -274,11 +287,16 @@ export async function GET(request: NextRequest) {
 
                 if (hasShipped) {
                     let matched: DispatchRecord[] = [];
-                    if (so.customerNo && dispatchByCode.has(so.customerNo)) {
-                        matched = dispatchByCode.get(so.customerNo)!;
-                    } else if (so.customerName) {
-                        const key = so.customerName.toLowerCase().trim();
-                        if (dispatchByName.has(key)) matched = dispatchByName.get(key)!;
+                    const doNumbers = soToDO.get(so.soNumber);
+                    if (doNumbers && doNumbers.length > 0) {
+                        for (const doNum of doNumbers) {
+                            const matches = dispatchByTask.get(doNum);
+                            if (matches) matched.push(...matches);
+                        }
+                    }
+                    if (matched.length === 0) {
+                        const matches = dispatchByTask.get(so.soNumber.toLowerCase().trim());
+                        if (matches) matched.push(...matches);
                     }
                     if (matched.length > 0) {
                         const latest = matched[matched.length - 1];
