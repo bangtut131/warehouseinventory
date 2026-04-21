@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { SOData } from '@/lib/types';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,22 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         setSyncStatuses(prev =>
             prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
         );
+    };
+
+    // Refs for synced horizontal scrolling
+    const topScrollRef = useRef<HTMLDivElement>(null);
+    const bottomScrollRef = useRef<HTMLDivElement>(null);
+
+    const handleTopScroll = () => {
+        if (bottomScrollRef.current && topScrollRef.current) {
+            bottomScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+        }
+    };
+
+    const handleBottomScroll = () => {
+        if (topScrollRef.current && bottomScrollRef.current) {
+            topScrollRef.current.scrollLeft = bottomScrollRef.current.scrollLeft;
+        }
     };
 
     const fetchSO = useCallback(async () => {
@@ -703,27 +719,42 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                 </div>
             )}
 
+            {/* Top Horizontal Scrollbar Placeholder */}
+            {bottomScrollRef.current && bottomScrollRef.current.scrollWidth > bottomScrollRef.current.clientWidth && (
+                <div 
+                    ref={topScrollRef} 
+                    className="overflow-x-auto overflow-y-hidden mb-1 border rounded-md"
+                    onScroll={handleTopScroll}
+                >
+                    <div style={{ height: '1px', width: bottomScrollRef.current.scrollWidth }} />
+                </div>
+            )}
+
             {/* SO Table */}
-            <div className="border rounded-lg overflow-x-auto">
+            <div 
+               ref={bottomScrollRef}
+               className="border rounded-lg overflow-x-auto max-h-[calc(100vh-270px)] bg-white"
+               onScroll={handleBottomScroll}
+            >
                 <table className="w-full text-sm whitespace-nowrap">
-                    <thead>
-                        <tr className="bg-muted/50 text-left">
-                            <th className="px-3 py-2 font-medium w-8"></th>
-                            <th className="px-3 py-2 font-medium">No. SO</th>
-                            <th className="px-3 py-2 font-medium">No. DO</th>
-                            <th className="px-3 py-2 font-medium">Tanggal</th>
-                            <th className="px-3 py-2 font-medium">ID Customer</th>
-                            <th className="px-3 py-2 font-medium">Customer</th>
-                            <th className="px-3 py-2 font-medium">Kota/Kab</th>
-                            <th className="px-3 py-2 font-medium">Provinsi</th>
-                            <th className="px-3 py-2 font-medium">Area</th>
-                            <th className="px-3 py-2 font-medium">Cluster</th>
-                            <th className="px-3 py-2 font-medium">Sub Cluster</th>
-                            <th className="px-3 py-2 font-medium">Status</th>
-                            <th className="px-3 py-2 font-medium">Status Kiriman</th>
-                            <th className="px-3 py-2 font-medium">Status Armada</th>
-                            <th className="px-3 py-2 font-medium text-center">Items</th>
-                            <th className="px-3 py-2 font-medium text-right">Outstanding</th>
+                    <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur shadow-sm">
+                        <tr className="text-left">
+                            <th className="px-3 py-2 font-medium w-8 bg-muted/90"></th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">No. SO</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90 min-w-[200px]">No. DO</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Tanggal</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">ID Customer</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Customer</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Kota/Kab</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Provinsi</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Area</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Cluster</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Sub Cluster</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Status</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Status Kiriman</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90">Status Armada</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90 text-center">Items</th>
+                            <th className="px-3 py-2 font-medium bg-muted/90 text-right">Outstanding</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -748,7 +779,15 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                                         {expandedId === so.id ? '▼' : '▶'}
                                     </td>
                                     <td className="px-3 py-2 font-mono font-medium text-blue-700">{so.soNumber}</td>
-                                    <td className="px-3 py-2 font-mono text-xs">{so.doNumberText || <span className="text-muted-foreground">-</span>}</td>
+                                    <td className="px-3 py-2 font-mono text-xs whitespace-normal min-w-[200px]">
+                                        {so.doNumberText ? (
+                                            so.doNumberText.split(', ').map((doNum, idx) => (
+                                                <div key={idx} className="mb-0.5 last:mb-0 bg-blue-50/50 px-1.5 py-0.5 rounded inline-block w-full">{doNum}</div>
+                                            ))
+                                        ) : (
+                                            <span className="text-muted-foreground">-</span>
+                                        )}
+                                    </td>
                                     <td className="px-3 py-2 text-muted-foreground">{formatDate(so.transDate)}</td>
                                     <td className="px-3 py-2 font-mono text-xs">{so.customerNo || '-'}</td>
                                     <td className="px-3 py-2">{so.customerName || '-'}</td>
