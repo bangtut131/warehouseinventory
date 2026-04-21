@@ -1122,7 +1122,7 @@ export async function fetchAllPOOutstanding(
 /**
  * Fetch DO status map for SOs.
  * Reuses existing fetchDOList (SLA version) and fetchDODetail (SLA version).
- * Returns Map<soId, deliveryStatusName>
+ * Returns Map<soId, { statusName: string, doNumbers: string[] }>
  * If a SO has multiple DOs, takes the status of the latest DO (by transDate).
  */
 export async function fetchDOStatusForSOs(
@@ -1130,7 +1130,7 @@ export async function fetchDOStatusForSOs(
   toDate?: string,
   branchId?: number,
   onProgress?: (done: number, total: number) => void
-): Promise<Map<number, string>> {
+): Promise<Map<number, { statusName: string, doNumbers: string[] }>> {
   // Phase 1: Get all DO list using the existing SLA fetchDOList (which handles caching)
   const doList = await fetchDOList(undefined, undefined, branchId, true);
 
@@ -1161,8 +1161,7 @@ export async function fetchDOStatusForSOs(
 
   // Phase 2: Fetch DO details directly to get salesOrderId
   console.log(`[Accurate] DO Phase 2: Fetching detail for ${filteredDOs.length} DOs to map to SOs...`);
-  const soIdMap = new Map<number, string>();
-  const soDoMap = new Map<number, { statusName: string; transDate: string }>();
+  const soDoMap = new Map<number, { statusName: string; transDate: string; doNumbers: string[] }>();
   const total = filteredDOs.length;
   const BATCH_SIZE = 15;
 
@@ -1185,6 +1184,7 @@ export async function fetchDOStatusForSOs(
             salesOrderIds: Array.from(salesOrderIds),
             statusName: doItem.statusName || d.statusName || '',
             transDate: doItem.transDate || d.transDate || '',
+            doNumber: doItem.number || d.number || '',
           };
         }
         return null;
@@ -1197,17 +1197,23 @@ export async function fetchDOStatusForSOs(
     batchResults.forEach(result => {
       if (!result) return;
       result.salesOrderIds.forEach(soId => {
-        const existing = soIdMap.get(soId);
-        const existingEntry = existing ? soDoMap.get(soId) : null;
+        const existingEntry = soDoMap.get(soId);
         if (!existingEntry) {
-          soDoMap.set(soId, { statusName: result.statusName, transDate: result.transDate });
-          soIdMap.set(soId, result.statusName);
+          soDoMap.set(soId, { 
+            statusName: result.statusName, 
+            transDate: result.transDate,
+            doNumbers: [result.doNumber]
+          });
         } else {
+          // ensure the DO is added to the array
+          if (!existingEntry.doNumbers.includes(result.doNumber)) {
+             existingEntry.doNumbers.push(result.doNumber);
+          }
           const existingDate = parseAccurateDate(existingEntry.transDate);
           const newDate = parseAccurateDate(result.transDate);
           if (newDate >= existingDate) {
-            soDoMap.set(soId, { statusName: result.statusName, transDate: result.transDate });
-            soIdMap.set(soId, result.statusName);
+            existingEntry.statusName = result.statusName;
+            existingEntry.transDate = result.transDate;
           }
         }
       });
@@ -1217,8 +1223,14 @@ export async function fetchDOStatusForSOs(
     if (onProgress) onProgress(processed, total);
   }
 
-  console.log(`[Accurate] DO mapping done: ${soIdMap.size} SOs have delivery status from ${filteredDOs.length} DOs`);
-  return soIdMap;
+  console.log(`[Accurate] DO mapping done: ${soDoMap.size} SOs have delivery status from ${filteredDOs.length} DOs`);
+  
+  const finalMap = new Map<number, { statusName: string, doNumbers: string[] }>();
+  for (const [soId, entry] of soDoMap.entries()) {
+      finalMap.set(soId, { statusName: entry.statusName, doNumbers: entry.doNumbers });
+  }
+
+  return finalMap;
 }
 
 // â”€â”€â”€ SO OUTSTANDING (Kontrol SO) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1607,7 +1619,11 @@ export async function fetchAllSOData(
 
     // Apply delivery status to each SO
     soData.forEach(so => {
-      so.deliveryStatus = doStatusMap.get(so.id) || 'Belum dikirim';
+      const doData = doStatusMap.get(so.id);
+      so.deliveryStatus = doData?.statusName || 'Belum dikirim';
+      if (doData && doData.doNumbers.length > 0) {
+        so.doNumberText = [...new Set(doData.doNumbers.map(d => d.toUpperCase()))].join(', ');
+      }
     });
 
     console.log(`[Accurate] SO Phase 3 done: ${doStatusMap.size} SOs mapped with delivery status`);

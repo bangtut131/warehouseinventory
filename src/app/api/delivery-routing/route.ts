@@ -284,9 +284,12 @@ export async function GET(request: NextRequest) {
             let doNumberText: string | undefined;
 
             {
-                const doNumbersArr = soToDO.get(so.soNumber);
-                if (doNumbersArr && doNumbersArr.length > 0) {
-                    doNumberText = [...new Set(doNumbersArr.map(d => d.toUpperCase()))].join(', ');
+                const doNumbersArr = soToDO.get(so.soNumber) || [];
+                const existingDOs = so.doNumberText ? so.doNumberText.split(',').map(s => s.trim()) : [];
+                const allDOs = [...new Set([...existingDOs, ...doNumbersArr.map(d => d.toUpperCase())])].filter(Boolean);
+
+                if (allDOs.length > 0) {
+                    doNumberText = allDOs.join(', ');
                 }
 
                 // Only assign dispatch status to SOs that have been shipped/invoiced
@@ -295,10 +298,9 @@ export async function GET(request: NextRequest) {
 
                 if (hasShipped) {
                     let matched: DispatchRecord[] = [];
-                    const doNumbers = soToDO.get(so.soNumber);
-                    if (doNumbers && doNumbers.length > 0) {
-                        for (const doNum of doNumbers) {
-                            const matches = dispatchByTask.get(doNum);
+                    if (allDOs.length > 0) {
+                        for (const doNum of allDOs) {
+                            const matches = dispatchByTask.get(doNum.toLowerCase());
                             if (matches) matched.push(...matches);
                         }
                     }
