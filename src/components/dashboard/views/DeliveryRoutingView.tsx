@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useMask } from '@/lib/SessionContext';
+import * as XLSX from 'xlsx';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -447,8 +448,16 @@ export const DeliveryRoutingView: React.FC = () => {
 
     const allDispatchStatuses = useMemo(() => {
         const set = new Set<string>();
-        for (const a of areas) a.soItems.forEach(s => { if (s.dispatchStatus) set.add(s.dispatchStatus); });
-        return [...set].sort();
+        let hasEmpty = false;
+        for (const a of areas) {
+            a.soItems.forEach(s => { 
+                if (s.dispatchStatus) set.add(s.dispatchStatus); 
+                else hasEmpty = true;
+            });
+        }
+        const statuses = [...set].sort();
+        if (hasEmpty) statuses.push('-'); // add option for empty
+        return statuses;
     }, [areas]);
 
     // Toggle helpers for multi-select
@@ -659,34 +668,89 @@ export const DeliveryRoutingView: React.FC = () => {
     // ─── Export ───────────────────────────────────
 
     const handleExport = () => {
-        const rows: any[][] = [];
+        let ws: XLSX.WorkSheet;
+        let sheetName = "";
+        
         if (activeTab === 'area') {
-            rows.push(['Area', 'Cluster', 'Kota', 'Provinsi', 'SO', 'Customer', 'Berat (kg)', 'Volume (m³)', 'Nilai', 'Est. Truk']);
-            for (const a of filteredAreas) {
+            const dataToExport = filteredAreas.map(a => {
                 const trucks = Math.max(
                     truckWeightKg > 0 ? Math.ceil(a.totalWeightKg / truckWeightKg) : 0,
                     truckVolumeM3 > 0 ? Math.ceil(a.totalVolumeM3 / truckVolumeM3) : 0, 1
                 );
-                rows.push([a.area, a.cluster, a.cities.join(', '), a.province, a.soCount, a.customerCount, a.totalWeightKg, a.totalVolumeM3, a.totalValue, trucks]);
-            }
+                return {
+                    'Area': a.area,
+                    'Cluster': a.cluster,
+                    'Kota': a.cities.join(', '),
+                    'Provinsi': a.province,
+                    'SO': a.soCount,
+                    'Customer': a.customerCount,
+                    'Berat (kg)': a.totalWeightKg,
+                    'Volume (m³)': a.totalVolumeM3,
+                    'Nilai': a.totalValue,
+                    'Est. Truk': trucks
+                };
+            });
+            ws = XLSX.utils.json_to_sheet(dataToExport);
+            ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 10 }];
+            sheetName = "Area";
         } else if (activeTab === 'customer') {
-            rows.push(['Area', 'Cluster', 'Customer', 'ID Customer', 'Kota', 'SO', 'Berat (kg)', 'Volume (m³)', 'Nilai', 'Outstanding Pcs']);
-            for (const c of filteredCustomers) {
-                rows.push([c.area, c.cluster, c.customerName, c.customerNo || '', c.city, c.soCount, c.totalWeightKg, c.totalVolumeM3, c.totalValue, c.totalOutstandingPcs]);
-            }
+            const dataToExport = filteredCustomers.map(c => ({
+                'Area': c.area,
+                'Cluster': c.cluster,
+                'Customer': c.customerName,
+                'ID Customer': c.customerNo || '-',
+                'Kota': c.city,
+                'SO': c.soCount,
+                'Berat (kg)': c.totalWeightKg,
+                'Volume (m³)': c.totalVolumeM3,
+                'Nilai': c.totalValue,
+                'Outstanding Pcs': c.totalOutstandingPcs
+            }));
+            ws = XLSX.utils.json_to_sheet(dataToExport);
+            ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+            sheetName = "Customer";
         } else {
-            rows.push(['No. SO', 'Customer', 'ID Customer', 'Tanggal', 'Area', 'Cluster', 'Kota', 'Status', 'Status Kiriman', 'Items', 'Berat (kg)', 'Volume (m³)', 'Nilai', 'Outstanding Pcs']);
-            for (const so of filteredDetails) {
-                rows.push([so.soNumber, so.customerName, so.customerNo || '', so.transDate, so.area, so.cluster, so.city || '', so.statusName, so.deliveryStatus || 'Belum dikirim', so.itemCount, so.totalWeightKg, so.totalVolumeM3, so.totalValue, so.outstandingPcs]);
-            }
+            const dataToExport = filteredDetails.map(so => ({
+                'No. SO': so.soNumber,
+                'Customer': so.customerName,
+                'ID Customer': so.customerNo || '-',
+                'Tanggal': so.transDate,
+                'Area': so.area,
+                'Cluster': so.cluster,
+                'Kota': so.city || '-',
+                'Status': so.statusName,
+                'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
+                'Status Armada': so.dispatchStatus || '-',
+                'Items': so.itemCount,
+                'Berat (kg)': so.totalWeightKg,
+                'Volume (m³)': so.totalVolumeM3,
+                'Nilai': so.totalValue,
+                'Outstanding Pcs': so.outstandingPcs
+            }));
+            ws = XLSX.utils.json_to_sheet(dataToExport);
+            ws['!cols'] = [
+                { wch: 15 }, // SO
+                { wch: 30 }, // Customer
+                { wch: 15 }, // ID Cust
+                { wch: 12 }, // Tanggal
+                { wch: 15 }, // Area
+                { wch: 15 }, // Cluster
+                { wch: 15 }, // Kota
+                { wch: 15 }, // Status
+                { wch: 18 }, // Status Kiriman
+                { wch: 18 }, // Status Armada
+                { wch: 10 }, // Items
+                { wch: 15 }, // Berat
+                { wch: 15 }, // Volume
+                { wch: 15 }, // Nilai
+                { wch: 15 }, // Outstanding
+            ];
+            sheetName = "Detail SO";
         }
-        const csv = rows.map(r => r.join('\t')).join('\n');
-        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        const tabName = activeTab === 'area' ? 'Area' : activeTab === 'customer' ? 'Customer' : 'Detail';
-        link.download = `Delivery_Routing_${tabName}_${new Date().toISOString().slice(0, 10)}.csv`;
-        link.click();
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.writeFile(wb, `Delivery_Routing_${sheetName.replace(' ', '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     // ─── Tab definitions ──────────────────────────

@@ -184,6 +184,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                         'Sub Cluster': so.subCluster || '-',
                         'Status': so.statusName,
                         'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
+                        'Status Armada': so.dispatchStatus || '-',
                         'Kode Barang': item.itemNo,
                         'Nama Barang': item.itemName,
                         'Qty Pesanan': item.quantity,
@@ -212,6 +213,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
                     'Sub Cluster': so.subCluster || '-',
                     'Status': so.statusName,
                     'Status Kiriman': so.deliveryStatus || 'Belum dikirim',
+                    'Status Armada': so.dispatchStatus || '-',
                     'Kode Barang': '-',
                     'Nama Barang': '-',
                     'Qty Pesanan': 0,
@@ -244,6 +246,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             { wch: 15 }, // Sub Cluster
             { wch: 15 }, // Status
             { wch: 18 }, // Status Kiriman
+            { wch: 18 }, // Status Armada
             { wch: 15 }, // Kode Barang
             { wch: 40 }, // Nama Barang
             { wch: 12 }, // Qty
