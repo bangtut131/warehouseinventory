@@ -2039,13 +2039,16 @@ export async function fetchDOList(
         fields: 'id,number,transDate,branchId,customerName,statusName',
         'sp.page': page,
         'sp.pageSize': pageSize,
+        'sp.sort': 'transDate|desc' // IMPORTANT to get newest DOs first
       };
       if (branchId) {
         params['filter.branchId.op'] = 'EQUAL';
         params['filter.branchId.val'] = branchId;
       }
       // NOTE: DO API does not support filter.transDate.op (returns error)
-      // Date filtering is done client-side in the SLA route
+      // Date filtering is done client-side. Since we sorted transDate|desc,
+      // we can stop fetching pages if we hit older dates.
+      const fromDateParsed = fromDate ? parseAccurateDate(fromDate) : null;
 
       const response = await accurateClient.get('/delivery-order/list.do', { params });
 
@@ -2054,7 +2057,14 @@ export async function fetchDOList(
         if (list.length === 0) {
           hasMore = false;
         } else {
+          let datesOlderThanFromDate = 0;
           list.forEach((doItem: any) => {
+            if (fromDateParsed) {
+               const doDate = parseAccurateDate(doItem.transDate);
+               if (doDate < fromDateParsed) {
+                  datesOlderThanFromDate++;
+               }
+            }
             allDOs.push({
               id: doItem.id,
               number: doItem.number,
@@ -2064,6 +2074,12 @@ export async function fetchDOList(
               statusName: doItem.statusName || '',
             });
           });
+          
+          if (fromDateParsed && datesOlderThanFromDate > (list.length * 0.5)) {
+             console.log(`[Accurate] DO: Stopping at page ${page} (hit older dates)`);
+             hasMore = false;
+          }
+
           if (page % 20 === 0) {
             console.log(`[Accurate] DO: Page ${page}, ${allDOs.length} DOs so far...`);
           }
