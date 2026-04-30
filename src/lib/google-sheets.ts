@@ -36,7 +36,19 @@ export interface DispatchRecord {
 
 function getGoogleAuth() {
     const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+
+    if (privateKey) {
+        // Bulletproof PEM parser (menahan segala bug Coolify & Nixpacks)
+        privateKey = privateKey
+            .replace(/^"|"$/g, '') // Hapus tanda kutip jika ada
+            .replace(/\\+n/g, '\n') // Ubah \n atau \\n menjadi enter asli
+            .replace(/-----BEGIN PRIVATE KEY-----/g, '-----BEGIN_PRIVATE_KEY-----')
+            .replace(/-----END PRIVATE KEY-----/g, '-----END_PRIVATE_KEY-----')
+            .replace(/\s+/g, '\n') // Ubah semua spasi (hasil flattening Nixpacks) jadi enter
+            .replace(/-----BEGIN_PRIVATE_KEY-----/g, '-----BEGIN PRIVATE KEY-----')
+            .replace(/-----END_PRIVATE_KEY-----/g, '-----END PRIVATE KEY-----');
+    }
 
     if (!clientEmail || !privateKey) {
         return null;
