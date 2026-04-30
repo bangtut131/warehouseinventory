@@ -1,0 +1,34 @@
+{
+  "get-process-history": {
+    "success": false,
+    "status": 404
+  },
+  "list-process-history": {
+    "success": false,
+    "status": 404
+  },
+  "process-history-list": {
+    "success": false,
+    "status": 404
+  },
+  "approval": {
+    "success": false,
+    "status": 404
+  },
+  "approval-list": {
+    "success": true,
+    "data": "{\"s\":true,\"d\":[]}"
+  },
+  "comment-so": {
+    "success": true,
+    "data": "{\"s\":true,\"d\":[],\"sp\":{\"page\":1,\"sort\":null,\"pageSize\":20,\"pageCount\":1,\"rowCount\":0,\"start\":0,\"limit\":null}}"
+  },
+  "comment-so2": {
+    "success": true,
+    "data": "{\"s\":true,\"d\":[],\"sp\":{\"page\":1,\"sort\":null,\"pageSize\":20,\"pageCount\":1,\"rowCount\":0,\"start\":0,\"limit\":null}}"
+  },
+  "so-process": {
+    "success": false,
+    "status": 404
+  }
+}

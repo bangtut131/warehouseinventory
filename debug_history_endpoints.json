@@ -1,0 +1,72 @@
+{
+  "status-history": {
+    "success": false,
+    "status": 404,
+    "message": {
+      "s": false,
+      "d": [
+        "URL API tidak tepat"
+      ]
+    }
+  },
+  "get-status-history": {
+    "success": false,
+    "status": 404,
+    "message": {
+      "s": false,
+      "d": [
+        "URL API tidak tepat"
+      ]
+    }
+  },
+  "history": {
+    "success": false,
+    "status": 404,
+    "message": {
+      "s": false,
+      "d": [
+        "URL API tidak tepat"
+      ]
+    }
+  },
+  "get-history": {
+    "success": false,
+    "status": 404,
+    "message": {
+      "s": false,
+      "d": [
+        "URL API tidak tepat"
+      ]
+    }
+  },
+  "activity-log": {
+    "success": false,
+    "status": 404,
+    "message": {
+      "s": false,
+      "d": [
+        "URL API tidak tepat"
+      ]
+    }
+  },
+  "status-history-list": {
+    "success": false,
+    "status": 404,
+    "message": {
+      "s": false,
+      "d": [
+        "URL API tidak tepat"
+      ]
+    }
+  },
+  "transaction-history": {
+    "success": false,
+    "status": 404,
+    "message": {
+      "s": false,
+      "d": [
+        "URL API tidak tepat"
+      ]
+    }
+  }
+}

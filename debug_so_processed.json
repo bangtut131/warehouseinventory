@@ -1,0 +1,23 @@
+{
+  "number": "SO.2026.04.01615",
+  "transDate": "21/04/2026",
+  "transDateView": "21 Apr 2026",
+  "statusName": "Menunggu diproses",
+  "approvalStatus": "APPROVED",
+  "shipDate": "02/04/2026",
+  "shipDateView": "02 Apr 2026",
+  "printedTime": null,
+  "createdBy": 757430,
+  "userPrinted": null,
+  "printUserName": "Belum cetak/email",
+  "masterSalesmanId": 9200,
+  "customerId": 41552,
+  "branchId": 50,
+  "percentShipped": 0,
+  "customerName": "CV. Rizki Agro Jaya Abadi",
+  "customerNo": "C.01324",
+  "defaultSalesmanId": 9200,
+  "deliveryOrder": false,
+  "salesInvoice": false,
+  "processHistory": []
+}
