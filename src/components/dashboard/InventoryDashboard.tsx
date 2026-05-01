@@ -67,6 +67,8 @@ export default function InventoryDashboard() {
     // Date range state
     const [fromDate, setFromDate] = useState('2025-01-01');
     const [toDate, setToDate] = useState(formatDateParam(new Date()));
+    const [activePreset, setActivePreset] = useState<string>('ytd'); // tracks which preset is active
+    const [pendingChanges, setPendingChanges] = useState(false); // tracks if filter changed but not applied
 
     // Branch & warehouse state
     const [branches, setBranches] = useState<Branch[]>([]);
@@ -192,6 +194,34 @@ export default function InventoryDashboard() {
     useEffect(() => {
         fetchData();
     }, []);
+
+    // Handle quick preset selection
+    const applyDatePreset = (preset: string) => {
+        const today = new Date();
+        setToDate(formatDateParam(today));
+        
+        let start = new Date();
+        if (preset === '3m') {
+            start.setMonth(today.getMonth() - 3);
+        } else if (preset === '6m') {
+            start.setMonth(today.getMonth() - 6);
+        } else if (preset === 'ytd') {
+            start = new Date(today.getFullYear(), 0, 1);
+        } else if (preset === '1y') {
+            start.setFullYear(today.getFullYear() - 1);
+        } else if (preset === 'all') {
+            start = new Date(2025, 0, 1); // January 2025 as beginning of time
+        }
+        
+        setFromDate(formatDateParam(start));
+        setActivePreset(preset);
+        setPendingChanges(true);
+    };
+
+    const handleApplyFilter = () => {
+        setPendingChanges(false);
+        fetchData();
+    };
 
     // Format elapsed time
     const formatElapsed = (sec?: number) => {
@@ -395,24 +425,62 @@ export default function InventoryDashboard() {
                     </div>
                     )}
 
-                    {/* Date Range */}
+                    {/* Date Range & Quick Presets */}
                     {hasButton('btn:filter_date') && (
-                    <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-1.5 border">
-                        <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">📅 Range:</span>
-                        <input
-                            type="date"
-                            value={fromDate}
-                            onChange={(e) => setFromDate(e.target.value)}
-                            className="bg-transparent text-sm border-none outline-none w-[130px] cursor-pointer"
-                        />
-                        <span className="text-xs text-muted-foreground">→</span>
-                        <input
-                            type="date"
-                            value={toDate}
-                            onChange={(e) => setToDate(e.target.value)}
-                            className="bg-transparent text-sm border-none outline-none w-[130px] cursor-pointer"
-                        />
-                    </div>
+                        <div className="flex flex-col gap-2 border p-2 bg-muted/20 rounded-lg">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-medium text-muted-foreground mr-1">📅 Riwayat:</span>
+                                <Button 
+                                    size="sm" 
+                                    variant={activePreset === '3m' ? 'default' : 'outline'} 
+                                    className="h-7 text-xs px-2"
+                                    onClick={() => applyDatePreset('3m')}
+                                >3 Bulan</Button>
+                                <Button 
+                                    size="sm" 
+                                    variant={activePreset === '6m' ? 'default' : 'outline'} 
+                                    className="h-7 text-xs px-2"
+                                    onClick={() => applyDatePreset('6m')}
+                                >6 Bulan</Button>
+                                <Button 
+                                    size="sm" 
+                                    variant={activePreset === 'ytd' ? 'default' : 'outline'} 
+                                    className="h-7 text-xs px-2"
+                                    onClick={() => applyDatePreset('ytd')}
+                                >Tahun Ini</Button>
+                                <Button 
+                                    size="sm" 
+                                    variant={activePreset === 'all' ? 'default' : 'outline'} 
+                                    className="h-7 text-xs px-2"
+                                    onClick={() => applyDatePreset('all')}
+                                >Semua Data</Button>
+                            </div>
+                            
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-medium text-muted-foreground mr-1">Kustom:</span>
+                                <input
+                                    type="date"
+                                    value={fromDate}
+                                    onChange={(e) => { setFromDate(e.target.value); setActivePreset('custom'); setPendingChanges(true); }}
+                                    className="bg-transparent text-sm border border-border rounded px-2 h-7 outline-none w-[125px]"
+                                />
+                                <span className="text-xs text-muted-foreground">s/d</span>
+                                <input
+                                    type="date"
+                                    value={toDate}
+                                    onChange={(e) => { setToDate(e.target.value); setActivePreset('custom'); setPendingChanges(true); }}
+                                    className="bg-transparent text-sm border border-border rounded px-2 h-7 outline-none w-[125px]"
+                                />
+                                <Button 
+                                    size="sm" 
+                                    onClick={handleApplyFilter}
+                                    disabled={loading || !pendingChanges}
+                                    className={`h-7 px-4 text-xs font-medium ${pendingChanges ? 'bg-blue-600 hover:bg-blue-700 text-white animate-pulse' : 'bg-gray-100 text-gray-400'}`}
+                                >
+                                    {loading ? 'Memuat...' : 'Terapkan Filter'}
+                                </Button>
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>

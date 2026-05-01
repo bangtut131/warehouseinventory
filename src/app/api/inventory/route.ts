@@ -159,18 +159,18 @@ export async function GET(request: NextRequest) {
         const accurateItems = await fetchAllInventory();
         console.log(`[API] Got ${accurateItems.length} items from Accurate`);
 
-        // 2. Fetch real sales data (from cache if available, otherwise fresh fetch)
+        // 2. Fetch real sales data (ALWAYS use master cache from DEFAULT_ANALYSIS_START)
         let dataSource: 'API' | 'ESTIMATED' = 'ESTIMATED';
         const itemSalesMap = new Map<string, ItemSalesData>();
 
         try {
-            const cachedSales = await loadSalesCache(analysisStart, branchId);
+            const cachedSales = await loadSalesCache(DEFAULT_ANALYSIS_START, branchId);
             if (cachedSales && cachedSales.size > 0) {
                 dataSource = 'API';
                 cachedSales.forEach((val: ItemSalesData, key: string) => {
                     itemSalesMap.set(key, val);
                 });
-                console.log(`[API] Got real sales data for ${cachedSales.size} items (from cache${branchId ? `, branch ${branchId}` : ''})`);
+                console.log(`[API] Got real sales data for ${cachedSales.size} items (from master cache${branchId ? `, branch ${branchId}` : ''})`);
             } else {
                 console.log('[API] No sales cache found — using estimation. Run Force Sync to populate.');
             }
@@ -245,10 +245,24 @@ export async function GET(request: NextRequest) {
             //
             // This excludes pesticide bottles (ml) and sachets (gr) which also
             // have high ratios (50-200 pcs/box) but are NOT sold per Sak.
+            // Calculate dynamic totals based ONLY on the requested date range (dateHeaders)
+            let filteredTotalQty = 0;
+            let filteredTotalQtyBox = 0;
+            let filteredTotalRevenue = 0;
+
+            dateHeaders.forEach(h => {
+                const d = salesData.monthlyData.get(h.key);
+                if (d) {
+                    filteredTotalQty += d.qty;
+                    filteredTotalQtyBox += d.qtyBox || 0;
+                    filteredTotalRevenue += d.revenue;
+                }
+            });
+
             const sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
             const itemNameLower = (item.name || '').toLowerCase();
             const isKgItem = itemNameLower.includes('kg');
-            const isBulkUnit = isKgItem && sakConversion >= 25 && salesData.totalQtyBox > 0;
+            const isBulkUnit = isKgItem && sakConversion >= 25 && filteredTotalQtyBox > 0;
 
             if (isBulkUnit) {
                 // Convert stock from base unit (Kg) to Sak
@@ -256,15 +270,15 @@ export async function GET(request: NextRequest) {
                 // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for Sak items
                 // is already per-Sak (same price for Kg and Sak), so no conversion needed
                 unit = 'Sak';
-                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | totalQtyBox=${salesData.totalQtyBox} | totalQty=${salesData.totalQty}`);
+                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | filteredTotalQtyBox=${filteredTotalQtyBox} | filteredTotalQty=${filteredTotalQty}`);
             }
 
             // Should we use sales-unit quantities for demand calculations?
             const useSakQty = isBulkUnit;
 
             // ── Demand Metrics ──────────────────
-            // For Sak items: use totalQtyBox (sales unit qty), otherwise totalQty (base unit)
-            const effectiveTotalQty = useSakQty ? (salesData.totalQtyBox || salesData.totalQty) : salesData.totalQty;
+            // For Sak items: use filteredTotalQtyBox (sales unit qty), otherwise filteredTotalQty (base unit)
+            const effectiveTotalQty = useSakQty ? (filteredTotalQtyBox || filteredTotalQty) : filteredTotalQty;
             const avgDailyUsage = parseFloat((effectiveTotalQty / daysSinceStart).toFixed(2));
             const avgMonthlyUsage = parseFloat((effectiveTotalQty / monthCount).toFixed(1));
 
@@ -379,7 +393,7 @@ export async function GET(request: NextRequest) {
                 leadTimeDays: LEAD_TIME_DAYS,
                 serviceLevel: 0.95,
                 standardDeviation: dailyStdDev,
-                annualRevenue: salesData.totalRevenue,
+                annualRevenue: filteredTotalRevenue,
                 abcClass: 'C' as const,
                 xyzClass,
                 eoq,
@@ -387,8 +401,8 @@ export async function GET(request: NextRequest) {
                 demandCategory,
                 stockAgeDays,
                 totalSalesQty: effectiveTotalQty,
-                totalSalesQtyBox: salesData.totalQtyBox || 0,
-                totalSalesRevenue: salesData.totalRevenue,
+                totalSalesQtyBox: filteredTotalQtyBox || 0,
+                totalSalesRevenue: filteredTotalRevenue,
                 // Unit conversion: for Sak items, conversion already applied, set to 0
                 unitConversion: useSakQty ? 0 : (salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0)),
                 salesUnitName: useSakQty ? '' : (salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : '')),
