@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useVisibleInterval } from '@/hooks/usePageVisibility';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -162,11 +163,11 @@ export function SchedulerPanel({ branches }: { branches: Branch[] }) {
         }
     }, []);
 
-    useEffect(() => {
-        fetchStatus();
-        const timer = setInterval(fetchStatus, 30000);
-        return () => clearInterval(timer);
-    }, [fetchStatus]);
+    // Fetch on mount
+    useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+    // Poll every 2 minutes, only when tab is visible (was 30s — reduced VPS load)
+    useVisibleInterval(fetchStatus, 120000, true, true);
 
     const updateConfig = async (updates: Partial<SchedulerConfig>) => {
         setUpdating(true);

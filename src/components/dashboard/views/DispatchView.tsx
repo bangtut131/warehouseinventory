@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useVisibleInterval } from '@/hooks/usePageVisibility';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -130,11 +131,8 @@ export function DispatchView() {
         fetchData();
     }, [fetchData]);
 
-    // Auto-refresh every 5 minutes
-    useEffect(() => {
-        const timer = setInterval(() => fetchData(), 5 * 60 * 1000);
-        return () => clearInterval(timer);
-    }, [fetchData]);
+    // Auto-refresh every 5 minutes, only when tab is visible
+    useVisibleInterval(() => fetchData(), 5 * 60 * 1000, true, false);
 
     // Local text search filter
     const filteredRecords = useMemo(() => {

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { usePageVisibility } from '@/hooks/usePageVisibility';
 import axios from 'axios';
 import { InventoryItem } from '@/lib/types';
 import { DashboardView } from './views/DashboardView';
@@ -82,6 +83,7 @@ export default function InventoryDashboard() {
     const pollRef = useRef<NodeJS.Timeout | null>(null);
 
     // ─── Fetch branch & warehouse lists ──────────────────────────
+
     useEffect(() => {
         async function loadLocations() {
             try {
@@ -156,6 +158,18 @@ export default function InventoryDashboard() {
             // ignore poll errors
         }
     }, [fetchData]);
+
+    const isPageVisible = usePageVisibility();
+
+    // Pause/resume force sync polling based on tab visibility
+    useEffect(() => {
+        if (!isPageVisible && pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+        } else if (isPageVisible && syncStatus?.status === 'running' && !pollRef.current) {
+            pollRef.current = setInterval(pollSyncStatus, 3000);
+        }
+    }, [isPageVisible, syncStatus?.status, pollSyncStatus]);
 
     // Start force sync
     const startForceSync = useCallback(async () => {

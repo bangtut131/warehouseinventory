@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { usePageVisibility, useVisibleInterval } from '@/hooks/usePageVisibility';
 import { SOData } from '@/lib/types';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -124,9 +125,10 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
 
     useEffect(() => { fetchSO(); }, [fetchSO]);
 
-    // Poll sync status while running
+    // Poll sync status while running (pauses when tab hidden)
+    const isVisible = usePageVisibility();
     useEffect(() => {
-        if (syncState.status !== 'running') return;
+        if (syncState.status !== 'running' || !isVisible) return;
         const interval = setInterval(async () => {
             try {
                 const res = await fetch('/api/so');
@@ -139,7 +141,7 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
             } catch { /* ignore */ }
         }, 2000);
         return () => clearInterval(interval);
-    }, [syncState.status]);
+    }, [syncState.status, isVisible]);
 
     // Fetch scheduler status
     const fetchSchedulerStatus = useCallback(async () => {
@@ -151,11 +153,11 @@ export const SOControlView: React.FC<SOControlViewProps> = ({ branches = [] }) =
         }
     }, []);
 
-    useEffect(() => {
-        fetchSchedulerStatus();
-        const timer = setInterval(fetchSchedulerStatus, 30000);
-        return () => clearInterval(timer);
-    }, [fetchSchedulerStatus]);
+    // Fetch on mount
+    useEffect(() => { fetchSchedulerStatus(); }, [fetchSchedulerStatus]);
+
+    // Poll every 2 minutes, only when tab is visible (was 30s — reduced VPS load)
+    useVisibleInterval(fetchSchedulerStatus, 120000, true, true);
 
     const updateSchedulerConfig = async (updates: Partial<SOSchedulerConfig>) => {
         setSchedulerUpdating(true);
