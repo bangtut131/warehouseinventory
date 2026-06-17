@@ -71,8 +71,31 @@ export async function GET(request: Request) {
         : 0;
 
       const baseUnit = item.unit1Name || 'Pcs';
-      const unit2Name = item.unit2Name || '';
-      const ratio2 = masterSP?.ratio2 || item.ratio2 || 0;
+
+      // Pick the most relevant sales unit conversion:
+      // Prefer the unit with ratio > 1 (Box, Sak, Karton) over volume units (Ltr with ratio < 1)
+      // If both unit2 and unit3 have ratio > 1, prefer the larger ratio (outer packaging)
+      const r2 = masterSP?.ratio2 || item.ratio2 || 0;
+      const r3 = item.ratio3 || 0;
+      const u2 = item.unit2Name || '';
+      const u3 = item.unit3Name || '';
+
+      let salesUnit = '';
+      let salesRatio = 0;
+
+      if (r2 > 1 && r3 > 1) {
+        // Both valid — pick larger (outer packaging like Box)
+        if (r3 >= r2) { salesUnit = u3; salesRatio = r3; }
+        else { salesUnit = u2; salesRatio = r2; }
+      } else if (r3 > 1) {
+        salesUnit = u3; salesRatio = r3;
+      } else if (r2 > 1) {
+        salesUnit = u2; salesRatio = r2;
+      } else {
+        // Neither > 1 (e.g. volume-only units) — show unit3 or unit2 as info
+        salesUnit = u3 || u2;
+        salesRatio = r3 || r2;
+      }
 
       // Build category prices — already in base unit from accurate.ts
       const categoryPrices: CategoryPrice[] = [];
@@ -121,8 +144,8 @@ export async function GET(request: Request) {
         itemName: item.name,
         category: item.itemType || '',
         baseUnitName: baseUnit,
-        salesUnitName: unit2Name,
-        unitConversion: ratio2,
+        salesUnitName: salesUnit,
+        unitConversion: salesRatio,
         masterSellingPrice: item.unitPrice || 0,
         masterCost: item.cost || 0,
         lastPurchasePrice: Math.round(lastPurchasePrice),
