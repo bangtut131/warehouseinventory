@@ -984,10 +984,12 @@ function aggregatePOOutstanding(pos: AccuratePO[]): {
         if (!itemNo) return;
 
         // Outstanding = Kts Pesanan - Kts Terproses (quantity - shipQuantity)
-        const outstanding = Math.max(0, d.quantity - d.shipQuantity);
+        const outstandingRaw = Math.max(0, d.quantity - d.shipQuantity);
+        // Convert to base unit: multiply by unitRatio (e.g. 3 Box × 50 = 150 Btl)
+        const outstanding = outstandingRaw * (d.unitRatio || 1);
 
         if (outstanding > 0) {
-          // Add to combined map
+          // Add to combined map (now in base unit)
           combined.set(itemNo, (combined.get(itemNo) || 0) + outstanding);
 
           // Add to per-branch map
@@ -2252,14 +2254,15 @@ function normalizePricePerBase(
   itemUnitMap?: Map<string, ItemUnitInfo>
 ): { pricePerBase: number; effectiveRatio: number } {
   // Method 1: unitRatio from the invoice detail
-  if (unitRatio > 1) {
+  // Handle both ratio > 1 (e.g. Box=50) and ratio < 1 (e.g. Ltr=0.05)
+  if (unitRatio > 0 && unitRatio !== 1) {
     return { pricePerBase: unitPrice / unitRatio, effectiveRatio: unitRatio };
   }
 
   // Method 2: Calculate from qty fields
   if (quantityInBase > 0 && quantity > 0 && quantityInBase !== quantity) {
     const calcRatio = quantityInBase / quantity;
-    if (calcRatio > 1) {
+    if (calcRatio > 0 && calcRatio !== 1) {
       return { pricePerBase: unitPrice / calcRatio, effectiveRatio: calcRatio };
     }
   }
