@@ -69,7 +69,7 @@ export const InventoryChart: React.FC<InventoryChartProps> = ({ items }) => {
         .map(([name, value]) => ({ name: name.length > 15 ? name.slice(0, 12) + '...' : name, value }));
 
     return (
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-2 chart-responsive">
             {/* Status Distribution */}
             <Card>
                 <CardHeader>

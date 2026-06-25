@@ -81,85 +81,171 @@ body {
 }
 
 /* ═══════════════════════════════════════════════
-   RESPONSIVE LAYOUT
-   Mobile: <640px | Foldable: 640-767px | Tablet: 768-1023px | Desktop: 1024+
+   RESPONSIVE LAYOUT — Mobile-First
+   Portrait: <480px | Mobile: 480-639px | Foldable: 640-767px 
+   Tablet: 768-1023px | Desktop: 1024+
    ═══════════════════════════════════════════════ */
 
-/* Dashboard header — stack on mobile */
-@media (max-width: 767px) {
+/* ─── MOBILE PORTRAIT (<640px) ──────────────── */
+@media (max-width: 639px) {
+  /* Header: full stack, compact */
   .dash-header-row {
     flex-direction: column !important;
-    align-items: flex-start !important;
+    align-items: stretch !important;
     gap: 8px !important;
   }
-  .dash-header-row .flex.items-center.gap-3 {
-    flex-wrap: wrap;
-  }
-  .dash-header-row h1 {
-    font-size: 1.25rem !important;
-  }
-  .dash-actions {
-    flex-wrap: wrap !important;
-    width: 100%;
+  .dash-header-row > div:first-child {
+    flex-direction: column !important;
+    align-items: flex-start !important;
     gap: 6px !important;
   }
-  .dash-actions > * {
-    font-size: 0.75rem !important;
+  .dash-header-row h1 {
+    font-size: 1.1rem !important;
   }
-}
+  .dash-header-row img {
+    height: 28px !important;
+  }
+  
+  /* Action buttons: wrap into grid */
+  .dash-actions {
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    gap: 4px !important;
+  }
+  .dash-actions > button,
+  .dash-actions > a {
+    flex: 1 1 calc(50% - 4px) !important;
+    font-size: 0.7rem !important;
+    padding: 6px 8px !important;
+    min-width: 0 !important;
+    justify-content: center !important;
+  }
+  .dash-actions > span,
+  .dash-actions > div[class*="Badge"] {
+    width: 100% !important;
+    text-align: center;
+  }
 
-/* Tab navigation — horizontal scroll on small screens */
-.tab-scroll-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-@media (max-width: 767px) {
+  /* Filter row: full width stack */
+  .filter-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  .filter-row > div {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .filter-row select {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* Tab navigation: horizontal scroll */
   .tab-scroll-container {
     flex-wrap: nowrap !important;
-    overflow-x: auto;
+    overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     padding-bottom: 4px;
+    gap: 4px !important;
   }
   .tab-scroll-container::-webkit-scrollbar {
     display: none;
   }
   .tab-scroll-container > button {
-    flex-shrink: 0;
-    font-size: 0.72rem !important;
-    padding: 4px 10px !important;
+    flex-shrink: 0 !important;
+    font-size: 0.68rem !important;
+    padding: 4px 8px !important;
+    white-space: nowrap !important;
   }
-}
 
-/* Filter row — stack on mobile */
-@media (max-width: 767px) {
-  .filter-row {
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 6px !important;
-  }
-  .filter-row > * {
-    width: 100% !important;
-  }
-}
-
-/* Foldable phone (640-767px) — 2 column KPIs */
-@media (min-width: 640px) and (max-width: 767px) {
-  .dash-header-row {
-    flex-direction: row !important;
-    flex-wrap: wrap;
-  }
-}
-
-/* Mobile KPI cards — force 2 columns */
-@media (max-width: 639px) {
+  /* KPI grids: 2 columns compact */
   .kpi-responsive {
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
+    gap: 6px !important;
   }
+
+  /* Charts: single column */
   .chart-responsive {
     grid-template-columns: 1fr !important;
+  }
+
+  /* Typography scaling */
+  h2.text-3xl {
+    font-size: 1.25rem !important;
+  }
+
+  /* Card text sizing */
+  .kpi-responsive [class*="text-4xl"],
+  .kpi-responsive [class*="text-3xl"] {
+    font-size: 1.1rem !important;
+  }
+  .kpi-responsive [class*="text-sm"] {
+    font-size: 0.65rem !important;
+  }
+  .kpi-responsive [class*="text-xs"] {
+    font-size: 0.6rem !important;
+  }
+
+  /* Reduce spacing globally */
+  .space-y-6 > * + * {
+    margin-top: 12px !important;
+  }
+  .space-y-4 > * + * {
+    margin-top: 8px !important;
+  }
+}
+
+/* ─── FOLDABLE / LARGE MOBILE (640-767px) ───── */
+@media (min-width: 640px) and (max-width: 767px) {
+  .dash-header-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  .dash-actions {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .filter-row {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .filter-row > div {
+    width: 100% !important;
+  }
+  .tab-scroll-container {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-scroll-container::-webkit-scrollbar {
+    display: none;
+  }
+  .tab-scroll-container > button {
+    flex-shrink: 0 !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* ─── TABLET (768-1023px) ───────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dash-header-row {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .dash-actions {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+  }
+  .tab-scroll-container {
+    flex-wrap: wrap !important;
+  }
+  .tab-scroll-container > button {
+    font-size: 0.78rem !important;
   }
 }
 
