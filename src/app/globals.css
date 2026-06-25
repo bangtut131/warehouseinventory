@@ -180,6 +180,11 @@ body {
   border-spacing: 0;
 }
 
+/* Force thead above all body sticky cells */
+.freeze-table thead {
+  z-index: 25 !important;
+}
+
 /* Sticky header row */
 .freeze-table thead th {
   position: sticky;
