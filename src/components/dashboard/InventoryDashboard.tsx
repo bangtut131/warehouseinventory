@@ -319,7 +319,7 @@ export default function InventoryDashboard() {
         <div className="space-y-6">
             <div className="flex flex-col gap-4 border-b pb-4">
                 {/* Row 1: Title + Data Source */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between dash-header-row">
                     <div className="flex items-center gap-3">
                         <img src="/logo.png" alt="Gama Agro Sejati" className="h-9" />
                         <h1 className="text-2xl font-bold">Inventory Intelligence</h1>
@@ -344,7 +344,7 @@ export default function InventoryDashboard() {
                         </div>
                     </div>
                     {/* Action Buttons */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 dash-actions">
                         {session && (
                             <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-300 text-[10px]">
                                 👤 {session.fullName || session.username} ({session.roleName})
@@ -398,7 +398,7 @@ export default function InventoryDashboard() {
                 </div>
 
                 {/* Row 2: Filters — Branch, Warehouse, Date Range */}
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3 filter-row">
                     {/* Branch Selector */}
                     {hasButton('btn:filter_branch') && (
                     <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-1.5 border">
@@ -578,7 +578,7 @@ export default function InventoryDashboard() {
             {hasButton('btn:price_sync') && <PriceSyncPanel />}
 
             {/* Tabs */}
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 tab-scroll-container">
                 {tabs.map(tab => (
                     <Button
                         key={tab.id}

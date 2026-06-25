@@ -86,13 +86,13 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
                         onClearAll={clearAll} activeFilterCount={activeFilterCount}
                         totalItems={ropItems.length} filteredItems={filtered.length}
                     />
-                    <div className="rounded-md border max-h-[500px] overflow-auto">
-                        <Table>
+                    <div className="freeze-table-wrapper">
+                        <Table className="freeze-table">
                             <thead className="bg-blue-600 sticky top-0 z-10">
                                 <tr>
-                                    <SortableHead label="No" sortKey="_index" sort={sort} onSort={toggleSort} className="text-white w-[50px]" />
-                                    <SortableHead label="Kode" sortKey="itemNo" sort={sort} onSort={toggleSort} className="text-white" />
-                                    <SortableHead label="Nama Barang" sortKey="name" sort={sort} onSort={toggleSort} className="text-white" />
+                                    <SortableHead label="No" sortKey="_index" sort={sort} onSort={toggleSort} className="text-white w-[50px] freeze-col-1 bg-blue-600" />
+                                    <SortableHead label="Kode" sortKey="itemNo" sort={sort} onSort={toggleSort} className="text-white freeze-col-2 bg-blue-600" />
+                                    <SortableHead label="Nama Barang" sortKey="name" sort={sort} onSort={toggleSort} className="text-white freeze-col-3 bg-blue-600" />
                                     <SortableHead label="Stock" sortKey="stock" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <th className="h-12 px-4 text-white font-bold">Unit</th>
                                     <SortableHead label="ROP" sortKey="reorderPoint" sort={sort} onSort={toggleSort} className="text-white text-right" />
@@ -113,9 +113,9 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
                                             item.status === 'OVERSTOCK' ? 'bg-blue-50' : index % 2 === 0 ? 'bg-white' : 'bg-slate-50';
                                     return (
                                         <TableRow key={item.id} className={rowColor}>
-                                            <TableCell>{index + 1}</TableCell>
-                                            <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                            <TableCell className="max-w-[200px] truncate" title={item.name}>{item.name}</TableCell>
+                                            <TableCell className="freeze-col-1">{index + 1}</TableCell>
+                                            <TableCell className="font-medium text-blue-600 freeze-col-2">{item.itemNo}</TableCell>
+                                            <TableCell className="max-w-[200px] truncate freeze-col-3" title={item.name}>{item.name}</TableCell>
                                             <TableCell className={`text-right font-bold ${item.stock <= item.safetyStock ? 'text-red-600' : ''}`}>
                                                 {fq(item.stock, item)}
                                             </TableCell>

@@ -49,10 +49,11 @@ export const InventoryChart: React.FC<InventoryChartProps> = ({ items }) => {
     // ABC class stock value
     const abcData = ['A', 'B', 'C'].map(cls => {
         const group = items.filter(i => i.abcClass === cls);
+        const totalRev = group.reduce((s, i) => s + i.annualRevenue, 0);
         return {
             name: `Kelas ${cls}`,
             'Nilai Stok': group.reduce((s, i) => s + i.stockValue, 0),
-            'Revenue': group.reduce((s, i) => s + i.annualRevenue, 0),
+            'Avg Revenue': group.length > 0 ? Math.round(totalRev / group.length) : 0,
             count: group.length,
         };
     });
@@ -112,7 +113,7 @@ export const InventoryChart: React.FC<InventoryChartProps> = ({ items }) => {
             {/* ABC Value Comparison */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="text-base">ABC Class — Nilai Stok vs Revenue</CardTitle>
+                    <CardTitle className="text-base">ABC Class — Nilai Stok vs Avg Revenue</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <ResponsiveContainer width="100%" height={250}>
@@ -123,7 +124,7 @@ export const InventoryChart: React.FC<InventoryChartProps> = ({ items }) => {
                             <Tooltip formatter={(v: any) => formatIDR(Number(v))} />
                             <Legend />
                             <Bar dataKey="Nilai Stok" fill="#3b82f6" />
-                            <Bar dataKey="Revenue" fill="#22c55e" />
+                            <Bar dataKey="Avg Revenue" fill="#22c55e" />
                         </BarChart>
                     </ResponsiveContainer>
                 </CardContent>

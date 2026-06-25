@@ -36,7 +36,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ items }) => {
             <h2 className="text-3xl font-bold tracking-tight">Executive Summary</h2>
 
             {/* Row 1: Main KPIs */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 kpi-responsive">
                 <Card className="bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium opacity-90">Total SKU</CardTitle>
@@ -83,7 +83,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ items }) => {
             </div>
 
             {/* Row 2: Action KPIs */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 kpi-responsive">
                 <Card className="bg-red-600 text-white shadow-lg">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium opacity-90">⚠️ Critical</CardTitle>

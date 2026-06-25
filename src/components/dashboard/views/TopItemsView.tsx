@@ -74,13 +74,13 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
                         onClearAll={clearAll} activeFilterCount={activeFilterCount}
                         totalItems={top30.length} filteredItems={filtered.length}
                     />
-                    <div className="rounded-md border max-h-[500px] overflow-auto">
-                        <Table>
+                    <div className="freeze-table-wrapper">
+                        <Table className="freeze-table">
                             <thead className="bg-amber-600 sticky top-0 z-10">
                                 <tr>
-                                    <SortableHead label="Rank" sortKey="_index" sort={sort} onSort={toggleSort} className="text-white w-[50px]" />
-                                    <SortableHead label="Kode" sortKey="itemNo" sort={sort} onSort={toggleSort} className="text-white" />
-                                    <SortableHead label="Nama Barang" sortKey="name" sort={sort} onSort={toggleSort} className="text-white" />
+                                    <SortableHead label="Rank" sortKey="_index" sort={sort} onSort={toggleSort} className="text-white w-[50px] freeze-col-1 bg-amber-600" />
+                                    <SortableHead label="Kode" sortKey="itemNo" sort={sort} onSort={toggleSort} className="text-white freeze-col-2 bg-amber-600" />
+                                    <SortableHead label="Nama Barang" sortKey="name" sort={sort} onSort={toggleSort} className="text-white freeze-col-3 bg-amber-600" />
                                     <SortableHead label="ABC" sortKey="abcClass" sort={sort} onSort={toggleSort} className="text-white text-center" />
                                     <SortableHead label="Revenue" sortKey="annualRevenue" sort={sort} onSort={toggleSort} className="text-white text-right" />
                                     <SortableHead label="Terjual" sortKey="totalSalesQty" sort={sort} onSort={toggleSort} className="text-white text-right" />
@@ -103,9 +103,9 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
 
                                     return (
                                         <TableRow key={item.id} className={index < 3 ? 'bg-amber-50' : index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                                            <TableCell className="text-center font-bold">{medal}</TableCell>
-                                            <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                            <TableCell className="max-w-[200px] truncate" title={item.name}>{item.name}</TableCell>
+                                            <TableCell className="text-center font-bold freeze-col-1">{medal}</TableCell>
+                                            <TableCell className="font-medium text-blue-600 freeze-col-2">{item.itemNo}</TableCell>
+                                            <TableCell className="max-w-[200px] truncate freeze-col-3" title={item.name}>{item.name}</TableCell>
                                             <TableCell className="text-center">
                                                 <span className={`px-2 py-1 rounded text-white font-bold text-xs ${item.abcClass === 'A' ? 'bg-red-600' : item.abcClass === 'B' ? 'bg-orange-500' : 'bg-slate-500'}`}>{item.abcClass}</span>
                                             </TableCell>

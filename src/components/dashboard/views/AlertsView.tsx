@@ -66,13 +66,13 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                 onClearAll={critical.clearAll} activeFilterCount={critical.activeFilterCount}
                                 totalItems={criticalItems.length} filteredItems={critical.filtered.length}
                             />
-                            <div className="rounded-md border max-h-[350px] overflow-auto">
-                                <Table>
+                            <div className="freeze-table-wrapper">
+                                <Table className="freeze-table">
                                     <thead className="bg-red-600 sticky top-0 z-10">
                                         <tr>
-                                            <SortableHead label="Kode" sortKey="itemNo" sort={critical.sort} onSort={critical.toggleSort} className="text-white" />
-                                            <SortableHead label="Nama Barang" sortKey="name" sort={critical.sort} onSort={critical.toggleSort} className="text-white" />
-                                            <SortableHead label="Stock" sortKey="stock" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right" />
+                                            <SortableHead label="Kode" sortKey="itemNo" sort={critical.sort} onSort={critical.toggleSort} className="text-white freeze-col-1 bg-red-600" />
+                                            <SortableHead label="Nama Barang" sortKey="name" sort={critical.sort} onSort={critical.toggleSort} className="text-white freeze-col-2 bg-red-600" />
+                                            <SortableHead label="Stock" sortKey="stock" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right freeze-col-3 bg-red-600" />
                                             <SortableHead label="Safety" sortKey="safetyStock" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right" />
                                             <SortableHead label="PO Outst." sortKey="poOutstanding" sort={critical.sort} onSort={critical.toggleSort} className="text-white text-right" />
                                             <th className="h-12 px-4 text-white font-bold text-right">Net Shortage</th>
@@ -83,9 +83,9 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                     <TableBody>
                                         {critical.filtered.map((item, index) => (
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-red-50' : 'bg-white'}>
-                                                <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                                <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
-                                                <TableCell className="text-right font-bold text-red-600">{fq(item.stock, item)} {getUnitLabel(item, qtyUnit)}</TableCell>
+                                                <TableCell className="font-medium text-blue-600 freeze-col-1">{item.itemNo}</TableCell>
+                                                <TableCell className="max-w-[250px] truncate freeze-col-2" title={item.name}>{item.name}</TableCell>
+                                                <TableCell className="text-right font-bold text-red-600 freeze-col-3">{fq(item.stock, item)} {getUnitLabel(item, qtyUnit)}</TableCell>
                                                 <TableCell className="text-right">{fq(item.safetyStock, item)}</TableCell>
                                                 <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
                                                     {item.poOutstanding > 0 ? `+${fq(item.poOutstanding, item)}` : '-'}
@@ -129,13 +129,13 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                 onClearAll={reord.clearAll} activeFilterCount={reord.activeFilterCount}
                                 totalItems={reorderItems.length} filteredItems={reord.filtered.length}
                             />
-                            <div className="rounded-md border max-h-[350px] overflow-auto">
-                                <Table>
+                            <div className="freeze-table-wrapper">
+                                <Table className="freeze-table">
                                     <thead className="bg-orange-500 sticky top-0 z-10">
                                         <tr>
-                                            <SortableHead label="Kode" sortKey="itemNo" sort={reord.sort} onSort={reord.toggleSort} className="text-white" />
-                                            <SortableHead label="Nama Barang" sortKey="name" sort={reord.sort} onSort={reord.toggleSort} className="text-white" />
-                                            <SortableHead label="Stock" sortKey="stock" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
+                                            <SortableHead label="Kode" sortKey="itemNo" sort={reord.sort} onSort={reord.toggleSort} className="text-white freeze-col-1 bg-orange-500" />
+                                            <SortableHead label="Nama Barang" sortKey="name" sort={reord.sort} onSort={reord.toggleSort} className="text-white freeze-col-2 bg-orange-500" />
+                                            <SortableHead label="Stock" sortKey="stock" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right freeze-col-3 bg-orange-500" />
                                             <SortableHead label="ROP" sortKey="reorderPoint" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
                                             <SortableHead label="PO Outst." sortKey="poOutstanding" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
                                             <SortableHead label="Saran Order" sortKey="suggestedOrder" sort={reord.sort} onSort={reord.toggleSort} className="text-white text-right" />
@@ -146,9 +146,9 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                     <TableBody>
                                         {reord.filtered.map((item, index) => (
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-orange-50' : 'bg-white'}>
-                                                <TableCell className="font-medium text-blue-600">{item.itemNo}</TableCell>
-                                                <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
-                                                <TableCell className="text-right font-bold text-orange-600">{fq(item.stock, item)} {getUnitLabel(item, qtyUnit)}</TableCell>
+                                                <TableCell className="font-medium text-blue-600 freeze-col-1">{item.itemNo}</TableCell>
+                                                <TableCell className="max-w-[250px] truncate freeze-col-2" title={item.name}>{item.name}</TableCell>
+                                                <TableCell className="text-right font-bold text-orange-600 freeze-col-3">{fq(item.stock, item)} {getUnitLabel(item, qtyUnit)}</TableCell>
                                                 <TableCell className="text-right">{fq(item.reorderPoint, item)}</TableCell>
                                                 <TableCell className={`text-right font-medium ${item.poOutstanding > 0 ? 'text-purple-700' : 'text-gray-400'}`}>
                                                     {item.poOutstanding > 0 ? `+${fq(item.poOutstanding, item)}` : '-'}
@@ -194,13 +194,13 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                 onClearAll={dead.clearAll} activeFilterCount={dead.activeFilterCount}
                                 totalItems={deadItems.length} filteredItems={dead.filtered.length}
                             />
-                            <div className="rounded-md border max-h-[300px] overflow-auto">
-                                <Table>
+                            <div className="freeze-table-wrapper">
+                                <Table className="freeze-table">
                                     <thead className="bg-gray-600 sticky top-0 z-10">
                                         <tr>
-                                            <SortableHead label="Kode" sortKey="itemNo" sort={dead.sort} onSort={dead.toggleSort} className="text-white" />
-                                            <SortableHead label="Nama" sortKey="name" sort={dead.sort} onSort={dead.toggleSort} className="text-white" />
-                                            <SortableHead label="Stock" sortKey="stock" sort={dead.sort} onSort={dead.toggleSort} className="text-white text-right" />
+                                            <SortableHead label="Kode" sortKey="itemNo" sort={dead.sort} onSort={dead.toggleSort} className="text-white freeze-col-1 bg-gray-600" />
+                                            <SortableHead label="Nama" sortKey="name" sort={dead.sort} onSort={dead.toggleSort} className="text-white freeze-col-2 bg-gray-600" />
+                                            <SortableHead label="Stock" sortKey="stock" sort={dead.sort} onSort={dead.toggleSort} className="text-white text-right freeze-col-3 bg-gray-600" />
                                             <th className="h-12 px-4 text-white font-bold">Unit</th>
                                             <SortableHead label="Nilai Stock" sortKey="stockValue" sort={dead.sort} onSort={dead.toggleSort} className="text-white text-right" />
                                             <SortableHead label="Umur (hari)" sortKey="stockAgeDays" sort={dead.sort} onSort={dead.toggleSort} className="text-white text-right" />
@@ -210,9 +210,9 @@ export const AlertsView: React.FC<AlertsViewProps> = ({ items }) => {
                                     <TableBody>
                                         {dead.filtered.map((item, index) => (
                                             <TableRow key={item.id} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                                                <TableCell className="font-medium">{item.itemNo}</TableCell>
-                                                <TableCell className="max-w-[250px] truncate" title={item.name}>{item.name}</TableCell>
-                                                <TableCell className="text-right font-bold">{fq(item.stock, item)}</TableCell>
+                                                <TableCell className="font-medium freeze-col-1">{item.itemNo}</TableCell>
+                                                <TableCell className="max-w-[250px] truncate freeze-col-2" title={item.name}>{item.name}</TableCell>
+                                                <TableCell className="text-right font-bold freeze-col-3">{fq(item.stock, item)}</TableCell>
                                                 <TableCell>{getUnitLabel(item, qtyUnit)}</TableCell>
                                                 <TableCell className="text-right text-red-600 font-bold">{formatIDR(item.stockValue)}</TableCell>
                                                 <TableCell className="text-right">{item.stockAgeDays} d</TableCell>

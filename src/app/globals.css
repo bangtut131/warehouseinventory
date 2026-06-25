@@ -79,3 +79,168 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
 }
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE LAYOUT
+   Mobile: <640px | Foldable: 640-767px | Tablet: 768-1023px | Desktop: 1024+
+   ═══════════════════════════════════════════════ */
+
+/* Dashboard header — stack on mobile */
+@media (max-width: 767px) {
+  .dash-header-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+  .dash-header-row .flex.items-center.gap-3 {
+    flex-wrap: wrap;
+  }
+  .dash-header-row h1 {
+    font-size: 1.25rem !important;
+  }
+  .dash-actions {
+    flex-wrap: wrap !important;
+    width: 100%;
+    gap: 6px !important;
+  }
+  .dash-actions > * {
+    font-size: 0.75rem !important;
+  }
+}
+
+/* Tab navigation — horizontal scroll on small screens */
+.tab-scroll-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+@media (max-width: 767px) {
+  .tab-scroll-container {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .tab-scroll-container::-webkit-scrollbar {
+    display: none;
+  }
+  .tab-scroll-container > button {
+    flex-shrink: 0;
+    font-size: 0.72rem !important;
+    padding: 4px 10px !important;
+  }
+}
+
+/* Filter row — stack on mobile */
+@media (max-width: 767px) {
+  .filter-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+  }
+  .filter-row > * {
+    width: 100% !important;
+  }
+}
+
+/* Foldable phone (640-767px) — 2 column KPIs */
+@media (min-width: 640px) and (max-width: 767px) {
+  .dash-header-row {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+  }
+}
+
+/* Mobile KPI cards — force 2 columns */
+@media (max-width: 639px) {
+  .kpi-responsive {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .chart-responsive {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   FREEZE PANE — Sticky Columns for Tables
+   First 3 cols (No, Kode, Nama) freeze on horizontal scroll
+   ═══════════════════════════════════════════════ */
+
+.freeze-table-wrapper {
+  overflow: auto;
+  max-height: 500px;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border));
+}
+
+.freeze-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Sticky header row */
+.freeze-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+/* Sticky column 1: No (w ~50px) */
+.freeze-table th.freeze-col-1,
+.freeze-table td.freeze-col-1 {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  min-width: 50px;
+  max-width: 50px;
+}
+
+/* Sticky column 2: Kode (w ~100px) */
+.freeze-table th.freeze-col-2,
+.freeze-table td.freeze-col-2 {
+  position: sticky;
+  left: 50px;
+  z-index: 10;
+  min-width: 100px;
+  max-width: 100px;
+}
+
+/* Sticky column 3: Nama Barang (w ~200px) */
+.freeze-table th.freeze-col-3,
+.freeze-table td.freeze-col-3 {
+  position: sticky;
+  left: 150px;
+  z-index: 10;
+  min-width: 200px;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Header cells that are also sticky columns get higher z-index */
+.freeze-table thead th.freeze-col-1,
+.freeze-table thead th.freeze-col-2,
+.freeze-table thead th.freeze-col-3 {
+  z-index: 30;
+}
+
+/* Background for sticky cols — covers scrolling content */
+.freeze-table tbody tr:nth-child(odd) td.freeze-col-1,
+.freeze-table tbody tr:nth-child(odd) td.freeze-col-2,
+.freeze-table tbody tr:nth-child(odd) td.freeze-col-3 {
+  background-color: white;
+}
+.freeze-table tbody tr:nth-child(even) td.freeze-col-1,
+.freeze-table tbody tr:nth-child(even) td.freeze-col-2,
+.freeze-table tbody tr:nth-child(even) td.freeze-col-3 {
+  background-color: hsl(226, 100%, 97%);
+}
+
+/* Shadow edge on last sticky col */
+.freeze-table th.freeze-col-3,
+.freeze-table td.freeze-col-3 {
+  box-shadow: 2px 0 4px -1px rgba(0,0,0,0.08);
+}
