@@ -259,10 +259,25 @@ export async function GET(request: NextRequest) {
                 }
             });
 
-            const sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
+            // Try to get conversion from: 1) invoice data, 2) Accurate ratio2, 3) name-based weight extraction
+            let sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
             const itemNameLower = (item.name || '').toLowerCase();
             const isKgItem = itemNameLower.includes('kg');
-            const isBulkUnit = isKgItem && sakConversion >= 25 && filteredTotalQtyBox > 0;
+
+            // Fallback: extract weight from item name (e.g. "NPK 16.16.16 50 Kg" → 50)
+            if (isKgItem && sakConversion < 25) {
+                const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
+                if (weightMatch) {
+                    const nameWeight = parseInt(weightMatch[1], 10);
+                    if (nameWeight >= 20) {
+                        sakConversion = nameWeight;
+                    }
+                }
+            }
+
+            // Auto-convert to Sak if: name has "kg" AND conversion >= 25
+            // Relaxed: no longer requires filteredTotalQtyBox > 0 (name-based detection is reliable enough)
+            const isBulkUnit = isKgItem && sakConversion >= 25;
 
             if (isBulkUnit) {
                 // Convert stock from base unit (Kg) to Sak
@@ -270,6 +285,10 @@ export async function GET(request: NextRequest) {
                 // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for Sak items
                 // is already per-Sak (same price for Kg and Sak), so no conversion needed
                 unit = 'Sak';
+                // Also convert totalQtyBox from sales if it was in base unit
+                if (filteredTotalQtyBox === 0 && filteredTotalQty > 0) {
+                    filteredTotalQtyBox = parseFloat((filteredTotalQty / sakConversion).toFixed(2));
+                }
                 console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | filteredTotalQtyBox=${filteredTotalQtyBox} | filteredTotalQty=${filteredTotalQty}`);
             }
 
