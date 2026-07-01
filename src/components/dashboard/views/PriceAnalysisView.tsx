@@ -401,7 +401,7 @@ export function PriceAnalysisView() {
                 'Kategori': item.category,
                 'Satuan Dasar': item.baseUnitName,
                 'Satuan Jual': item.salesUnitName || '-',
-                'Konversi': item.unitConversion || '-',
+                'Konversi': item.unitConversion || 1,
                 'Beli Terakhir (per base)': item.lastPurchasePrice || '-',
                 'Tgl Beli Terakhir': item.lastPurchaseDate || '-',
                 'No Faktur Beli': item.lastPurchaseInvoice || '-',
@@ -677,10 +677,12 @@ export function PriceAnalysisView() {
                                         {/* Satuan */}
                                         <td className="px-3 py-2 text-xs text-muted-foreground">
                                             {item.baseUnitName}
-                                            {item.unitConversion > 0 && (
+                                            {item.unitConversion > 0 ? (
                                                 <div className="text-[10px]">
                                                     1 {item.salesUnitName}={item.unitConversion}
                                                 </div>
+                                            ) : (
+                                                <div className="text-[10px] text-muted-foreground">1:1</div>
                                             )}
                                         </td>
 
