@@ -193,7 +193,7 @@ async function fetchInvoiceList(fromDate: Date, branchId?: number): Promise<{ id
 
   while (hasMore) {
     const params: Record<string, any> = {
-      fields: 'id,transDate,branchId',
+      fields: 'id,transDate,branchId,statusName',
       'filter.transDate.op': 'BETWEEN',
       'filter.transDate.val[0]': fromStr,
       'filter.transDate.val[1]': toStr,
@@ -217,6 +217,11 @@ async function fetchInvoiceList(fromDate: Date, branchId?: number): Promise<{ id
             hasMore = false;
           } else {
             list.forEach((inv: any) => {
+              // Skip void invoices
+              const status = (inv.statusName || '').toLowerCase();
+              if (status === 'void' || status === 'v') {
+                return; // Skip this invoice
+              }
               allInvoices.push({ id: inv.id, transDate: inv.transDate, branchId: inv.branchId });
             });
             if (page % 50 === 0) {
@@ -536,19 +541,29 @@ export async function fetchAllSalesData(
     const monthKey = getMonthKey(date);
     const invBranchId = inv.branchId;
 
+    // Skip void invoices at detail level too
+    const invStatus = (inv.statusName || inv.status || '').toString().toLowerCase();
+    if (invStatus === 'void' || invStatus === 'v') {
+      return; // Skip void invoices
+    }
+
     if (inv.detailItem) {
       inv.detailItem.forEach(d => {
         const itemNo = d.item?.no;
         if (!itemNo) return;
 
-        const qtyPcs = d.quantityInBase || d.quantity;
-        const qtyBox = d.quantity;
-        const lineRevenue = d.totalPrice || (d.quantity * d.unitPrice);
+        // FIX: Always use base unit (quantityInBase) to avoid mixing units
+        // e.g., some lines in Box, others in Btl → summing d.quantity would be wrong
+        const qtyBase = d.quantityInBase || d.quantity;
+        const qtyInvoiceUnit = d.quantity || 0;
+        const lineRevenue = d.totalPrice || (qtyInvoiceUnit * d.unitPrice);
         const unitName = d.itemUnitName || '';
-        // Compute conversion: pcs per box
-        const convRatio = (qtyBox > 0 && qtyPcs !== qtyBox) ? Math.round(qtyPcs / qtyBox) : 0;
+        // Compute conversion ratio: base units per invoice unit (e.g., 40 Btl/Box)
+        const convRatio = (qtyInvoiceUnit > 0 && qtyBase > 0 && qtyBase !== qtyInvoiceUnit)
+          ? Math.round(qtyBase / qtyInvoiceUnit)
+          : 0;
 
-        // Aggregate to main (all branches) map
+        // Aggregate to main (all branches) map — ALL quantities in BASE UNIT
         const entry = salesMap.get(itemNo) || {
           totalQty: 0,
           totalQtyBox: 0,
@@ -557,14 +572,14 @@ export async function fetchAllSalesData(
           unitConversion: 0,
           salesUnitName: '',
         };
-        entry.totalQty += qtyPcs;
-        entry.totalQtyBox += qtyBox;
+        entry.totalQty += qtyBase;       // Always in base unit
+        entry.totalQtyBox += qtyBase;    // Track in base too — will convert at end
         entry.totalRevenue += lineRevenue;
         if (convRatio > 0) entry.unitConversion = convRatio;
         if (unitName) entry.salesUnitName = unitName;
         const curr = entry.monthlyData.get(monthKey) || { qty: 0, qtyBox: 0, revenue: 0 };
-        curr.qty += qtyPcs;
-        curr.qtyBox += qtyBox;
+        curr.qty += qtyBase;       // Base unit
+        curr.qtyBox += qtyBase;    // Base unit — will convert at end
         curr.revenue += lineRevenue;
         entry.monthlyData.set(monthKey, curr);
         salesMap.set(itemNo, entry);
@@ -583,14 +598,14 @@ export async function fetchAllSalesData(
             unitConversion: 0,
             salesUnitName: '',
           };
-          brEntry.totalQty += qtyPcs;
-          brEntry.totalQtyBox += qtyBox;
+          brEntry.totalQty += qtyBase;       // Always base unit
+          brEntry.totalQtyBox += qtyBase;    // Base unit — convert at end
           brEntry.totalRevenue += lineRevenue;
           if (convRatio > 0) brEntry.unitConversion = convRatio;
           if (unitName) brEntry.salesUnitName = unitName;
           const brCurr = brEntry.monthlyData.get(monthKey) || { qty: 0, qtyBox: 0, revenue: 0 };
-          brCurr.qty += qtyPcs;
-          brCurr.qtyBox += qtyBox;
+          brCurr.qty += qtyBase;       // Base unit
+          brCurr.qtyBox += qtyBase;    // Base unit — convert at end
           brCurr.revenue += lineRevenue;
           brEntry.monthlyData.set(monthKey, brCurr);
           branchMap.set(itemNo, brEntry);
@@ -599,7 +614,24 @@ export async function fetchAllSalesData(
     }
   });
 
-  console.log(`[Accurate] Aggregated sales data for ${salesMap.size} items from ${invoices.length} invoices`);
+  // ── POST-AGGREGATION: Convert qtyBox from base unit to selling unit ──
+  // For items with a conversion ratio (e.g., 40 Btl/Box), divide base qty by ratio
+  function convertQtyBox(map: Map<string, ItemSalesData>) {
+    map.forEach((entry) => {
+      if (entry.unitConversion > 1) {
+        entry.totalQtyBox = parseFloat((entry.totalQty / entry.unitConversion).toFixed(2));
+        entry.monthlyData.forEach((data) => {
+          data.qtyBox = parseFloat((data.qty / entry.unitConversion).toFixed(2));
+        });
+      }
+      // If no conversion (ratio=0 or 1), qtyBox stays same as qty (base unit)
+    });
+  }
+
+  convertQtyBox(salesMap);
+  branchSalesMaps.forEach((branchMap) => convertQtyBox(branchMap));
+
+  console.log(`[Accurate] Aggregated sales data for ${salesMap.size} items from ${invoices.length} invoices (void excluded)`);
 
   // 6. Cache results â€” ONLY if not in atomic mode
   if (!skipCacheOps) {
