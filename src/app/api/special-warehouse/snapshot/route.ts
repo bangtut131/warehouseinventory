@@ -87,36 +87,134 @@ export async function POST() {
       });
     }
 
-    // 6. Update firstSeen records
+    // 6. Fetch transfer history from Accurate to get accurate firstSeenAt dates
+    // Map: "warehouseId-itemNo" -> earliest transfer date
+    const transferDates = new Map<string, Date>();
+    let transfersFetched = 0;
+
+    for (const wh of specialWarehouses) {
+      try {
+        let tPage = 1;
+        let tHasMore = true;
+
+        while (tHasMore) {
+          const tRes = await accurateClient.get('/item-transfer/list.do', {
+            params: {
+              fields: 'id,transDate',
+              'filter.toWarehouse.id': wh.id,
+              'sp.page': tPage,
+              'sp.pageSize': 100,
+            }
+          });
+
+          const transfers = tRes.data?.d || [];
+          if (transfers.length === 0) break;
+
+          // Batch get details (max 5 concurrent to respect API limits)
+          const batchSize = 5;
+          for (let b = 0; b < transfers.length; b += batchSize) {
+            const batch = transfers.slice(b, b + batchSize);
+            const details = await Promise.all(
+              batch.map(async (t: any) => {
+                try {
+                  const dRes = await accurateClient.get('/item-transfer/detail.do', {
+                    params: { id: t.id }
+                  });
+                  return dRes.data?.d;
+                } catch { return null; }
+              })
+            );
+
+            for (const detail of details) {
+              if (!detail) continue;
+              const transDate = new Date(detail.transDate);
+              const items = detail.detailItem || [];
+
+              for (const item of items) {
+                const itemNo = item.item?.no || item.itemNo || '';
+                if (!itemNo) continue;
+
+                const key = `${wh.id}-${itemNo}`;
+                const existing = transferDates.get(key);
+                if (!existing || transDate < existing) {
+                  transferDates.set(key, transDate);
+                }
+              }
+            }
+          }
+
+          transfersFetched += transfers.length;
+          tHasMore = transfers.length >= 100;
+          tPage++;
+        }
+      } catch (err: any) {
+        console.warn(`[Snapshot] Failed to fetch transfers for ${wh.name}:`, err.message);
+      }
+    }
+
+    console.log(`[Snapshot] Fetched ${transfersFetched} transfers, found ${transferDates.size} item-warehouse date pairs`);
+
+    // 7. Update firstSeen records with accurate dates from transfers
     const existingFirstSeen = await prisma.specialWarehouseFirstSeen.findMany({
       where: { warehouseId: { in: whIds } },
     });
-    const existingMap = new Map<string, boolean>();
-    existingFirstSeen.forEach(r => existingMap.set(`${r.warehouseId}-${r.itemNo}`, true));
+    const existingMap = new Map<string, { id: number; firstSeenAt: Date }>();
+    existingFirstSeen.forEach(r => existingMap.set(`${r.warehouseId}-${r.itemNo}`, { id: r.id, firstSeenAt: r.firstSeenAt }));
 
-    // New items: create firstSeen
-    const newItems = snapshotRecords.filter(r => !existingMap.has(`${r.warehouseId}-${r.itemNo}`));
-    if (newItems.length > 0) {
-      await Promise.all(
-        newItems.map(item =>
+    // Upsert firstSeen: use transfer date if available, otherwise use now
+    const upsertPromises: Promise<any>[] = [];
+    const uniqueItemKeys = new Set(snapshotRecords.map(r => `${r.warehouseId}-${r.itemNo}`));
+
+    for (const key of uniqueItemKeys) {
+      const [whIdStr, ...itemNoParts] = key.split('-');
+      const warehouseId = parseInt(whIdStr);
+      const itemNo = itemNoParts.join('-'); // Handle item codes with dashes
+
+      const transferDate = transferDates.get(key);
+      const firstSeenDate = transferDate || now;
+
+      const existing = existingMap.get(key);
+
+      if (!existing) {
+        // New item — create firstSeen
+        upsertPromises.push(
           prisma.specialWarehouseFirstSeen.upsert({
-            where: {
-              warehouseId_itemNo: { warehouseId: item.warehouseId, itemNo: item.itemNo },
-            },
+            where: { warehouseId_itemNo: { warehouseId, itemNo } },
             create: {
-              warehouseId: item.warehouseId,
-              itemNo: item.itemNo,
-              firstSeenAt: now,
+              warehouseId,
+              itemNo,
+              firstSeenAt: firstSeenDate,
               lastSeenAt: now,
               isActive: true,
             },
             update: { lastSeenAt: now, isActive: true },
           })
-        )
-      );
+        );
+      } else if (transferDate && transferDate < existing.firstSeenAt) {
+        // Existing but transfer date is earlier — backfill with more accurate date
+        upsertPromises.push(
+          prisma.specialWarehouseFirstSeen.update({
+            where: { id: existing.id },
+            data: { firstSeenAt: transferDate, lastSeenAt: now, isActive: true },
+          })
+        );
+      } else {
+        // Just update lastSeenAt
+        upsertPromises.push(
+          prisma.specialWarehouseFirstSeen.update({
+            where: { id: existing.id },
+            data: { lastSeenAt: now, isActive: true },
+          })
+        );
+      }
     }
 
-    // Mark items that are no longer in warehouse as inactive
+    // Execute all upserts in batches of 20
+    for (let i = 0; i < upsertPromises.length; i += 20) {
+      await Promise.all(upsertPromises.slice(i, i + 20));
+    }
+
+    // 8. Mark items that are no longer in warehouse as inactive
     const activeItemKeys = new Set(snapshotRecords.map(r => `${r.warehouseId}-${r.itemNo}`));
     const toDeactivate = existingFirstSeen.filter(
       r => r.isActive && !activeItemKeys.has(`${r.warehouseId}-${r.itemNo}`)
@@ -128,12 +226,15 @@ export async function POST() {
       });
     }
 
-    console.log(`[Snapshot] Done: ${snapshotRecords.length} records, ${newItems.length} new, ${toDeactivate.length} deactivated`);
+    const backfilled = [...uniqueItemKeys].filter(k => transferDates.has(k)).length;
+    console.log(`[Snapshot] Done: ${snapshotRecords.length} snapshots, ${upsertPromises.length} firstSeen updates, ${backfilled} backfilled from transfers, ${toDeactivate.length} deactivated`);
 
     return NextResponse.json({
       message: 'Snapshot complete',
       snapshots: snapshotRecords.length,
-      newItems: newItems.length,
+      transfersFetched,
+      backfilledDates: backfilled,
+      newFirstSeen: upsertPromises.length,
       deactivated: toDeactivate.length,
       warehouses: specialWarehouses.map(w => w.name),
     });
