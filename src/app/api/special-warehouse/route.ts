@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { accurateClient } from '@/lib/accurate';
 import { loadWarehouseStockCache } from '@/lib/accurate';
+import { prisma } from '@/lib/prisma';
 
 // ─── Warehouse Category Detection ─────────────────────────
 interface SpecialWarehouse {
@@ -18,7 +19,6 @@ function categorizeWarehouse(name: string): { category: SpecialWarehouse['catego
   if (lower === 'gudang ed') {
     return { category: 'expired', subCategory: 'reguler' };
   }
-  // Fallback: contains "gudang ed" but not NN
   if (lower.includes('gudang ed') && !lower.includes('nn')) {
     return { category: 'expired', subCategory: 'reguler' };
   }
@@ -46,7 +46,7 @@ function getAgingBracket(days: number): AgingBracket {
   return '120+';
 }
 
-// ─── Fetch special warehouses ──────────────────────────────
+// ─── Fetch special warehouses (lightweight) ────────────────
 async function getSpecialWarehouses(): Promise<SpecialWarehouse[]> {
   const result: SpecialWarehouse[] = [];
   let page = 1;
@@ -66,139 +66,7 @@ async function getSpecialWarehouses(): Promise<SpecialWarehouse[]> {
   return result;
 }
 
-// ─── Fetch item master data (name + price) ─────────────────
-async function getItemMasterData(): Promise<Map<string, { name: string; avgCost: number; unit: string }>> {
-  const items = new Map<string, { name: string; avgCost: number; unit: string }>();
-  let page = 1;
-  let hasMore = true;
-  while (hasMore) {
-    const res = await accurateClient.get('/item/list.do', {
-      params: {
-        fields: 'no,name,averageCost,unitPrice,unit1Name',
-        'sp.page': page,
-        'sp.pageSize': 100,
-      }
-    });
-    const list = res.data?.d || [];
-    for (const i of list) {
-      items.set(i.no, {
-        name: i.name || '',
-        avgCost: i.averageCost || i.unitPrice || 0,
-        unit: i.unit1Name || 'Pcs',
-      });
-    }
-    hasMore = list.length >= 100;
-    page++;
-  }
-  return items;
-}
-
-// ─── Transfer batch: date + qty of each inbound transfer ───
-interface TransferBatch {
-  transDate: Date;
-  quantity: number;
-}
-
-// ─── Fetch ALL transfer batches into a warehouse ───────────
-async function fetchTransferBatches(warehouseId: number, warehouseName: string): Promise<Map<string, TransferBatch[]>> {
-  // Map: itemNo -> list of transfer batches (date + qty)
-  const batchMap = new Map<string, TransferBatch[]>();
-
-  try {
-    let page = 1;
-    let hasMore = true;
-    let totalTransfers = 0;
-
-    while (hasMore) {
-      const res = await accurateClient.get('/item-transfer/list.do', {
-        params: {
-          fields: 'id,transDate',
-          'filter.toWarehouse.id': warehouseId,
-          'sp.page': page,
-          'sp.pageSize': 100,
-        }
-      });
-
-      const transfers = res.data?.d || [];
-      if (transfers.length === 0) break;
-
-      // Batch get details (5 concurrent for API rate limits)
-      for (let b = 0; b < transfers.length; b += 5) {
-        const batch = transfers.slice(b, b + 5);
-        const details = await Promise.all(
-          batch.map(async (t: any) => {
-            try {
-              const dRes = await accurateClient.get('/item-transfer/detail.do', { params: { id: t.id } });
-              return dRes.data?.d;
-            } catch { return null; }
-          })
-        );
-
-        for (const detail of details) {
-          if (!detail) continue;
-          const transDate = new Date(detail.transDate);
-          const items = detail.detailItem || [];
-
-          for (const item of items) {
-            const itemNo = item.item?.no || item.itemNo || '';
-            if (!itemNo) continue;
-            const qty = Math.abs(item.quantity || 0);
-            if (qty === 0) continue;
-
-            if (!batchMap.has(itemNo)) batchMap.set(itemNo, []);
-            batchMap.get(itemNo)!.push({ transDate, quantity: qty });
-          }
-        }
-      }
-
-      totalTransfers += transfers.length;
-      hasMore = transfers.length >= 100;
-      page++;
-    }
-
-    console.log(`[SpecialWH] Fetched ${totalTransfers} transfers for ${warehouseName}, ${batchMap.size} items`);
-  } catch (err: any) {
-    console.warn(`[SpecialWH] Failed to fetch transfers for ${warehouseName}:`, err.message);
-  }
-
-  return batchMap;
-}
-
-// ─── Distribute current stock across transfer batches (FIFO aging) ──
-function distributeStockFIFO(
-  currentQty: number,
-  batches: TransferBatch[],
-  now: Date
-): Record<AgingBracket, number> {
-  const result: Record<AgingBracket, number> = {
-    '0-7': 0, '8-15': 0, '16-30': 0, '31-45': 0,
-    '46-60': 0, '61-90': 0, '91-120': 0, '120+': 0,
-  };
-
-  if (batches.length === 0 || currentQty <= 0) return result;
-
-  // Sort oldest first (FIFO: oldest stock stays)
-  const sorted = [...batches].sort((a, b) => a.transDate.getTime() - b.transDate.getTime());
-
-  let remaining = currentQty;
-  for (const batch of sorted) {
-    if (remaining <= 0) break;
-    const allocate = Math.min(batch.quantity, remaining);
-    const agingDays = Math.max(0, Math.floor((now.getTime() - batch.transDate.getTime()) / (1000 * 60 * 60 * 24)));
-    const bracket = getAgingBracket(agingDays);
-    result[bracket] += allocate;
-    remaining -= allocate;
-  }
-
-  // If remaining > 0 (more stock than total transfers), put in 120+
-  if (remaining > 0) {
-    result['120+'] += remaining;
-  }
-
-  return result;
-}
-
-// ─── Main GET handler ──────────────────────────────────────
+// ─── Main GET handler (FAST — reads from cache + DB only) ──
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -218,7 +86,7 @@ export async function GET(request: Request) {
       });
     }
 
-    // 2. Load warehouse stock from cache
+    // 2. Load warehouse stock from cache (fast — already in memory/DB)
     const warehouseStockMap = await loadWarehouseStockCache();
     if (!warehouseStockMap) {
       return NextResponse.json({
@@ -228,19 +96,35 @@ export async function GET(request: Request) {
       });
     }
 
-    // 3. Get item master data (name + cost)
-    const itemMaster = await getItemMasterData();
-
-    // 4. Fetch transfer batches for each warehouse
-    const allTransferBatches = new Map<string, TransferBatch[]>(); // "whId-itemNo" -> batches
-    for (const wh of filtered) {
-      const whBatches = await fetchTransferBatches(wh.id, wh.name);
-      whBatches.forEach((batches, itemNo) => {
-        allTransferBatches.set(`${wh.id}-${itemNo}`, batches);
+    // 3. Get item names from Accurate (lightweight list call)
+    const itemMaster = new Map<string, { name: string; avgCost: number; unit: string }>();
+    let itemPage = 1;
+    let itemHasMore = true;
+    while (itemHasMore) {
+      const res = await accurateClient.get('/item/list.do', {
+        params: { fields: 'no,name,averageCost,unitPrice,unit1Name', 'sp.page': itemPage, 'sp.pageSize': 100 }
       });
+      const list = res.data?.d || [];
+      for (const i of list) {
+        itemMaster.set(i.no, {
+          name: i.name || '',
+          avgCost: i.averageCost || i.unitPrice || 0,
+          unit: i.unit1Name || 'Pcs',
+        });
+      }
+      itemHasMore = list.length >= 100;
+      itemPage++;
     }
 
-    // 5. Build items with aging distribution
+    // 4. Get firstSeen dates from DB (fast — already stored by Snapshot)
+    const whIds = filtered.map(w => w.id);
+    const firstSeenRecords = await prisma.specialWarehouseFirstSeen.findMany({
+      where: { warehouseId: { in: whIds }, isActive: true },
+    });
+    const firstSeenMap = new Map<string, Date>();
+    firstSeenRecords.forEach(r => firstSeenMap.set(`${r.warehouseId}-${r.itemNo}`, r.firstSeenAt));
+
+    // 5. Build items with aging from firstSeen dates
     const now = new Date();
     const resultItems: any[] = [];
 
@@ -250,27 +134,18 @@ export async function GET(request: Request) {
         if (!qty || qty <= 0) return;
 
         const info = itemMaster.get(itemNo);
-        const batches = allTransferBatches.get(`${wh.id}-${itemNo}`) || [];
+        const firstSeen = firstSeenMap.get(`${wh.id}-${itemNo}`);
+        const agingDays = firstSeen
+          ? Math.max(0, Math.floor((now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60 * 24)))
+          : 0;
+        const bracket = getAgingBracket(agingDays);
 
-        // FIFO distribute current stock across transfer dates
-        const agingBrackets = distributeStockFIFO(qty, batches, now);
-
-        // Calculate weighted average aging
-        let totalWeightedDays = 0;
-        const sortedBatches = [...batches].sort((a, b) => a.transDate.getTime() - b.transDate.getTime());
-        let remain = qty;
-        for (const b of sortedBatches) {
-          if (remain <= 0) break;
-          const alloc = Math.min(b.quantity, remain);
-          const days = Math.max(0, Math.floor((now.getTime() - b.transDate.getTime()) / (1000 * 60 * 60 * 24)));
-          totalWeightedDays += alloc * days;
-          remain -= alloc;
-        }
-        const avgAgingDays = qty > 0 ? Math.round(totalWeightedDays / qty) : 0;
-
-        // Oldest batch date (for First Seen)
-        const oldestBatch = sortedBatches.length > 0 ? sortedBatches[0] : null;
-        const firstSeenAt = oldestBatch ? oldestBatch.transDate.toISOString() : now.toISOString();
+        // Simple aging: all qty goes into one bracket based on firstSeen
+        const agingBrackets: Record<AgingBracket, number> = {
+          '0-7': 0, '8-15': 0, '16-30': 0, '31-45': 0,
+          '46-60': 0, '61-90': 0, '91-120': 0, '120+': 0,
+        };
+        agingBrackets[bracket] = qty;
 
         const unitCost = info?.avgCost || 0;
         const value = qty * unitCost;
@@ -286,15 +161,15 @@ export async function GET(request: Request) {
           quantity: qty,
           unitCost,
           value,
-          firstSeenAt,
-          avgAgingDays,
-          agingBrackets, // { '0-7': qty, '8-15': qty, ... }
-          transferCount: batches.length,
+          firstSeenAt: firstSeen ? firstSeen.toISOString() : null,
+          avgAgingDays: agingDays,
+          agingBrackets,
+          hasFirstSeen: !!firstSeen,
         });
       });
     }
 
-    // Sort by avg aging descending
+    // Sort by aging descending
     resultItems.sort((a, b) => b.avgAgingDays - a.avgAgingDays);
 
     // Summary
@@ -303,6 +178,7 @@ export async function GET(request: Request) {
     const avgAgingDays = resultItems.length > 0
       ? Math.round(resultItems.reduce((s, i) => s + i.avgAgingDays * i.quantity, 0) / (totalQty || 1))
       : 0;
+    const noFirstSeen = resultItems.filter(i => !i.hasFirstSeen).length;
 
     // Global aging distribution
     const agingDistribution: Record<string, number> = {};
@@ -316,6 +192,7 @@ export async function GET(request: Request) {
       items: resultItems,
       summary: { totalSKU: resultItems.length, totalQty: Math.round(totalQty), totalValue: Math.round(totalValue), avgAgingDays },
       agingDistribution,
+      noFirstSeen, // Items that haven't been snapshotted yet
     });
 
   } catch (error: any) {
