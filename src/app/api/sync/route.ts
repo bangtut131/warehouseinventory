@@ -128,6 +128,18 @@ export async function POST(request: NextRequest) {
                 console.warn('[Sync] PO Outstanding fetch failed (non-critical):', poErr.message);
             }
 
+            // Auto-trigger special warehouse snapshot (background, non-blocking)
+            try {
+              syncProgress.phase = 'snapshot';
+              syncProgress.message = 'Mengambil data gudang khusus (snapshot)...';
+              const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || 'http://localhost:3000';
+              const snapshotUrl = `${baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`}/api/special-warehouse/snapshot`;
+              await fetch(snapshotUrl, { method: 'POST' }).catch(() => {});
+              console.log('[Sync] Special warehouse snapshot triggered');
+            } catch (snapErr: any) {
+              console.warn('[Sync] Snapshot auto-trigger failed (non-critical):', snapErr.message);
+            }
+
             syncProgress.phase = 'done';
             syncProgress.message = 'Selesai!';
 
