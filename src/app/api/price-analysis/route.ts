@@ -60,7 +60,11 @@ export async function GET(request: Request) {
     // Build result array
     const result: PriceAnalysisItem[] = [];
 
-    for (const item of items) {
+    // Filter out suspended (inactive) items
+    const activeItems = items.filter(item => item.suspended !== true);
+    console.log(`[PriceAnalysis] ${items.length} total items, ${activeItems.length} active (${items.length - activeItems.length} suspended filtered)`);
+
+    for (const item of activeItems) {
       const itemNo = item.no;
       const purchase = priceMap.get(itemNo);
       const masterSP = masterPrices.get(itemNo);

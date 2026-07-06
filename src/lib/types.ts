@@ -64,6 +64,7 @@ export interface InventoryItem {
 
     // Meta
     dataSource: 'API' | 'ESTIMATED';
+    suspended: boolean;            // true = item non-aktif di Accurate
 }
 
 // Summary stats for dashboard KPIs

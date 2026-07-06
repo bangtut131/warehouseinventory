@@ -94,13 +94,14 @@ export interface AccurateItem {
   unit3Name?: string; // Satuan ketiga (Box/Karton)
   ratio2?: number;    // Rasio unit2 ke unit1 (misal 1 Box = 12 Pcs → ratio2 = 12). 0 = no unit2.
   ratio3?: number;    // Rasio unit3 ke unit1 (misal 1 Box = 20 Btl → ratio3 = 20)
+  suspended?: boolean; // true = item tidak aktif (non-aktif di Accurate)
 }
 
 export async function fetchInventory(page = 1, pageSize = 100): Promise<{ list: AccurateItem[], hasMore: boolean }> {
   try {
     const response = await accurateClient.get('/item/list.do', {
       params: {
-        fields: 'id,no,name,itemType,quantity,unitPrice,cost,unit1Name,unit2Name,unit3Name,ratio2,ratio3',
+        fields: 'id,no,name,itemType,quantity,unitPrice,cost,unit1Name,unit2Name,unit3Name,ratio2,ratio3,suspended',
         'sp.page': page,
         'sp.pageSize': pageSize
       }

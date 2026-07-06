@@ -432,7 +432,8 @@ export async function GET(request: NextRequest) {
                 stockValue,
                 status,
                 monthlySales,
-                dataSource
+                dataSource,
+                suspended: item.suspended === true,
             };
         });
 
@@ -448,8 +449,16 @@ export async function GET(request: NextRequest) {
             else item.abcClass = 'C';
         });
 
-        console.log(`[API] Returning ${inventoryItems.length} analyzed items (source: ${dataSource})`);
-        return NextResponse.json(inventoryItems);
+        // 6. Filter out suspended (inactive) items for display
+        // Data tetap lengkap di cache, tapi yang ditampilkan hanya item aktif
+        const activeItems = inventoryItems.filter(item => !item.suspended);
+        const suspendedCount = inventoryItems.length - activeItems.length;
+        if (suspendedCount > 0) {
+            console.log(`[API] Filtered out ${suspendedCount} suspended items (showing ${activeItems.length} active items)`);
+        }
+
+        console.log(`[API] Returning ${activeItems.length} analyzed items (source: ${dataSource}, total with suspended: ${inventoryItems.length})`);
+        return NextResponse.json(activeItems);
 
     } catch (error: any) {
         console.error('[API] Fatal error:', error);
