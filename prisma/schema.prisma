@@ -103,3 +103,29 @@ model AppUser {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Gudang Khusus: Daily stock snapshot per item per warehouse
+model SpecialWarehouseSnapshot {
+  id          Int      @id @default(autoincrement())
+  warehouseId Int
+  warehouseName String?
+  itemNo      String
+  itemName    String?
+  quantity    Float
+  snapshotAt  DateTime @default(now())
+
+  @@index([warehouseId, itemNo])
+  @@index([snapshotAt])
+}
+
+// Gudang Khusus: Track kapan item pertama kali muncul di gudang khusus
+model SpecialWarehouseFirstSeen {
+  id          Int      @id @default(autoincrement())
+  warehouseId Int
+  itemNo      String
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  isActive    Boolean  @default(true) // false = item sudah keluar (qty 0)
+
+  @@unique([warehouseId, itemNo])
+}
