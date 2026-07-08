@@ -97,12 +97,12 @@ export async function GET(request: Request) {
     }
 
     // 3. Get item names from Accurate (lightweight list call)
-    const itemMaster = new Map<string, { name: string; avgCost: number; unit: string }>();
+    const itemMaster = new Map<string, { name: string; avgCost: number; unit: string; ratio2: number }>();
     let itemPage = 1;
     let itemHasMore = true;
     while (itemHasMore) {
       const res = await accurateClient.get('/item/list.do', {
-        params: { fields: 'no,name,averageCost,unitPrice,unit1Name', 'sp.page': itemPage, 'sp.pageSize': 100 }
+        params: { fields: 'no,name,averageCost,unitPrice,unit1Name,ratio2', 'sp.page': itemPage, 'sp.pageSize': 100 }
       });
       const list = res.data?.d || [];
       for (const i of list) {
@@ -110,6 +110,7 @@ export async function GET(request: Request) {
           name: i.name || '',
           avgCost: i.averageCost || i.unitPrice || 0,
           unit: i.unit1Name || 'Pcs',
+          ratio2: i.ratio2 || 0,
         });
       }
       itemHasMore = list.length >= 100;
@@ -130,10 +131,34 @@ export async function GET(request: Request) {
 
     for (const wh of filtered) {
       warehouseStockMap.forEach((whMap, itemNo) => {
-        const qty = whMap.get(wh.id);
+        let qty = whMap.get(wh.id);
         if (!qty || qty <= 0) return;
 
         const info = itemMaster.get(itemNo);
+        let unit = info?.unit || 'Pcs';
+        let unitCost = info?.avgCost || 0;
+
+        // ── Sak/Bulk Unit Conversion (same logic as inventory route) ──
+        const itemNameLower = (info?.name || '').toLowerCase();
+        const isKgItem = itemNameLower.includes('kg');
+        let sakConversion = info?.ratio2 && info.ratio2 > 1 ? info.ratio2 : 0;
+
+        // Fallback: extract weight from item name (e.g. "NPK 16.16.16 50 Kg" → 50)
+        if (isKgItem && sakConversion < 25) {
+          const weightMatch = (info?.name || '').match(/(\d+)\s*[Kk][Gg]/);
+          if (weightMatch) {
+            const nameWeight = parseInt(weightMatch[1], 10);
+            if (nameWeight >= 20) sakConversion = nameWeight;
+          }
+        }
+
+        const isBulkUnit = isKgItem && sakConversion >= 25;
+        if (isBulkUnit) {
+          qty = parseFloat((qty / sakConversion).toFixed(2));
+          unit = 'Sak';
+          // Cost stays the same — Accurate cost for Sak items is already per-Sak
+        }
+
         const firstSeen = firstSeenMap.get(`${wh.id}-${itemNo}`);
         const agingDays = firstSeen
           ? Math.max(0, Math.floor((now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60 * 24)))
@@ -147,7 +172,6 @@ export async function GET(request: Request) {
         };
         agingBrackets[bracket] = qty;
 
-        const unitCost = info?.avgCost || 0;
         const value = qty * unitCost;
 
         resultItems.push({
@@ -157,7 +181,7 @@ export async function GET(request: Request) {
           subCategory: wh.subCategory,
           itemNo,
           itemName: info?.name || itemNo,
-          unit: info?.unit || 'Pcs',
+          unit,
           quantity: qty,
           unitCost,
           value,
