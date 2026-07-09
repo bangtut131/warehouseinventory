@@ -160,8 +160,11 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
 
                                     const avg2m = getAvg2m(item);
 
-                                    // Stock in display unit: if toggle=box and has conversion, convert
-                                    const displayStock = qtyUnit === 'box' && item.unitConversion > 1
+                                    // Stock in display unit
+                                    // Sak items: unit is already 'Sak', stock already converted → don't divide again
+                                    // Normal items: if toggle=box and has conversion, divide by unitConversion
+                                    const isSakUnit = item.unit.toLowerCase() === 'sak';
+                                    const displayStock = (qtyUnit === 'box' && !isSakUnit && item.unitConversion > 1)
                                         ? parseFloat((item.stock / item.unitConversion).toFixed(1))
                                         : item.stock;
 
@@ -173,7 +176,7 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                             <TableCell className="freeze-col-1">{index + 1}</TableCell>
                                             <TableCell className="font-medium text-blue-600 text-xs freeze-col-2">{item.itemNo}</TableCell>
                                             <TableCell className="max-w-[150px] truncate text-xs freeze-col-3" title={item.name}>{item.name}</TableCell>
-                                            {/* Stock column */}
+                                            {/* Stock column — no unit label, header already indicates */}
                                             <TableCell className="text-right text-xs font-semibold freeze-col-4">
                                                 <span className={
                                                     stockRatio < 1 ? 'text-red-600' :
@@ -182,7 +185,6 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                                 }>
                                                     {fmtNum(displayStock)}
                                                 </span>
-                                                <span className="text-[10px] text-gray-400 ml-0.5">{item.unit}</span>
                                             </TableCell>
                                             {/* Avg 2 bulan column */}
                                             <TableCell className="text-center text-xs font-bold bg-amber-50 freeze-col-5">
