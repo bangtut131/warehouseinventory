@@ -129,3 +129,19 @@ model SpecialWarehouseFirstSeen {
 
   @@unique([warehouseId, itemNo])
 }
+
+// Gudang Khusus: Per-transfer batch for FIFO aging
+// Each record = one transfer-in to a special warehouse with qty and date
+model SpecialWarehouseTransferBatch {
+  id            Int      @id @default(autoincrement())
+  warehouseId   Int
+  itemNo        String
+  transferDate  DateTime // Tanggal transfer masuk
+  quantity      Float    // Qty yang masuk di transfer ini
+  transferId    Int?     // Accurate transfer ID (for dedup)
+  createdAt     DateTime @default(now())
+
+  @@index([warehouseId, itemNo])
+  @@index([transferDate])
+  @@unique([warehouseId, itemNo, transferId]) // Prevent duplicate transfers
+}

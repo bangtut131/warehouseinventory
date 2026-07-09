@@ -117,15 +117,29 @@ export async function GET(request: Request) {
       itemPage++;
     }
 
-    // 4. Get firstSeen dates from DB (fast — already stored by Snapshot)
+    // 4. Get transfer batches from DB for FIFO aging (fast — stored by Snapshot)
     const whIds = filtered.map(w => w.id);
+    const transferBatches = await prisma.specialWarehouseTransferBatch.findMany({
+      where: { warehouseId: { in: whIds } },
+      orderBy: { transferDate: 'asc' }, // FIFO: oldest first
+    });
+
+    // Group batches by "warehouseId-itemNo"
+    const batchMap = new Map<string, { transferDate: Date; quantity: number }[]>();
+    transferBatches.forEach(b => {
+      const key = `${b.warehouseId}-${b.itemNo}`;
+      if (!batchMap.has(key)) batchMap.set(key, []);
+      batchMap.get(key)!.push({ transferDate: b.transferDate, quantity: b.quantity });
+    });
+
+    // Also get firstSeen as fallback for items without transfer batches
     const firstSeenRecords = await prisma.specialWarehouseFirstSeen.findMany({
       where: { warehouseId: { in: whIds }, isActive: true },
     });
     const firstSeenMap = new Map<string, Date>();
     firstSeenRecords.forEach(r => firstSeenMap.set(`${r.warehouseId}-${r.itemNo}`, r.firstSeenAt));
 
-    // 5. Build items with aging from firstSeen dates
+    // 5. Build items with FIFO aging from transfer batches
     const now = new Date();
     const resultItems: any[] = [];
 
@@ -156,21 +170,63 @@ export async function GET(request: Request) {
         if (isBulkUnit) {
           qty = parseFloat((qty / sakConversion).toFixed(2));
           unit = 'Sak';
-          // Cost stays the same — Accurate cost for Sak items is already per-Sak
         }
 
-        const firstSeen = firstSeenMap.get(`${wh.id}-${itemNo}`);
-        const agingDays = firstSeen
-          ? Math.max(0, Math.floor((now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60 * 24)))
-          : 0;
-        const bracket = getAgingBracket(agingDays);
-
-        // Simple aging: all qty goes into one bracket based on firstSeen
+        // ── FIFO Aging: distribute stock across transfer batches ──
         const agingBrackets: Record<AgingBracket, number> = {
           '0-7': 0, '8-15': 0, '16-30': 0, '31-45': 0,
           '46-60': 0, '61-90': 0, '91-120': 0, '120+': 0,
         };
-        agingBrackets[bracket] = qty;
+
+        const key = `${wh.id}-${itemNo}`;
+        const batches = batchMap.get(key);
+        let weightedDays = 0;
+        let assignedQty = 0;
+
+        if (batches && batches.length > 0) {
+          let remainingStock = qty;
+
+          for (const batch of batches) {
+            if (remainingStock <= 0) break;
+
+            let batchQty = batch.quantity;
+            // If Sak item, convert batch qty too
+            if (isBulkUnit) {
+              batchQty = parseFloat((batchQty / sakConversion).toFixed(2));
+            }
+
+            const used = Math.min(remainingStock, batchQty);
+            const days = Math.max(0, Math.floor((now.getTime() - batch.transferDate.getTime()) / (1000 * 60 * 60 * 24)));
+            const bracket = getAgingBracket(days);
+
+            agingBrackets[bracket] += parseFloat(used.toFixed(2));
+            weightedDays += days * used;
+            assignedQty += used;
+            remainingStock -= used;
+          }
+
+          // If stock > total batches (items added before system), put remainder in oldest bracket
+          if (remainingStock > 0.01) {
+            const oldestDate = batches[0].transferDate;
+            const days = Math.max(0, Math.floor((now.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24)));
+            const bracket = getAgingBracket(days);
+            agingBrackets[bracket] += parseFloat(remainingStock.toFixed(2));
+            weightedDays += days * remainingStock;
+            assignedQty += remainingStock;
+          }
+        } else {
+          // Fallback: use firstSeen (all qty in one bracket)
+          const firstSeen = firstSeenMap.get(key);
+          const days = firstSeen
+            ? Math.max(0, Math.floor((now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60 * 24)))
+            : 0;
+          const bracket = getAgingBracket(days);
+          agingBrackets[bracket] = qty;
+          weightedDays = days * qty;
+          assignedQty = qty;
+        }
+
+        const avgAgingDays = assignedQty > 0 ? Math.round(weightedDays / assignedQty) : 0;
 
         const value = qty * unitCost;
 
@@ -185,10 +241,10 @@ export async function GET(request: Request) {
           quantity: qty,
           unitCost,
           value,
-          firstSeenAt: firstSeen ? firstSeen.toISOString() : null,
-          avgAgingDays: agingDays,
+          firstSeenAt: firstSeenMap.get(`${wh.id}-${itemNo}`)?.toISOString() || null,
+          avgAgingDays,
           agingBrackets,
-          hasFirstSeen: !!firstSeen,
+          hasBatches: !!(batches && batches.length > 0),
         });
       });
     }

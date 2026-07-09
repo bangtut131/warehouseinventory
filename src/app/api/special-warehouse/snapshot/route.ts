@@ -90,6 +90,8 @@ export async function POST() {
     // 6. Fetch transfer history from Accurate to get accurate firstSeenAt dates
     // Map: "warehouseId-itemNo" -> earliest transfer date
     const transferDates = new Map<string, Date>();
+    // Also collect per-transfer batches for FIFO aging
+    const transferBatches: { warehouseId: number; itemNo: string; transferDate: Date; quantity: number; transferId: number }[] = [];
     let transfersFetched = 0;
 
     for (const wh of specialWarehouses) {
@@ -120,25 +122,38 @@ export async function POST() {
                   const dRes = await accurateClient.get('/item-transfer/detail.do', {
                     params: { id: t.id }
                   });
-                  return dRes.data?.d;
+                  return { detail: dRes.data?.d, transferId: t.id };
                 } catch { return null; }
               })
             );
 
-            for (const detail of details) {
-              if (!detail) continue;
+            for (const result of details) {
+              if (!result || !result.detail) continue;
+              const detail = result.detail;
               const transDate = new Date(detail.transDate);
               const items = detail.detailItem || [];
 
               for (const item of items) {
                 const itemNo = item.item?.no || item.itemNo || '';
                 if (!itemNo) continue;
+                const qty = item.quantity || item.quantityInBase || 0;
+                if (qty <= 0) continue;
 
+                // Track earliest date (for firstSeen)
                 const key = `${wh.id}-${itemNo}`;
                 const existing = transferDates.get(key);
                 if (!existing || transDate < existing) {
                   transferDates.set(key, transDate);
                 }
+
+                // Collect batch for FIFO aging
+                transferBatches.push({
+                  warehouseId: wh.id,
+                  itemNo,
+                  transferDate: transDate,
+                  quantity: qty,
+                  transferId: result.transferId,
+                });
               }
             }
           }
@@ -152,7 +167,28 @@ export async function POST() {
       }
     }
 
-    console.log(`[Snapshot] Fetched ${transfersFetched} transfers, found ${transferDates.size} item-warehouse date pairs`);
+    // 6b. Save transfer batches to DB (upsert to prevent duplicates)
+    let batchesSaved = 0;
+    for (const batch of transferBatches) {
+      try {
+        await prisma.specialWarehouseTransferBatch.upsert({
+          where: {
+            warehouseId_itemNo_transferId: {
+              warehouseId: batch.warehouseId,
+              itemNo: batch.itemNo,
+              transferId: batch.transferId,
+            }
+          },
+          create: batch,
+          update: { quantity: batch.quantity, transferDate: batch.transferDate },
+        });
+        batchesSaved++;
+      } catch (e: any) {
+        // Skip duplicates or errors silently
+      }
+    }
+
+    console.log(`[Snapshot] Fetched ${transfersFetched} transfers, saved ${batchesSaved} batches, found ${transferDates.size} item-warehouse date pairs`);
 
     // 7. Update firstSeen records with accurate dates from transfers
     const existingFirstSeen = await prisma.specialWarehouseFirstSeen.findMany({

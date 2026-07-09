@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma db execute --file prisma/migrations/20260706_add_special_warehouse/migration.sql && next build",
+    "build": "prisma db execute --file prisma/migrations/20260706_add_special_warehouse/migration.sql && prisma db execute --file prisma/migrations/20260709_add_transfer_batch/migration.sql && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate"

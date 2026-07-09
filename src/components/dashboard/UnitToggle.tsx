@@ -45,7 +45,7 @@ export function UnitToggle({ unit, onChange }: UnitToggleProps) {
 function isBulkConverted(itemUnit?: string): boolean {
     if (!itemUnit) return false;
     const lower = itemUnit.toLowerCase();
-    return lower === 'sak' || lower === 'karung';
+    return lower === 'sak' || lower === 'karung' || lower === 'galon';
 }
 
 /**
