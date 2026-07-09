@@ -39,12 +39,29 @@ export function UnitToggle({ unit, onChange }: UnitToggleProps) {
 }
 
 /**
+ * Check if an item is a bulk/Sak unit (already converted from Kg to Sak in API).
+ * These items should NOT be divided by unitConversion again.
+ */
+function isBulkConverted(itemUnit?: string): boolean {
+    if (!itemUnit) return false;
+    const lower = itemUnit.toLowerCase();
+    return lower === 'sak' || lower === 'karung';
+}
+
+/**
  * Convert a PCS quantity to Box quantity.
  * Returns decimal values (e.g., 0.5 box) when qty < 1 box.
  * If unitConversion is 0 or 1, returns original qty (same unit).
+ * 
+ * IMPORTANT: For Sak/Karung items, the stock is already in selling unit
+ * (converted from Kg in the API), so we do NOT divide again.
  */
-export function convertQty(qty: number, unitConversion: number, unit: QtyUnit): number {
+export function convertQty(qty: number, unitConversion: number, unit: QtyUnit, itemUnit?: string): number {
     if (unit === 'pcs' || !unitConversion || unitConversion <= 1) {
+        return qty;
+    }
+    // Sak/Karung items: already in selling unit, don't convert
+    if (isBulkConverted(itemUnit)) {
         return qty;
     }
     return qty / unitConversion;
@@ -55,13 +72,14 @@ export function convertQty(qty: number, unitConversion: number, unit: QtyUnit): 
  * - PCS mode: whole number with locale formatting
  * - Box mode: decimal if < 1, otherwise 1 decimal place, or whole number if exact
  */
-export function formatQty(qty: number, unitConversion: number, unit: QtyUnit): string {
-    const converted = convertQty(qty, unitConversion, unit);
+export function formatQty(qty: number, unitConversion: number, unit: QtyUnit, itemUnit?: string): string {
+    const converted = convertQty(qty, unitConversion, unit, itemUnit);
 
     if (unit === 'pcs' || !unitConversion || unitConversion <= 1) {
         return Math.round(converted).toLocaleString('id-ID');
     }
 
+    // Sak items in box mode — same formatting as box
     // Box mode
     if (Number.isInteger(converted)) {
         return converted.toLocaleString('id-ID');
@@ -75,6 +93,8 @@ export function formatQty(qty: number, unitConversion: number, unit: QtyUnit): s
  */
 export function getUnitLabel(item: { unitConversion: number; salesUnitName: string; unit: string }, unit: QtyUnit): string {
     if (unit === 'pcs') return item.unit || 'Pcs';
+    // Sak/Karung items — always show their actual unit
+    if (isBulkConverted(item.unit)) return item.unit;
     // Box mode — use specific sales unit name, or generic "Box"
     if (item.salesUnitName) return item.salesUnitName;
     return 'Box';

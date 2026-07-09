@@ -29,7 +29,7 @@ export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
         new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
 
     // Shorthand for formatting qty
-    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit);
+    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit, item.unit);
 
     // Summary cards
     const critical = filtered.filter(i => i.status === 'CRITICAL').length;

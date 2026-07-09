@@ -30,7 +30,7 @@ export const OverstockView: React.FC<OverstockViewProps> = ({ items }) => {
     const formatIDR = (num: number) =>
         new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
 
-    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit);
+    const fq = (qty: number, item: InventoryItem) => formatQty(qty, item.unitConversion, qtyUnit, item.unit);
 
     const totalExcessValue = filtered.reduce((s, i) => s + Math.max(0, i.stock - i.maxStock) * i.cost, 0);
 
