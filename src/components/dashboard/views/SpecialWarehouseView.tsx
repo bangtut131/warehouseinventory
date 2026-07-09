@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { UnitToggle, QtyUnit } from '../UnitToggle';
 
 // ─── Types ─────────────────────────────────────────────────
 const AGING_BRACKETS = ['0-7', '8-15', '16-30', '31-45', '46-60', '61-90', '91-120', '120+'] as const;
@@ -20,12 +21,16 @@ interface SpecialWarehouseItem {
   itemName: string;
   unit: string;
   quantity: number;
+  quantityBase: number;  // Qty in base unit (Pcs/Kg)
   unitCost: number;
   value: number;
   firstSeenAt: string;
   avgAgingDays: number;
   agingBrackets: Record<AgingBracket, number>;
+  agingBracketsBase: Record<AgingBracket, number>;
   transferCount: number;
+  salesUnitName: string;
+  unitConversion: number;
 }
 
 interface Summary {
@@ -82,6 +87,7 @@ export default function SpecialWarehouseView() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
+  const [qtyUnit, setQtyUnit] = useState<QtyUnit>('box');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -173,6 +179,7 @@ export default function SpecialWarehouseView() {
           ))}
         </div>
         <div className="flex items-center gap-2">
+          <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
           <Button variant="outline" size="sm" onClick={takeSnapshot} disabled={snapshotLoading}>
             {snapshotLoading ? '📸 Mengambil...' : '📸 Snapshot'}
           </Button>
@@ -289,7 +296,7 @@ export default function SpecialWarehouseView() {
                       <TableHead className="sticky left-[130px] bg-gray-50 z-20 min-w-[180px]">Nama Item</TableHead>
                       <TableHead className="text-center text-xs">Gudang</TableHead>
                       <TableHead className="text-right cursor-pointer hover:text-blue-600 text-xs" onClick={() => toggleSort('quantity')}>
-                        Total{sortIcon('quantity')}
+                        Total ({qtyUnit === 'pcs' ? 'Base' : 'Jual'}){sortIcon('quantity')}
                       </TableHead>
                       {/* Aging bracket columns */}
                       {AGING_BRACKETS.map(b => (
@@ -323,16 +330,18 @@ export default function SpecialWarehouseView() {
                             </TableCell>
                             <TableCell className="text-[10px] text-gray-500 text-center">{item.warehouseName}</TableCell>
                             <TableCell className="text-right font-semibold text-sm">
-                              {item.quantity.toLocaleString('id-ID')}
-                              <span className="text-[10px] text-gray-400 ml-0.5">{item.unit}</span>
+                              {(qtyUnit === 'pcs' ? item.quantityBase : item.quantity).toLocaleString('id-ID', { maximumFractionDigits: 1 })}
+                              <span className="text-[10px] text-gray-400 ml-0.5">{qtyUnit === 'pcs' ? (item.unit === 'Sak' ? 'Kg' : item.unit) : item.unit}</span>
                             </TableCell>
                             {/* Aging bracket cells */}
                             {AGING_BRACKETS.map(b => {
-                              const qty = item.agingBrackets?.[b] || 0;
+                              const qty = qtyUnit === 'pcs'
+                                ? (item.agingBracketsBase?.[b] || item.agingBrackets?.[b] || 0)
+                                : (item.agingBrackets?.[b] || 0);
                               const style = BRACKET_STYLES[b];
                               return (
                                 <TableCell key={b} className={`text-center text-xs font-medium ${qty > 0 ? `${style.bg} ${style.text}` : 'text-gray-200'}`}>
-                                  {qty > 0 ? qty.toLocaleString('id-ID') : '-'}
+                                  {qty > 0 ? qty.toLocaleString('id-ID', { maximumFractionDigits: 1 }) : '-'}
                                 </TableCell>
                               );
                             })}

@@ -167,6 +167,7 @@ export async function GET(request: Request) {
         }
 
         const isBulkUnit = isKgItem && sakConversion >= 25;
+        const baseQty = qty; // Keep base qty before conversion
         if (isBulkUnit) {
           qty = parseFloat((qty / sakConversion).toFixed(2));
           unit = 'Sak';
@@ -174,6 +175,11 @@ export async function GET(request: Request) {
 
         // ── FIFO Aging: distribute stock across transfer batches ──
         const agingBrackets: Record<AgingBracket, number> = {
+          '0-7': 0, '8-15': 0, '16-30': 0, '31-45': 0,
+          '46-60': 0, '61-90': 0, '91-120': 0, '120+': 0,
+        };
+        // Also track base-unit brackets for Pcs toggle
+        const agingBracketsBase: Record<AgingBracket, number> = {
           '0-7': 0, '8-15': 0, '16-30': 0, '31-45': 0,
           '46-60': 0, '61-90': 0, '91-120': 0, '120+': 0,
         };
@@ -185,24 +191,29 @@ export async function GET(request: Request) {
 
         if (batches && batches.length > 0) {
           let remainingStock = qty;
+          let remainingBase = baseQty;
 
           for (const batch of batches) {
             if (remainingStock <= 0) break;
 
             let batchQty = batch.quantity;
+            const batchBase = batchQty; // raw qty from transfer
             // If Sak item, convert batch qty too
             if (isBulkUnit) {
               batchQty = parseFloat((batchQty / sakConversion).toFixed(2));
             }
 
             const used = Math.min(remainingStock, batchQty);
+            const usedBase = Math.min(remainingBase, batchBase);
             const days = Math.max(0, Math.floor((now.getTime() - batch.transferDate.getTime()) / (1000 * 60 * 60 * 24)));
             const bracket = getAgingBracket(days);
 
             agingBrackets[bracket] += parseFloat(used.toFixed(2));
+            agingBracketsBase[bracket] += parseFloat(usedBase.toFixed(2));
             weightedDays += days * used;
             assignedQty += used;
             remainingStock -= used;
+            remainingBase -= usedBase;
           }
 
           // If stock > total batches (items added before system), put remainder in oldest bracket
@@ -211,6 +222,7 @@ export async function GET(request: Request) {
             const days = Math.max(0, Math.floor((now.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24)));
             const bracket = getAgingBracket(days);
             agingBrackets[bracket] += parseFloat(remainingStock.toFixed(2));
+            agingBracketsBase[bracket] += parseFloat(Math.max(remainingBase, 0).toFixed(2));
             weightedDays += days * remainingStock;
             assignedQty += remainingStock;
           }
@@ -222,6 +234,7 @@ export async function GET(request: Request) {
             : 0;
           const bracket = getAgingBracket(days);
           agingBrackets[bracket] = qty;
+          agingBracketsBase[bracket] = baseQty;
           weightedDays = days * qty;
           assignedQty = qty;
         }
@@ -239,11 +252,13 @@ export async function GET(request: Request) {
           itemName: info?.name || itemNo,
           unit,
           quantity: qty,
+          quantityBase: baseQty,
           unitCost,
           value,
           firstSeenAt: firstSeenMap.get(`${wh.id}-${itemNo}`)?.toISOString() || null,
           avgAgingDays,
           agingBrackets,
+          agingBracketsBase,
           hasBatches: !!(batches && batches.length > 0),
         });
       });
