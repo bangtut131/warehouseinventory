@@ -311,27 +311,67 @@ body {
   white-space: nowrap;
 }
 
+/* Sticky column 4: Stock (w ~80px) */
+.freeze-table th.freeze-col-4,
+.freeze-table td.freeze-col-4 {
+  position: sticky;
+  left: 350px;
+  z-index: 10;
+  min-width: 80px;
+  max-width: 90px;
+}
+
+/* Sticky column 5: Avg 2m (w ~80px) */
+.freeze-table th.freeze-col-5,
+.freeze-table td.freeze-col-5 {
+  position: sticky;
+  left: 430px;
+  z-index: 10;
+  min-width: 80px;
+  max-width: 90px;
+}
+
+/* Sticky column 6: Total (w ~90px) */
+.freeze-table th.freeze-col-6,
+.freeze-table td.freeze-col-6 {
+  position: sticky;
+  left: 510px;
+  z-index: 10;
+  min-width: 90px;
+  max-width: 100px;
+}
+
 /* Header cells that are also sticky columns get higher z-index */
 .freeze-table thead th.freeze-col-1,
 .freeze-table thead th.freeze-col-2,
-.freeze-table thead th.freeze-col-3 {
+.freeze-table thead th.freeze-col-3,
+.freeze-table thead th.freeze-col-4,
+.freeze-table thead th.freeze-col-5,
+.freeze-table thead th.freeze-col-6 {
   z-index: 30;
 }
 
 /* Background for sticky cols — covers scrolling content */
 .freeze-table tbody tr:nth-child(odd) td.freeze-col-1,
 .freeze-table tbody tr:nth-child(odd) td.freeze-col-2,
-.freeze-table tbody tr:nth-child(odd) td.freeze-col-3 {
+.freeze-table tbody tr:nth-child(odd) td.freeze-col-3,
+.freeze-table tbody tr:nth-child(odd) td.freeze-col-4,
+.freeze-table tbody tr:nth-child(odd) td.freeze-col-5,
+.freeze-table tbody tr:nth-child(odd) td.freeze-col-6 {
   background-color: white;
 }
 .freeze-table tbody tr:nth-child(even) td.freeze-col-1,
 .freeze-table tbody tr:nth-child(even) td.freeze-col-2,
-.freeze-table tbody tr:nth-child(even) td.freeze-col-3 {
+.freeze-table tbody tr:nth-child(even) td.freeze-col-3,
+.freeze-table tbody tr:nth-child(even) td.freeze-col-4,
+.freeze-table tbody tr:nth-child(even) td.freeze-col-5,
+.freeze-table tbody tr:nth-child(even) td.freeze-col-6 {
   background-color: hsl(226, 100%, 97%);
 }
 
-/* Shadow edge on last sticky col */
-.freeze-table th.freeze-col-3,
-.freeze-table td.freeze-col-3 {
+/* Shadow edge on last sticky col (Total) */
+.freeze-table th.freeze-col-6,
+.freeze-table td.freeze-col-6 {
   box-shadow: 2px 0 4px -1px rgba(0,0,0,0.08);
 }
+

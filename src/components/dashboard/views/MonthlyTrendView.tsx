@@ -124,16 +124,16 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                         label="Stock"
                                         sortKey="stock"
                                         sort={sort} onSort={toggleSort}
-                                        className="text-white text-right"
+                                        className="text-white text-right freeze-col-4 bg-emerald-700"
                                     />
-                                    <th className="h-12 px-2 text-white font-bold text-center text-xs min-w-[70px] bg-amber-600">
+                                    <th className="h-12 px-2 text-white font-bold text-center text-xs min-w-[70px] bg-amber-600 freeze-col-5">
                                         {avg2mLabel}
                                     </th>
                                     <SortableHead
                                         label={qtyUnit === 'pcs' ? 'Total (Pcs)' : 'Total (Box)'}
                                         sortKey={qtyUnit === 'pcs' ? 'totalSalesQty' : 'totalSalesQtyBox'}
                                         sort={sort} onSort={toggleSort}
-                                        className="text-white text-right"
+                                        className="text-white text-right freeze-col-6 bg-emerald-700"
                                     />
                                     <th className="h-12 px-2 text-white font-bold text-center">Trend</th>
                                     {dateHeaders.map((h, idx) => (
@@ -160,8 +160,13 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
 
                                     const avg2m = getAvg2m(item);
 
+                                    // Stock in display unit: if toggle=box and has conversion, convert
+                                    const displayStock = qtyUnit === 'box' && item.unitConversion > 1
+                                        ? parseFloat((item.stock / item.unitConversion).toFixed(1))
+                                        : item.stock;
+
                                     // Stock vs Avg2m ratio for color coding
-                                    const stockRatio = avg2m > 0 ? item.stock / avg2m : 999;
+                                    const stockRatio = avg2m > 0 ? displayStock / avg2m : 999;
 
                                     return (
                                         <TableRow key={item.id} className={index % 2 === 0 ? 'bg-white' : 'bg-emerald-50'}>
@@ -169,21 +174,21 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                             <TableCell className="font-medium text-blue-600 text-xs freeze-col-2">{item.itemNo}</TableCell>
                                             <TableCell className="max-w-[150px] truncate text-xs freeze-col-3" title={item.name}>{item.name}</TableCell>
                                             {/* Stock column */}
-                                            <TableCell className="text-right text-xs font-semibold">
+                                            <TableCell className="text-right text-xs font-semibold freeze-col-4">
                                                 <span className={
                                                     stockRatio < 1 ? 'text-red-600' :
                                                     stockRatio < 2 ? 'text-orange-600' :
                                                     'text-gray-800'
                                                 }>
-                                                    {fmtNum(item.stock)}
+                                                    {fmtNum(displayStock)}
                                                 </span>
                                                 <span className="text-[10px] text-gray-400 ml-0.5">{item.unit}</span>
                                             </TableCell>
                                             {/* Avg 2 bulan column */}
-                                            <TableCell className="text-center text-xs font-bold bg-amber-50">
+                                            <TableCell className="text-center text-xs font-bold bg-amber-50 freeze-col-5">
                                                 {fmtNum(avg2m)}
                                             </TableCell>
-                                            <TableCell className="text-right font-bold">{totalDisplay}</TableCell>
+                                            <TableCell className="text-right font-bold freeze-col-6">{totalDisplay}</TableCell>
                                             <TableCell className="text-center">{trend}</TableCell>
                                             {item.monthlySales.map((m, idx) => {
                                                 const val = getQty(m.qty, m.qtyBox);
