@@ -369,9 +369,17 @@ body {
   background-color: hsl(226, 100%, 97%);
 }
 
-/* Shadow edge on last sticky col (Total) */
+/* Shadow edge on last sticky col — applied to col-3 (Trends) and col-6 (others) */
+.freeze-table th.freeze-col-3:last-of-type,
+.freeze-table td.freeze-col-3 + td:not(.freeze-col-4) {
+}
 .freeze-table th.freeze-col-6,
 .freeze-table td.freeze-col-6 {
+  box-shadow: 2px 0 4px -1px rgba(0,0,0,0.08);
+}
+/* If col-3 is the last frozen (no col-4 sibling), show shadow */
+.freeze-table td.freeze-col-3:not(:has(~ .freeze-col-4)),
+.freeze-table th.freeze-col-3:not(:has(~ .freeze-col-4)) {
   box-shadow: 2px 0 4px -1px rgba(0,0,0,0.08);
 }
 
