@@ -131,21 +131,21 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                     <SortableHead label="No" sortKey="_index" sort={sort} onSort={toggleSort} className="text-white w-[40px] freeze-col-1 bg-emerald-700" />
                                     <SortableHead label="Kode" sortKey="itemNo" sort={sort} onSort={toggleSort} className="text-white freeze-col-2 bg-emerald-700" />
                                     <SortableHead label="Nama" sortKey="name" sort={sort} onSort={toggleSort} className="text-white freeze-col-3 bg-emerald-700" />
-                                    <SortableHead
-                                        label="Stock"
-                                        sortKey="stock"
-                                        sort={sort} onSort={toggleSort}
-                                        className="text-white text-right"
-                                    />
-                                    <th className="h-12 px-2 text-white font-bold text-center text-xs min-w-[90px] bg-amber-600">
-                                        {avg2mLabel}
-                                    </th>
                                     <th className="h-12 px-2 text-white font-bold text-center">Trend</th>
                                     {dateHeaders.map((h, idx) => (
                                         <th key={idx} className="h-12 px-2 text-white font-bold text-center text-xs min-w-[60px]">
                                             {h.month}<br />{h.year}
                                         </th>
                                     ))}
+                                    <SortableHead
+                                        label="Stock"
+                                        sortKey="stock"
+                                        sort={sort} onSort={toggleSort}
+                                        className="text-white text-right bg-emerald-800"
+                                    />
+                                    <th className="h-12 px-2 text-white font-bold text-center text-xs min-w-[90px] bg-amber-600">
+                                        {avg2mLabel}
+                                    </th>
                                 </tr>
                             </thead>
                             <TableBody>
@@ -173,20 +173,6 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                             <TableCell className="freeze-col-1">{index + 1}</TableCell>
                                             <TableCell className="font-medium text-blue-600 text-xs freeze-col-2">{item.itemNo}</TableCell>
                                             <TableCell className="max-w-[150px] truncate text-xs freeze-col-3" title={item.name}>{item.name}</TableCell>
-                                            {/* Stock column */}
-                                            <TableCell className="text-right text-xs font-semibold">
-                                                <span className={
-                                                    stockRatio < 1 ? 'text-red-600' :
-                                                    stockRatio < 2 ? 'text-orange-600' :
-                                                    'text-gray-800'
-                                                }>
-                                                    {fmtNum(displayStock)}
-                                                </span>
-                                            </TableCell>
-                                            {/* Avg 2 bulan column */}
-                                            <TableCell className="text-center text-xs font-bold bg-amber-50">
-                                                {fmtNum(avg2m)}
-                                            </TableCell>
                                             <TableCell className="text-center">{trend}</TableCell>
                                             {item.monthlySales.map((m, idx) => {
                                                 const val = getQty(m.qty, m.qtyBox);
@@ -202,6 +188,20 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                                     </TableCell>
                                                 );
                                             })}
+                                            {/* Stock column — far right */}
+                                            <TableCell className="text-right text-xs font-semibold">
+                                                <span className={
+                                                    stockRatio < 1 ? 'text-red-600' :
+                                                    stockRatio < 2 ? 'text-orange-600' :
+                                                    'text-gray-800'
+                                                }>
+                                                    {fmtNum(displayStock)}
+                                                </span>
+                                            </TableCell>
+                                            {/* Avg 2 bulan column — far right */}
+                                            <TableCell className="text-center text-xs font-bold bg-amber-50">
+                                                {fmtNum(avg2m)}
+                                            </TableCell>
                                         </TableRow>
                                     );
                                 })}
