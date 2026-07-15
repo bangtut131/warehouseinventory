@@ -234,6 +234,12 @@ export async function GET(request: NextRequest) {
             let effectiveCost = item.cost > 0 ? item.cost : (price > 0 ? price * 0.7 : 0);
             let unit = item.unit1Name || 'PCS';
 
+            // DEBUG: Log raw data for problematic items
+            if (item.no === 'SAP-PK-042' || item.no === 'sap-pk-042') {
+                console.log(`[DEBUG SAP-PK-042] RAW: quantity=${item.quantity}, unit1Name=${item.unit1Name}, unit2Name=${item.unit2Name}, ratio2=${item.ratio2}, name="${item.name}"`);
+                console.log(`[DEBUG SAP-PK-042] WAREHOUSE: warehouseId=${warehouseId}, warehouseQty=${quantity}, hasWhMap=${!!warehouseStockMap}`);
+            }
+
             // ── SAK / BULK UNIT ADJUSTMENT ─────────────
             // Items sold in Sak (e.g. "NPK Makrostar 50 kg" — 1 Sak = 50 Kg):
             // convert all qty-based metrics to Sak unit.
