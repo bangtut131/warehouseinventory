@@ -264,8 +264,12 @@ export async function GET(request: NextRequest) {
             const itemNameLower = (item.name || '').toLowerCase();
             const isKgItem = itemNameLower.includes('kg');
 
+            // Check if Accurate already reports stock in selling unit (Sak/Karung/Galon)
+            const baseUnit = (item.unit1Name || '').toLowerCase();
+            const alreadyInSellingUnit = baseUnit === 'sak' || baseUnit === 'karung' || baseUnit === 'galon';
+
             // Fallback: extract weight from item name (e.g. "NPK 16.16.16 50 Kg" → 50)
-            if (isKgItem && sakConversion < 25) {
+            if (isKgItem && !alreadyInSellingUnit && sakConversion < 25) {
                 const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
                 if (weightMatch) {
                     const nameWeight = parseInt(weightMatch[1], 10);
@@ -275,9 +279,9 @@ export async function GET(request: NextRequest) {
                 }
             }
 
-            // Auto-convert to Sak if: name has "kg" AND conversion >= 25
-            // Relaxed: no longer requires filteredTotalQtyBox > 0 (name-based detection is reliable enough)
-            const isBulkUnit = isKgItem && sakConversion >= 25;
+            // Auto-convert to Sak if: name has "kg" AND conversion >= 25 AND NOT already in selling unit
+            // If unit1Name is already "Sak", quantity from Accurate is already correct — no division needed
+            const isBulkUnit = isKgItem && sakConversion >= 25 && !alreadyInSellingUnit;
 
             if (isBulkUnit) {
                 // Convert stock from base unit (Kg) to Sak
@@ -290,6 +294,10 @@ export async function GET(request: NextRequest) {
                     filteredTotalQtyBox = parseFloat((filteredTotalQty / sakConversion).toFixed(2));
                 }
                 console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | filteredTotalQtyBox=${filteredTotalQtyBox} | filteredTotalQty=${filteredTotalQty}`);
+            } else if (alreadyInSellingUnit) {
+                // Accurate already sends stock in Sak/Karung — just set unit label
+                unit = item.unit1Name || 'Sak';
+                console.log(`[ALREADY SAK] ${item.no} "${item.name}" | unit1Name=${item.unit1Name} | stock=${quantity} ${unit} (no conversion needed)`);
             }
 
             // Should we use sales-unit quantities for demand calculations?

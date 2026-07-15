@@ -157,8 +157,12 @@ export async function GET(request: Request) {
         const isKgItem = itemNameLower.includes('kg');
         let sakConversion = info?.ratio2 && info.ratio2 > 1 ? info.ratio2 : 0;
 
+        // Check if Accurate already reports stock in selling unit
+        const baseUnit = (info?.unit || '').toLowerCase();
+        const alreadyInSellingUnit = baseUnit === 'sak' || baseUnit === 'karung' || baseUnit === 'galon';
+
         // Fallback: extract weight from item name (e.g. "NPK 16.16.16 50 Kg" → 50)
-        if (isKgItem && sakConversion < 25) {
+        if (isKgItem && !alreadyInSellingUnit && sakConversion < 25) {
           const weightMatch = (info?.name || '').match(/(\d+)\s*[Kk][Gg]/);
           if (weightMatch) {
             const nameWeight = parseInt(weightMatch[1], 10);
@@ -166,11 +170,13 @@ export async function GET(request: Request) {
           }
         }
 
-        const isBulkUnit = isKgItem && sakConversion >= 25;
+        const isBulkUnit = isKgItem && sakConversion >= 25 && !alreadyInSellingUnit;
         const baseQty = qty; // Keep base qty before conversion
         if (isBulkUnit) {
           qty = parseFloat((qty / sakConversion).toFixed(2));
           unit = 'Sak';
+        } else if (alreadyInSellingUnit) {
+          unit = info?.unit || 'Sak';
         }
 
         // ── FIFO Aging: distribute stock across transfer batches ──
