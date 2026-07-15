@@ -274,8 +274,16 @@ export async function GET(request: NextRequest) {
             const baseUnit = (item.unit1Name || '').toLowerCase();
             const alreadyInSellingUnit = baseUnit === 'sak' || baseUnit === 'karung' || baseUnit === 'galon';
 
+            // Sanity check: if sales qty (base) ≈ sales qty (box), data is already in selling unit
+            // e.g. filteredTotalQty=442, filteredTotalQtyBox=442 → both in Sak, no conversion needed
+            // vs   filteredTotalQty=1900, filteredTotalQtyBox=38  → base=Kg, box=Sak, need conversion
+            const salesAlreadyInSellingUnit = filteredTotalQtyBox > 0 && filteredTotalQty > 0
+                && Math.abs(filteredTotalQty - filteredTotalQtyBox) / filteredTotalQty < 0.05;
+
+            const skipConversion = alreadyInSellingUnit || salesAlreadyInSellingUnit;
+
             // Fallback: extract weight from item name (e.g. "NPK 16.16.16 50 Kg" → 50)
-            if (isKgItem && !alreadyInSellingUnit && sakConversion < 25) {
+            if (isKgItem && !skipConversion && sakConversion < 25) {
                 const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
                 if (weightMatch) {
                     const nameWeight = parseInt(weightMatch[1], 10);
@@ -285,29 +293,26 @@ export async function GET(request: NextRequest) {
                 }
             }
 
-            // Auto-convert to Sak if: name has "kg" AND conversion >= 25 AND NOT already in selling unit
-            // If unit1Name is already "Sak", quantity from Accurate is already correct — no division needed
-            const isBulkUnit = isKgItem && sakConversion >= 25 && !alreadyInSellingUnit;
+            // Auto-convert to Sak if: name has "kg" AND conversion >= 25 AND data is NOT already in selling unit
+            const isBulkUnit = isKgItem && sakConversion >= 25 && !skipConversion;
 
             if (isBulkUnit) {
                 // Convert stock from base unit (Kg) to Sak
                 quantity = parseFloat((quantity / sakConversion).toFixed(2));
-                // NOTE: effectiveCost is NOT multiplied — in Accurate, cost for Sak items
-                // is already per-Sak (same price for Kg and Sak), so no conversion needed
                 unit = 'Sak';
                 // Also convert totalQtyBox from sales if it was in base unit
                 if (filteredTotalQtyBox === 0 && filteredTotalQty > 0) {
                     filteredTotalQtyBox = parseFloat((filteredTotalQty / sakConversion).toFixed(2));
                 }
                 console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | filteredTotalQtyBox=${filteredTotalQtyBox} | filteredTotalQty=${filteredTotalQty}`);
-            } else if (alreadyInSellingUnit) {
-                // Accurate already sends stock in Sak/Karung — just set unit label
+            } else if (skipConversion && isKgItem) {
+                // Data is already in selling unit — just set unit label, don't divide
                 unit = item.unit1Name || 'Sak';
-                console.log(`[ALREADY SAK] ${item.no} "${item.name}" | unit1Name=${item.unit1Name} | stock=${quantity} ${unit} (no conversion needed)`);
+                console.log(`[ALREADY SAK] ${item.no} "${item.name}" | unit1=${item.unit1Name} | stock=${quantity} ${unit} | reason=${alreadyInSellingUnit ? 'unit1Name' : 'sales-ratio-match'} (no conversion)`);
             }
 
             // Should we use sales-unit quantities for demand calculations?
-            const useSakQty = isBulkUnit;
+            const useSakQty = isBulkUnit || (skipConversion && isKgItem);
 
             // ── Demand Metrics ──────────────────
             // For Sak items: use filteredTotalQtyBox (sales unit qty), otherwise filteredTotalQty (base unit)
