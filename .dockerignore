@@ -10,3 +10,19 @@ README.md
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# Reduce Docker image size
+.agents
+.gemini
+*.md
+!prisma/migrations/**
+docker-compose*
+Dockerfile*
+.vscode
+.idea
+coverage
+__tests__
+*.test.*
+*.spec.*
+.husky
+.eslintcache
