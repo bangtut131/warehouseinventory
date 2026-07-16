@@ -1,34 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllInventory } from '@/lib/accurate';
-import axios from 'axios';
-import crypto from 'crypto';
-
-const API_BASE = process.env.ACCURATE_API_BASE!;
-const API_TOKEN = process.env.ACCURATE_API_TOKEN!;
-const DB_ID = process.env.ACCURATE_DB_ID!;
-const SIGNATURE_SECRET = process.env.ACCURATE_SIGNATURE_SECRET || '';
-
-async function fetchItemDetail(itemNo: string): Promise<any> {
-    const timestamp = new Date().toISOString();
-    const headers: Record<string, string> = {
-        'Authorization': `Bearer ${API_TOKEN}`,
-        'X-Session-ID': DB_ID,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Api-Timestamp': timestamp,
-    };
-    if (SIGNATURE_SECRET) {
-        headers['X-Api-Signature'] = crypto.createHmac('sha256', SIGNATURE_SECRET)
-            .update(timestamp).digest('base64');
-    }
-
-    const response = await axios.get(`${API_BASE}/item/detail.do`, {
-        headers,
-        params: { no: itemNo },
-    });
-
-    return response.data?.d || null;
-}
+import { fetchAllInventory, accurateClient } from '@/lib/accurate';
 
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
@@ -40,7 +11,10 @@ export async function GET(request: NextRequest) {
         const found = items.find(i => i.no.toUpperCase() === itemNo.toUpperCase());
 
         // 2. Get item detail (includes raw warehouse data)
-        const detail = await fetchItemDetail(itemNo);
+        const response = await accurateClient.get('/item/detail.do', {
+            params: { no: itemNo },
+        });
+        const detail = response.data?.d || null;
 
         // Extract raw warehouse data with ALL fields
         const rawWarehouseData = detail?.detailWarehouseData || [];
@@ -55,16 +29,13 @@ export async function GET(request: NextRequest) {
 
             // Raw warehouse data — shows ALL fields Accurate sends per gudang
             warehouseCount: rawWarehouseData.length,
-            warehouses: rawWarehouseData.map((w: any) => ({
-                ...w, // Show ALL fields from Accurate
-            })),
+            warehouses: rawWarehouseData,
 
             _analysis: {
                 totalUnit1Qty: rawWarehouseData.reduce((s: number, w: any) => s + (w.unit1Quantity || 0), 0),
-                totalAvailableToSell: rawWarehouseData.reduce((s: number, w: any) => s + (w.availableToSell ?? w.unit1AvailableToSell ?? w.quantityAvailableToSell ?? 'N/A'), 0),
             }
         });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: err.message, stack: err.stack?.split('\n').slice(0, 3) }, { status: 500 });
     }
 }
