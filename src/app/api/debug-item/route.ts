@@ -1,41 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllInventory, accurateClient } from '@/lib/accurate';
+import { accurateClient } from '@/lib/accurate';
 
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const itemNo = searchParams.get('item') || 'PK-001';
 
     try {
-        // 1. Get from item list (basic data)
-        const items = await fetchAllInventory();
-        const found = items.find(i => i.no.toUpperCase() === itemNo.toUpperCase());
-
-        // 2. Get item detail (includes raw warehouse data)
+        // Get item detail — dump ALL top-level keys to discover available fields
         const response = await accurateClient.get('/item/detail.do', {
             params: { no: itemNo },
         });
         const detail = response.data?.d || null;
+        if (!detail) {
+            return NextResponse.json({ error: 'Item not found in detail API' });
+        }
 
-        // Extract raw warehouse data with ALL fields
-        const rawWarehouseData = detail?.detailWarehouseData || [];
+        // List all top-level keys (to discover fields we haven't used)
+        const allKeys = Object.keys(detail);
+
+        // Check for any stock-related fields
+        const stockFields: Record<string, any> = {};
+        for (const key of allKeys) {
+            const kl = key.toLowerCase();
+            if (kl.includes('stock') || kl.includes('available') || kl.includes('sell')
+                || kl.includes('reserve') || kl.includes('quantity') || kl.includes('balance')
+                || kl.includes('commit') || kl.includes('order') || kl.includes('pending')
+                || kl.includes('allocated')) {
+                stockFields[key] = detail[key];
+            }
+        }
+
+        // Get warehouse data with focus on stock fields
+        const rawWh = detail.detailWarehouseData || [];
+        const whWithStock = rawWh.filter((w: any) => w.unit1Quantity > 0 || w.balance > 0);
+        const whKeys = whWithStock.length > 0 ? Object.keys(whWithStock[0]) : [];
 
         return NextResponse.json({
-            itemNo: found?.no || itemNo,
-            name: found?.name || detail?.name || 'NOT FOUND',
-            listQuantity: found?.quantity,
-            unit1Name: found?.unit1Name || detail?.unit1Name,
-            unit2Name: found?.unit2Name || detail?.unit2Name,
-            ratio2: found?.ratio2 || detail?.ratio2,
+            itemNo,
+            name: detail.name,
 
-            // Raw warehouse data — shows ALL fields Accurate sends per gudang
-            warehouseCount: rawWarehouseData.length,
-            warehouses: rawWarehouseData,
+            // All top-level keys from item detail
+            allDetailKeys: allKeys,
 
-            _analysis: {
-                totalUnit1Qty: rawWarehouseData.reduce((s: number, w: any) => s + (w.unit1Quantity || 0), 0),
-            }
+            // Stock-related fields found
+            stockRelatedFields: stockFields,
+
+            // Warehouse field names
+            warehouseFieldNames: whKeys,
+
+            // Warehouses with stock (full data)
+            warehousesWithStock: whWithStock,
         });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message, stack: err.stack?.split('\n').slice(0, 3) }, { status: 500 });
+        return NextResponse.json({ error: err.message }, { status: 500 });
     }
 }
