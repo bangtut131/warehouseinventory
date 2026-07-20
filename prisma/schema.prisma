@@ -145,3 +145,18 @@ model SpecialWarehouseTransferBatch {
   @@index([transferDate])
   @@unique([warehouseId, itemNo, transferId]) // Prevent duplicate transfers
 }
+
+// Master Data: Konversi satuan barang (source of truth untuk konversi Kg→Sak dll)
+model ProductMaster {
+  id              Int      @id @default(autoincrement())
+  itemNo          String   @unique
+  itemName        String?               // Nama dari Accurate (auto-fill)
+  unit1Name       String?               // Unit asli dari Accurate (Kg, Btl, dll)
+  displayUnit     String?               // Unit tampilan di app (Sak, Btl, Galon)
+  conversionRatio Float?                // Berapa unit1 = 1 displayUnit (misal 50)
+  shouldConvert   Boolean  @default(false) // Apakah perlu konversi
+  category        String?               // Kategori produk (optional)
+  notes           String?               // Catatan user
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

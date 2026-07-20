@@ -31,6 +31,18 @@ interface ProductDim {
     qtyPerCarton: number | null;
 }
 
+interface ProductMasterItem {
+    id: number;
+    itemNo: string;
+    itemName: string | null;
+    unit1Name: string | null;
+    displayUnit: string | null;
+    conversionRatio: number | null;
+    shouldConvert: boolean;
+    category: string | null;
+    notes: string | null;
+}
+
 // ─── Component ────────────────────────────────────────────────
 
 function SortHeader({ label, sortKey, currentSort, onSort, align = 'left' }: { 
@@ -58,7 +70,7 @@ function SortHeader({ label, sortKey, currentSort, onSort, align = 'left' }: {
 }
 
 export const MasterDataView: React.FC = () => {
-    const [tab, setTab] = useState<'cluster' | 'dimension'>('cluster');
+    const [tab, setTab] = useState<'cluster' | 'dimension' | 'conversion'>('cluster');
 
     return (
         <div className="space-y-4">
@@ -68,6 +80,7 @@ export const MasterDataView: React.FC = () => {
                     {[
                         { key: 'cluster', label: '📍 Area & Cluster' },
                         { key: 'dimension', label: '📦 Dimensi Produk' },
+                        { key: 'conversion', label: '⚖️ Konversi Satuan' },
                     ].map(t => (
                         <button key={t.key}
                             onClick={() => setTab(t.key as any)}
@@ -79,7 +92,9 @@ export const MasterDataView: React.FC = () => {
                     ))}
                 </div>
             </div>
-            {tab === 'cluster' ? <CityClusterTab /> : <ProductDimensionTab />}
+            {tab === 'cluster' && <CityClusterTab />}
+            {tab === 'dimension' && <ProductDimensionTab />}
+            {tab === 'conversion' && <ProductConversionTab />}
         </div>
     );
 };
@@ -719,6 +734,369 @@ function ProductDimensionTab() {
                                 </tr>
                             );
                         })}
+                    </tbody>
+                </table>
+            </div>
+            {!loading && <p className="text-xs text-muted-foreground text-right">{sortedFiltered.length} dari {data.length} data</p>}
+        </div>
+    );
+}
+
+// ─── Product Conversion Tab ───────────────────────────────────
+
+function ProductConversionTab() {
+    const [data, setData] = useState<ProductMasterItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [showForm, setShowForm] = useState(false);
+    const [editItem, setEditItem] = useState<ProductMasterItem | null>(null);
+    const [importing, setImporting] = useState(false);
+    const [populating, setPopulating] = useState(false);
+    const [importResult, setImportResult] = useState<any>(null);
+    const [populateResult, setPopulateResult] = useState<any>(null);
+    const fileRef = useRef<HTMLInputElement>(null);
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [filterConvert, setFilterConvert] = useState<'all' | 'yes' | 'no'>('all');
+
+    // Form state
+    const [formItemNo, setFormItemNo] = useState('');
+    const [formItemName, setFormItemName] = useState('');
+    const [formUnit1Name, setFormUnit1Name] = useState('');
+    const [formDisplayUnit, setFormDisplayUnit] = useState('');
+    const [formConversionRatio, setFormConversionRatio] = useState('');
+    const [formShouldConvert, setFormShouldConvert] = useState(false);
+    const [formCategory, setFormCategory] = useState('');
+    const [formNotes, setFormNotes] = useState('');
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await axios.get('/api/master/product-master');
+            setData(res.data);
+        } catch { }
+        setLoading(false);
+        setSelectedIds([]);
+    }, []);
+
+    useEffect(() => { fetchData(); }, [fetchData]);
+
+    const resetForm = () => {
+        setFormItemNo(''); setFormItemName(''); setFormUnit1Name('');
+        setFormDisplayUnit(''); setFormConversionRatio('');
+        setFormShouldConvert(false); setFormCategory(''); setFormNotes('');
+        setShowForm(false); setEditItem(null);
+    };
+
+    const startEdit = (item: ProductMasterItem) => {
+        setEditItem(item);
+        setFormItemNo(item.itemNo);
+        setFormItemName(item.itemName || '');
+        setFormUnit1Name(item.unit1Name || '');
+        setFormDisplayUnit(item.displayUnit || '');
+        setFormConversionRatio(item.conversionRatio?.toString() || '');
+        setFormShouldConvert(item.shouldConvert);
+        setFormCategory(item.category || '');
+        setFormNotes(item.notes || '');
+        setShowForm(true);
+    };
+
+    const handleSave = async () => {
+        if (!formItemNo) return;
+        try {
+            await axios.post('/api/master/product-master', {
+                id: editItem?.id,
+                itemNo: formItemNo, itemName: formItemName,
+                unit1Name: formUnit1Name, displayUnit: formDisplayUnit,
+                conversionRatio: formConversionRatio || null,
+                shouldConvert: formShouldConvert,
+                category: formCategory || null, notes: formNotes || null,
+            });
+            resetForm();
+            fetchData();
+        } catch (err: any) {
+            alert('Gagal menyimpan: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    const handleDelete = async (id: number) => {
+        if (!confirm('Hapus data konversi ini?')) return;
+        try {
+            await axios.delete(`/api/master/product-master?id=${id}`);
+            fetchData();
+        } catch { }
+    };
+
+    const handleDeleteSelected = async () => {
+        if (!confirm(`Hapus ${selectedIds.length} data yang dipilih?`)) return;
+        try {
+            await axios.delete(`/api/master/product-master?ids=${selectedIds.join(',')}`);
+            fetchData();
+        } catch (err: any) {
+            alert('Gagal menghapus: ' + err.message);
+        }
+    };
+
+    const handlePopulate = async () => {
+        if (!confirm('Auto-populate akan mengambil semua item dari Accurate dan mengisi default konversi. Item yang sudah ada tidak akan di-overwrite. Lanjutkan?')) return;
+        setPopulating(true);
+        setPopulateResult(null);
+        try {
+            const res = await axios.post('/api/master/product-master/populate');
+            setPopulateResult(res.data);
+            fetchData();
+        } catch (err: any) {
+            setPopulateResult({ error: err.response?.data?.error || err.message });
+        }
+        setPopulating(false);
+    };
+
+    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImporting(true);
+        setImportResult(null);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await axios.post('/api/master/product-master/import', formData);
+            setImportResult(res.data);
+            fetchData();
+        } catch (err: any) {
+            setImportResult({ error: err.response?.data?.error || err.message });
+        }
+        setImporting(false);
+        if (fileRef.current) fileRef.current.value = '';
+    };
+
+    const exportExcel = () => {
+        const rows = data.map(d => ({
+            'Kode Barang': d.itemNo,
+            'Nama Barang': d.itemName || '',
+            'Unit Asli': d.unit1Name || '',
+            'Unit Tampilan': d.displayUnit || '',
+            'Rasio Konversi': d.conversionRatio || '',
+            'Konversi Aktif': d.shouldConvert ? 'Ya' : 'Tidak',
+            'Kategori': d.category || '',
+            'Catatan': d.notes || '',
+        }));
+        const ws = XLSX.utils.json_to_sheet(rows);
+        ws['!cols'] = [{ wch: 15 }, { wch: 35 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 13 }, { wch: 15 }, { wch: 20 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Konversi Satuan');
+        XLSX.writeFile(wb, `Master_Konversi_Satuan_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    };
+
+    const [sortConfig, setSortConfig] = useState<{ key: string | null, direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' });
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+        setSortConfig({ key, direction });
+    };
+
+    const sortedFiltered = React.useMemo(() => {
+        let result = data.filter(d => {
+            const matchSearch = !search || d.itemNo.toLowerCase().includes(search.toLowerCase()) ||
+                (d.itemName || '').toLowerCase().includes(search.toLowerCase());
+            const matchFilter = filterConvert === 'all' || 
+                (filterConvert === 'yes' && d.shouldConvert) ||
+                (filterConvert === 'no' && !d.shouldConvert);
+            return matchSearch && matchFilter;
+        });
+        if (sortConfig.key) {
+            result.sort((a, b) => {
+                const aVal: any = a[sortConfig.key as keyof ProductMasterItem];
+                const bVal: any = b[sortConfig.key as keyof ProductMasterItem];
+                if (aVal === bVal) return 0;
+                if (aVal === null || aVal === undefined) return 1;
+                if (bVal === null || bVal === undefined) return -1;
+                const comparison = aVal < bVal ? -1 : 1;
+                return sortConfig.direction === 'asc' ? comparison : -comparison;
+            });
+        }
+        return result;
+    }, [data, search, sortConfig, filterConvert]);
+
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) setSelectedIds(sortedFiltered.map(d => d.id));
+        else setSelectedIds([]);
+    };
+    const handleSelect = (id: number, checked: boolean) => {
+        if (checked) setSelectedIds(prev => [...prev, id]);
+        else setSelectedIds(prev => prev.filter(i => i !== id));
+    };
+
+    const convertCount = data.filter(d => d.shouldConvert).length;
+    const noConvertCount = data.filter(d => !d.shouldConvert).length;
+
+    return (
+        <div className="space-y-4">
+            {/* Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                    { label: 'Total Item', value: data.length, icon: '📦', color: 'bg-blue-50 border-blue-200' },
+                    { label: 'Dikonversi', value: convertCount, icon: '🔄', color: 'bg-green-50 border-green-200' },
+                    { label: 'Tanpa Konversi', value: noConvertCount, icon: '✅', color: 'bg-gray-50 border-gray-200' },
+                ].map(c => (
+                    <Card key={c.label} className={`border ${c.color}`}>
+                        <CardContent className="p-3">
+                            <p className="text-lg">{c.icon}</p>
+                            <p className="text-xs text-muted-foreground">{c.label}</p>
+                            <p className="text-sm font-bold">{c.value}</p>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap items-center gap-2">
+                <Input placeholder="🔍 Cari kode/nama barang..." value={search}
+                    onChange={e => setSearch(e.target.value)} className="w-56 text-xs h-8" />
+                <select value={filterConvert} onChange={e => setFilterConvert(e.target.value as any)}
+                    className="h-8 text-xs rounded-md border px-2 bg-white">
+                    <option value="all">Semua</option>
+                    <option value="yes">Dikonversi ✅</option>
+                    <option value="no">Tidak Dikonversi</option>
+                </select>
+                <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }}
+                    className="text-xs h-8 bg-blue-600 hover:bg-blue-700">+ Tambah</Button>
+                <Button size="sm" variant="outline" onClick={handlePopulate} disabled={populating}
+                    className="text-xs h-8 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200">
+                    {populating ? '⏳ Populating...' : '🔄 Auto-populate dari Accurate'}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}
+                    className="text-xs h-8" disabled={importing}>
+                    {importing ? '⏳ Importing...' : '📥 Import Excel'}
+                </Button>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
+                <Button size="sm" variant="outline" onClick={exportExcel}
+                    className="text-xs h-8">📤 Export Excel</Button>
+                {selectedIds.length > 0 && (
+                    <Button size="sm" variant="destructive" onClick={handleDeleteSelected} className="text-xs h-8 bg-red-600 hover:bg-red-700">
+                        🗑️ Hapus {selectedIds.length} Terpilih
+                    </Button>
+                )}
+            </div>
+
+            {/* Populate result */}
+            {populateResult && (
+                <div className={`text-xs px-3 py-2 rounded-lg border ${populateResult.error
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : 'bg-green-50 border-green-200 text-green-700'}`}>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            {populateResult.error
+                                ? `❌ ${populateResult.error}`
+                                : `✅ Auto-populate selesai: ${populateResult.created} item baru ditambahkan, ${populateResult.skipped} sudah ada (tidak di-overwrite)`}
+                        </div>
+                        <button onClick={() => setPopulateResult(null)} className="opacity-50 hover:opacity-100">✕</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Import result */}
+            {importResult && (
+                <div className={`text-xs px-3 py-2 rounded-lg border ${importResult.error
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : 'bg-green-50 border-green-200 text-green-700'}`}>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            {importResult.error
+                                ? `❌ ${importResult.error}`
+                                : `✅ Import selesai: ${importResult.imported || importResult.created || 0} berhasil`}
+                        </div>
+                        <button onClick={() => setImportResult(null)} className="opacity-50 hover:opacity-100">✕</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Add/Edit Form */}
+            {showForm && (
+                <Card className="border-blue-200 bg-blue-50/30">
+                    <CardContent className="p-4">
+                        <p className="text-xs font-semibold mb-3">{editItem ? `✏️ Edit: ${editItem.itemNo}` : '➕ Tambah Konversi'}</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <Input placeholder="Kode Barang *" value={formItemNo} onChange={e => setFormItemNo(e.target.value)} className="text-xs h-8" />
+                            <Input placeholder="Nama Barang" value={formItemName} onChange={e => setFormItemName(e.target.value)} className="text-xs h-8" />
+                            <Input placeholder="Unit Asli (Kg, Btl)" value={formUnit1Name} onChange={e => setFormUnit1Name(e.target.value)} className="text-xs h-8" />
+                            <Input placeholder="Unit Tampilan (Sak, Btl)" value={formDisplayUnit} onChange={e => setFormDisplayUnit(e.target.value)} className="text-xs h-8" />
+                            <Input placeholder="Rasio Konversi" type="number" step="0.1" value={formConversionRatio} onChange={e => setFormConversionRatio(e.target.value)} className="text-xs h-8" />
+                            <label className="flex items-center gap-2 text-xs px-2">
+                                <input type="checkbox" checked={formShouldConvert} onChange={e => setFormShouldConvert(e.target.checked)} className="rounded" />
+                                Konversi Aktif
+                            </label>
+                            <Input placeholder="Kategori" value={formCategory} onChange={e => setFormCategory(e.target.value)} className="text-xs h-8" />
+                            <Input placeholder="Catatan" value={formNotes} onChange={e => setFormNotes(e.target.value)} className="text-xs h-8" />
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                            <Button size="sm" onClick={handleSave} className="text-xs h-7 bg-blue-600 hover:bg-blue-700">💾 Simpan</Button>
+                            <Button size="sm" variant="ghost" onClick={resetForm} className="text-xs h-7">Batal</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Table */}
+            <div className="border rounded-lg overflow-auto">
+                <table className="w-full text-xs">
+                    <thead>
+                        <tr className="bg-muted/50 text-left whitespace-nowrap">
+                            <th className="px-3 py-2 w-8 text-center">
+                                <input type="checkbox" className="rounded"
+                                    checked={sortedFiltered.length > 0 && selectedIds.length === sortedFiltered.length}
+                                    onChange={handleSelectAll} />
+                            </th>
+                            <th className="px-3 py-2 font-medium w-8">#</th>
+                            <SortHeader label="Kode Barang" sortKey="itemNo" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Nama Barang" sortKey="itemName" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Unit Asli" sortKey="unit1Name" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Unit Tampilan" sortKey="displayUnit" currentSort={sortConfig} onSort={handleSort} />
+                            <SortHeader label="Rasio" sortKey="conversionRatio" currentSort={sortConfig} onSort={handleSort} align="right" />
+                            <th className="px-3 py-2 font-medium text-center">Konversi</th>
+                            <SortHeader label="Kategori" sortKey="category" currentSort={sortConfig} onSort={handleSort} />
+                            <th className="px-3 py-2 font-medium text-center">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading && (
+                            <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">
+                                <div className="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
+                                Memuat data...
+                            </td></tr>
+                        )}
+                        {!loading && sortedFiltered.length === 0 && (
+                            <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">
+                                {data.length === 0
+                                    ? 'Belum ada data. Klik "Auto-populate dari Accurate" untuk memulai.'
+                                    : 'Tidak ada data yang cocok dengan filter.'}
+                            </td></tr>
+                        )}
+                        {!loading && sortedFiltered.map((item, idx) => (
+                            <tr key={item.id} className={`border-t hover:bg-muted/20 ${selectedIds.includes(item.id) ? 'bg-blue-50/50' : ''}`}>
+                                <td className="px-3 py-2 text-center">
+                                    <input type="checkbox" className="rounded"
+                                        checked={selectedIds.includes(item.id)}
+                                        onChange={(e) => handleSelect(item.id, e.target.checked)} />
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
+                                <td className="px-3 py-2 font-mono font-medium text-blue-700">{item.itemNo}</td>
+                                <td className="px-3 py-2 max-w-[200px] truncate">{item.itemName || '-'}</td>
+                                <td className="px-3 py-2">{item.unit1Name || '-'}</td>
+                                <td className="px-3 py-2 font-medium">{item.displayUnit || '-'}</td>
+                                <td className="px-3 py-2 text-right font-mono">
+                                    {item.conversionRatio ? item.conversionRatio : <span className="text-muted-foreground">-</span>}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                    {item.shouldConvert
+                                        ? <Badge className="text-[10px] bg-green-100 text-green-700 hover:bg-green-100">Aktif</Badge>
+                                        : <Badge variant="outline" className="text-[10px] text-muted-foreground">Tidak</Badge>}
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">{item.category || '-'}</td>
+                                <td className="px-3 py-2 text-center whitespace-nowrap">
+                                    <button onClick={() => startEdit(item)} className="text-blue-600 hover:underline text-[11px] mr-2">Edit</button>
+                                    <button onClick={() => handleDelete(item.id)} className="text-red-500 hover:underline text-[11px]">Hapus</button>
+                                </td>
+                            </tr>
+                        ))}
                     </tbody>
                 </table>
             </div>

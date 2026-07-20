@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchAllInventory, loadSalesCache, loadWarehouseStockCache, loadPOCache, AccurateItem, ItemSalesData } from '@/lib/accurate';
 import { InventoryItem, MonthlySales } from '@/lib/types';
+import { prisma } from '@/lib/prisma';
 
 // ─── CONSTANTS ────────────────────────────────────────────────
 const Z_SCORE_95 = 1.645;
@@ -212,6 +213,18 @@ export async function GET(request: NextRequest) {
             console.log('[API] PO cache read failed:', err.message);
         }
 
+        // 3d. Load ProductMaster for conversion settings
+        let productMasterMap = new Map<string, { shouldConvert: boolean; conversionRatio: number | null; displayUnit: string | null }>();
+        try {
+            const masters = await prisma.productMaster.findMany({
+                select: { itemNo: true, shouldConvert: true, conversionRatio: true, displayUnit: true }
+            });
+            masters.forEach(m => productMasterMap.set(m.itemNo, m));
+            console.log(`[API] Loaded ${masters.length} ProductMaster entries`);
+        } catch (err: any) {
+            console.log('[API] ProductMaster load failed (table may not exist yet):', err.message);
+        }
+
         // 4. Transform to InventoryItem with full analysis
         const inventoryItems: InventoryItem[] = accurateItems.map(item => {
             const salesData = itemSalesMap.get(item.no) || {
@@ -241,17 +254,7 @@ export async function GET(request: NextRequest) {
             }
 
             // ── SAK / BULK UNIT ADJUSTMENT ─────────────
-            // Items sold in Sak (e.g. "NPK Makrostar 50 kg" — 1 Sak = 50 Kg):
-            // convert all qty-based metrics to Sak unit.
-            //
-            // Detection criteria (ALL must be true):
-            //   1. Item name contains "kg" (identifies weight-based items like pupuk)
-            //   2. Conversion ratio >= 25 (1 Sak = 25+ Kg)
-            //   3. Sales data has box qty (totalQtyBox > 0)
-            //
-            // This excludes pesticide bottles (ml) and sachets (gr) which also
-            // have high ratios (50-200 pcs/box) but are NOT sold per Sak.
-            // Calculate dynamic totals based ONLY on the requested date range (dateHeaders)
+            // Priority: ProductMaster (user-managed) > raw data (no conversion for unmapped)
             let filteredTotalQty = 0;
             let filteredTotalQtyBox = 0;
             let filteredTotalRevenue = 0;
@@ -265,53 +268,37 @@ export async function GET(request: NextRequest) {
                 }
             });
 
-            // Try to get conversion from: 1) invoice data, 2) Accurate ratio2, 3) name-based weight extraction
-            let sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
-            const itemNameLower = (item.name || '').toLowerCase();
-            const isKgItem = itemNameLower.includes('kg');
+            const masterEntry = productMasterMap.get(item.no);
+            let isBulkUnit = false;
+            let skipConversion = false;
+            let sakConversion = 0;
+            let isUnmapped = false;
 
-            // Check if Accurate already reports stock in selling unit (Sak/Karung/Galon)
-            const baseUnit = (item.unit1Name || '').toLowerCase();
-            const alreadyInSellingUnit = baseUnit === 'sak' || baseUnit === 'karung' || baseUnit === 'galon';
-
-            // Sanity check: if sales qty (base) ≈ sales qty (box), data is already in selling unit
-            // e.g. filteredTotalQty=442, filteredTotalQtyBox=442 → both in Sak, no conversion needed
-            // vs   filteredTotalQty=1900, filteredTotalQtyBox=38  → base=Kg, box=Sak, need conversion
-            const salesAlreadyInSellingUnit = filteredTotalQtyBox > 0 && filteredTotalQty > 0
-                && Math.abs(filteredTotalQty - filteredTotalQtyBox) / filteredTotalQty < 0.05;
-
-            const skipConversion = alreadyInSellingUnit || salesAlreadyInSellingUnit;
-
-            // Fallback: extract weight from item name (e.g. "NPK 16.16.16 50 Kg" → 50)
-            if (isKgItem && !skipConversion && sakConversion < 25) {
-                const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
-                if (weightMatch) {
-                    const nameWeight = parseInt(weightMatch[1], 10);
-                    if (nameWeight >= 20) {
-                        sakConversion = nameWeight;
+            if (masterEntry) {
+                // ── Use ProductMaster settings ──
+                if (masterEntry.shouldConvert && masterEntry.conversionRatio && masterEntry.conversionRatio > 0) {
+                    isBulkUnit = true;
+                    sakConversion = masterEntry.conversionRatio;
+                    quantity = parseFloat((quantity / sakConversion).toFixed(2));
+                    unit = masterEntry.displayUnit || 'Sak';
+                    if (filteredTotalQtyBox === 0 && filteredTotalQty > 0) {
+                        filteredTotalQtyBox = parseFloat((filteredTotalQty / sakConversion).toFixed(2));
                     }
+                    console.log(`[MASTER-SAK] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} ${unit}`);
+                } else {
+                    // Master says no conversion
+                    unit = masterEntry.displayUnit || item.unit1Name || 'PCS';
+                    skipConversion = true;
                 }
-            }
-
-            // Auto-convert to Sak if: name has "kg" AND conversion >= 25 AND data is NOT already in selling unit
-            const isBulkUnit = isKgItem && sakConversion >= 25 && !skipConversion;
-
-            if (isBulkUnit) {
-                // Convert stock from base unit (Kg) to Sak
-                quantity = parseFloat((quantity / sakConversion).toFixed(2));
-                unit = 'Sak';
-                // Also convert totalQtyBox from sales if it was in base unit
-                if (filteredTotalQtyBox === 0 && filteredTotalQty > 0) {
-                    filteredTotalQtyBox = parseFloat((filteredTotalQty / sakConversion).toFixed(2));
-                }
-                console.log(`[SAK ADJUST] ${item.no} "${item.name}" | ratio=${sakConversion} | stock=${quantity} Sak | filteredTotalQtyBox=${filteredTotalQtyBox} | filteredTotalQty=${filteredTotalQty}`);
-            } else if (skipConversion && isKgItem) {
-                // Data is already in selling unit — just set unit label, don't divide
-                unit = item.unit1Name || 'Sak';
-                console.log(`[ALREADY SAK] ${item.no} "${item.name}" | unit1=${item.unit1Name} | stock=${quantity} ${unit} | reason=${alreadyInSellingUnit ? 'unit1Name' : 'sales-ratio-match'} (no conversion)`);
+            } else {
+                // ── Unmapped item: show raw data, no conversion ──
+                isUnmapped = true;
+                unit = item.unit1Name || 'PCS';
+                console.log(`[UNMAPPED] ${item.no} "${item.name}" | no ProductMaster entry | showing raw unit: ${unit}`);
             }
 
             // Should we use sales-unit quantities for demand calculations?
+            const isKgItem = (item.name || '').toLowerCase().includes('kg');
             const useSakQty = isBulkUnit || (skipConversion && isKgItem);
 
             // ── Demand Metrics ──────────────────
