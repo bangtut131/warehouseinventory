@@ -8,33 +8,45 @@ import { fetchAllInventory } from '@/lib/accurate';
 const SKIP_ITEM_TYPES = ['NonInventory', 'Service', 'Assembly', 'FixedAsset', 'OtherAsset'];
 
 // ─── Auto-detect logic ───────────────────────────────────────────────────────
-function autoDetect(item: any, resolvedUnit: string | null): {
+function autoDetect(item: any, resolvedUnit: string | null, salesUnitName?: string): {
     shouldConvert: boolean;
     conversionRatio: number | null;
     displayUnit: string | null;
 } {
     const baseUnit = (resolvedUnit || '').toLowerCase();
+    const ratio2: number = item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0;
+    const itemNameLower = (item.name || '').toLowerCase();
+    const isKgItem = itemNameLower.includes('kg');
+
+    // Already in bulk/selling unit — no conversion needed
     if (baseUnit === 'sak' || baseUnit === 'karung' || baseUnit === 'galon') {
         return { shouldConvert: false, conversionRatio: null, displayUnit: resolvedUnit };
     }
 
-    const itemNameLower = (item.name || '').toLowerCase();
-    const isKgItem = itemNameLower.includes('kg');
-    if (!isKgItem) {
-        return { shouldConvert: false, conversionRatio: null, displayUnit: resolvedUnit };
-    }
-
-    let sakConversion: number = item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0;
-    if (sakConversion < 25) {
-        const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
-        if (weightMatch) {
-            const nameWeight = parseInt(weightMatch[1], 10);
-            if (nameWeight >= 25) sakConversion = nameWeight;
+    if (isKgItem) {
+        // ── KG ITEMS: Sak conversion ──────────────────────────────────────────
+        let sakConversion = ratio2;
+        if (sakConversion < 25) {
+            const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
+            if (weightMatch) {
+                const nameWeight = parseInt(weightMatch[1], 10);
+                if (nameWeight >= 25) sakConversion = nameWeight;
+            }
         }
-    }
-
-    if (sakConversion >= 25) {
-        return { shouldConvert: true, conversionRatio: sakConversion, displayUnit: 'Sak' };
+        if (sakConversion >= 25) {
+            return { shouldConvert: true, conversionRatio: sakConversion, displayUnit: 'Sak' };
+        }
+    } else if (ratio2 >= 2) {
+        // ── NON-KG ITEMS: Box/Pack/etc conversion from Accurate master ────────
+        // e.g., unit1=Btl, unit2=Box, ratio2=36 → 1 Box = 36 Btl
+        // shouldConvert=false: API keeps stock in base unit (Btl)
+        // The Box/Pcs toggle on dashboard already divides by ratio2 automatically
+        // We surface this info here so user can see the conversion exists
+        const displayUnitName =
+            item.unit2Name ||
+            (salesUnitName && salesUnitName !== 'Sak' && salesUnitName !== 'Karung' ? salesUnitName : null) ||
+            'Box';
+        return { shouldConvert: false, conversionRatio: ratio2, displayUnit: displayUnitName };
     }
 
     return { shouldConvert: false, conversionRatio: null, displayUnit: resolvedUnit };
@@ -132,7 +144,7 @@ export async function GET() {
                         source: 'master' as const,
                     };
                 } else {
-                    const detected = autoDetect(item, resolvedUnit);
+                    const detected = autoDetect(item, resolvedUnit, salesUnit);
                     return {
                         id: null,
                         itemNo: item.no,
