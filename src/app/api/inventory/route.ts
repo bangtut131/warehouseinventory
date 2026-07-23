@@ -453,16 +453,17 @@ export async function GET(request: NextRequest) {
                 totalSalesQty: effectiveTotalQty,
                 totalSalesQtyBox: filteredTotalQtyBox || 0,
                 totalSalesRevenue: filteredTotalRevenue,
-                // Unit conversion: for Sak items, conversion already applied, set to 0
-                // For Box toggle: prefer ratio3 (outer Box) over ratio2 (middle Pack)
-                // e.g., FG-052: ratio2=6(Pack), ratio3=120(Box) → use 120 for Box toggle
+                // Unit conversion for Box/Pcs toggle:
+                // - Toggle Pcs = unit1 (base, no division needed)
+                // - Toggle Box = unit3 if exists, else unit2 (largest packaging)
+                // Master data ratio ALWAYS takes priority — sales unitConversion is for demand
+                // normalization only (Pack→base), NOT for the display toggle.
+                // e.g., FG-052: ratio2=6(Pack), ratio3=120(Box) → toggle Box uses 120
                 unitConversion: useSakQty ? 0 : (
-                    salesData.unitConversion ||
                     (item.ratio3 && item.ratio3 > 1 ? item.ratio3 :
                     (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0))
                 ),
                 salesUnitName: useSakQty ? '' : (
-                    salesData.salesUnitName ||
                     item.unit3Name ||
                     item.unit2Name ||
                     (item.ratio3 && item.ratio3 > 1 ? 'Box' :
