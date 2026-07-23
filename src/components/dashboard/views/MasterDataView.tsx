@@ -32,7 +32,7 @@ interface ProductDim {
 }
 
 interface ProductMasterItem {
-    id: number;
+    id: number | null;
     itemNo: string;
     itemName: string | null;
     unit1Name: string | null;
@@ -41,6 +41,7 @@ interface ProductMasterItem {
     shouldConvert: boolean;
     category: string | null;
     notes: string | null;
+    source?: 'master' | 'auto'; // 'master' = sudah disimpan, 'auto' = masih auto-detect
 }
 
 // ─── Component ────────────────────────────────────────────────
@@ -771,7 +772,8 @@ function ProductConversionTab() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await axios.get('/api/master/product-master');
+            // /effective returns ALL items: master (from DB) + auto-detect (from Accurate)
+            const res = await axios.get('/api/master/product-master/effective');
             setData(res.data);
         } catch { }
         setLoading(false);
@@ -803,8 +805,9 @@ function ProductConversionTab() {
     const handleSave = async () => {
         if (!formItemNo) return;
         try {
+            // Always upsert by itemNo — auto items have no id yet
             await axios.post('/api/master/product-master', {
-                id: editItem?.id,
+                id: editItem?.id || undefined,
                 itemNo: formItemNo, itemName: formItemName,
                 unit1Name: formUnit1Name, displayUnit: formDisplayUnit,
                 conversionRatio: formConversionRatio || null,
@@ -818,10 +821,14 @@ function ProductConversionTab() {
         }
     };
 
-    const handleDelete = async (id: number) => {
-        if (!confirm('Hapus data konversi ini?')) return;
+    const handleDelete = async (item: ProductMasterItem) => {
+        if (!item.id) {
+            alert('Item ini belum disimpan ke master. Tidak perlu dihapus.');
+            return;
+        }
+        if (!confirm('Hapus data konversi ini? Item akan kembali ke auto-detect.')) return;
         try {
-            await axios.delete(`/api/master/product-master?id=${id}`);
+            await axios.delete(`/api/master/product-master?id=${item.id}`);
             fetchData();
         } catch { }
     };
@@ -897,9 +904,11 @@ function ProductConversionTab() {
         let result = data.filter(d => {
             const matchSearch = !search || d.itemNo.toLowerCase().includes(search.toLowerCase()) ||
                 (d.itemName || '').toLowerCase().includes(search.toLowerCase());
-            const matchFilter = filterConvert === 'all' || 
+            const matchFilter = filterConvert === 'all' ||
                 (filterConvert === 'yes' && d.shouldConvert) ||
-                (filterConvert === 'no' && !d.shouldConvert);
+                (filterConvert === 'no' && !d.shouldConvert) ||
+                (filterConvert === 'master' && d.source === 'master') ||
+                (filterConvert === 'auto' && d.source === 'auto');
             return matchSearch && matchFilter;
         });
         if (sortConfig.key) {
@@ -917,14 +926,18 @@ function ProductConversionTab() {
     }, [data, search, sortConfig, filterConvert]);
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.checked) setSelectedIds(sortedFiltered.map(d => d.id));
+        // Only select items that have been saved to master (have id)
+        if (e.target.checked) setSelectedIds(sortedFiltered.filter(d => d.id !== null).map(d => d.id as number));
         else setSelectedIds([]);
     };
-    const handleSelect = (id: number, checked: boolean) => {
+    const handleSelect = (id: number | null, checked: boolean) => {
+        if (!id) return;
         if (checked) setSelectedIds(prev => [...prev, id]);
         else setSelectedIds(prev => prev.filter(i => i !== id));
     };
 
+    const masterCount = data.filter(d => d.source === 'master').length;
+    const autoCount = data.filter(d => d.source === 'auto').length;
     const convertCount = data.filter(d => d.shouldConvert).length;
     const noConvertCount = data.filter(d => !d.shouldConvert).length;
 
@@ -934,8 +947,9 @@ function ProductConversionTab() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
                     { label: 'Total Item', value: data.length, icon: '📦', color: 'bg-blue-50 border-blue-200' },
-                    { label: 'Dikonversi', value: convertCount, icon: '🔄', color: 'bg-green-50 border-green-200' },
-                    { label: 'Tanpa Konversi', value: noConvertCount, icon: '✅', color: 'bg-gray-50 border-gray-200' },
+                    { label: 'Sudah Diatur (Master)', value: masterCount, icon: '✏️', color: 'bg-indigo-50 border-indigo-200' },
+                    { label: 'Auto-detect', value: autoCount, icon: '🤖', color: 'bg-amber-50 border-amber-200' },
+                    { label: 'Aktif Konversi', value: convertCount, icon: '🔄', color: 'bg-green-50 border-green-200' },
                 ].map(c => (
                     <Card key={c.label} className={`border ${c.color}`}>
                         <CardContent className="p-3">
@@ -954,8 +968,10 @@ function ProductConversionTab() {
                 <select value={filterConvert} onChange={e => setFilterConvert(e.target.value as any)}
                     className="h-8 text-xs rounded-md border px-2 bg-white">
                     <option value="all">Semua</option>
-                    <option value="yes">Dikonversi ✅</option>
-                    <option value="no">Tidak Dikonversi</option>
+                    <option value="yes">Konversi Aktif</option>
+                    <option value="no">Tidak Konversi</option>
+                    <option value="master">Sudah Diatur</option>
+                    <option value="auto">Masih Auto-detect</option>
                 </select>
                 <Button size="sm" onClick={() => { resetForm(); setShowForm(true); }}
                     className="text-xs h-8 bg-blue-600 hover:bg-blue-700">+ Tambah</Button>
@@ -1052,7 +1068,7 @@ function ProductConversionTab() {
                             <SortHeader label="Unit Tampilan" sortKey="displayUnit" currentSort={sortConfig} onSort={handleSort} />
                             <SortHeader label="Rasio" sortKey="conversionRatio" currentSort={sortConfig} onSort={handleSort} align="right" />
                             <th className="px-3 py-2 font-medium text-center">Konversi</th>
-                            <SortHeader label="Kategori" sortKey="category" currentSort={sortConfig} onSort={handleSort} />
+                            <th className="px-3 py-2 font-medium text-center">Sumber</th>
                             <th className="px-3 py-2 font-medium text-center">Aksi</th>
                         </tr>
                     </thead>
@@ -1071,16 +1087,20 @@ function ProductConversionTab() {
                             </td></tr>
                         )}
                         {!loading && sortedFiltered.map((item, idx) => (
-                            <tr key={item.id} className={`border-t hover:bg-muted/20 ${selectedIds.includes(item.id) ? 'bg-blue-50/50' : ''}`}>
+                            <tr key={item.itemNo} className={`border-t hover:bg-muted/20 ${
+                                item.source === 'master' ? 'bg-white' : 'bg-amber-50/30'
+                            } ${selectedIds.includes(item.id as number) ? 'bg-blue-50/50' : ''}`}>
                                 <td className="px-3 py-2 text-center">
-                                    <input type="checkbox" className="rounded"
-                                        checked={selectedIds.includes(item.id)}
-                                        onChange={(e) => handleSelect(item.id, e.target.checked)} />
+                                    {item.id ? (
+                                        <input type="checkbox" className="rounded"
+                                            checked={selectedIds.includes(item.id)}
+                                            onChange={(e) => handleSelect(item.id, e.target.checked)} />
+                                    ) : <span className="text-muted-foreground text-[10px]">-</span>}
                                 </td>
                                 <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                                 <td className="px-3 py-2 font-mono font-medium text-blue-700">{item.itemNo}</td>
                                 <td className="px-3 py-2 max-w-[200px] truncate">{item.itemName || '-'}</td>
-                                <td className="px-3 py-2">{item.unit1Name || '-'}</td>
+                                <td className="px-3 py-2 text-muted-foreground">{item.unit1Name || '-'}</td>
                                 <td className="px-3 py-2 font-medium">{item.displayUnit || '-'}</td>
                                 <td className="px-3 py-2 text-right font-mono">
                                     {item.conversionRatio ? item.conversionRatio : <span className="text-muted-foreground">-</span>}
@@ -1090,10 +1110,16 @@ function ProductConversionTab() {
                                         ? <Badge className="text-[10px] bg-green-100 text-green-700 hover:bg-green-100">Aktif</Badge>
                                         : <Badge variant="outline" className="text-[10px] text-muted-foreground">Tidak</Badge>}
                                 </td>
-                                <td className="px-3 py-2 text-muted-foreground">{item.category || '-'}</td>
+                                <td className="px-3 py-2 text-center">
+                                    {item.source === 'master'
+                                        ? <Badge className="text-[10px] bg-indigo-100 text-indigo-700 hover:bg-indigo-100">Master</Badge>
+                                        : <Badge className="text-[10px] bg-amber-100 text-amber-700 hover:bg-amber-100">Auto</Badge>}
+                                </td>
                                 <td className="px-3 py-2 text-center whitespace-nowrap">
                                     <button onClick={() => startEdit(item)} className="text-blue-600 hover:underline text-[11px] mr-2">Edit</button>
-                                    <button onClick={() => handleDelete(item.id)} className="text-red-500 hover:underline text-[11px]">Hapus</button>
+                                    {item.id && (
+                                        <button onClick={() => handleDelete(item)} className="text-red-500 hover:underline text-[11px]">Reset</button>
+                                    )}
                                 </td>
                             </tr>
                         ))}
