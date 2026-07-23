@@ -273,9 +273,10 @@ export async function GET(request: NextRequest) {
             let skipConversion = false;
             let sakConversion = 0;
             let isUnmapped = false;
+            const isKgItem = (item.name || '').toLowerCase().includes('kg');
 
-            if (masterEntry) {
-                // ── Use ProductMaster settings ──
+            if (productMasterMap.size > 0 && masterEntry) {
+                // ── ProductMaster exists & item found: use master settings ──
                 if (masterEntry.shouldConvert && masterEntry.conversionRatio && masterEntry.conversionRatio > 0) {
                     isBulkUnit = true;
                     sakConversion = masterEntry.conversionRatio;
@@ -290,15 +291,39 @@ export async function GET(request: NextRequest) {
                     unit = masterEntry.displayUnit || item.unit1Name || 'PCS';
                     skipConversion = true;
                 }
-            } else {
-                // ── Unmapped item: show raw data, no conversion ──
+            } else if (productMasterMap.size > 0 && !masterEntry) {
+                // ── ProductMaster populated but item NOT found: unmapped ──
                 isUnmapped = true;
                 unit = item.unit1Name || 'PCS';
-                console.log(`[UNMAPPED] ${item.no} "${item.name}" | no ProductMaster entry | showing raw unit: ${unit}`);
+            } else {
+                // ── ProductMaster empty: fallback to OLD auto-detect logic ──
+                sakConversion = salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0);
+                const baseUnit = (item.unit1Name || '').toLowerCase();
+                const alreadyInSellingUnit = baseUnit === 'sak' || baseUnit === 'karung' || baseUnit === 'galon';
+                const salesAlreadyInSellingUnit = filteredTotalQtyBox > 0 && filteredTotalQty > 0
+                    && Math.abs(filteredTotalQty - filteredTotalQtyBox) / filteredTotalQty < 0.05;
+                skipConversion = alreadyInSellingUnit || salesAlreadyInSellingUnit;
+
+                if (isKgItem && !skipConversion && sakConversion < 25) {
+                    const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
+                    if (weightMatch) {
+                        const nameWeight = parseInt(weightMatch[1], 10);
+                        if (nameWeight >= 20) sakConversion = nameWeight;
+                    }
+                }
+                isBulkUnit = isKgItem && sakConversion >= 25 && !skipConversion;
+                if (isBulkUnit) {
+                    quantity = parseFloat((quantity / sakConversion).toFixed(2));
+                    unit = 'Sak';
+                    if (filteredTotalQtyBox === 0 && filteredTotalQty > 0) {
+                        filteredTotalQtyBox = parseFloat((filteredTotalQty / sakConversion).toFixed(2));
+                    }
+                } else if (skipConversion && isKgItem) {
+                    unit = item.unit1Name || 'Sak';
+                }
             }
 
             // Should we use sales-unit quantities for demand calculations?
-            const isKgItem = (item.name || '').toLowerCase().includes('kg');
             const useSakQty = isBulkUnit || (skipConversion && isKgItem);
 
             // ── Demand Metrics ──────────────────
