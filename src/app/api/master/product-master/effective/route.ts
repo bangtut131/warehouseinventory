@@ -2,11 +2,10 @@ export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { fetchAllInventory, loadSalesCache } from '@/lib/accurate';
+import { fetchAllInventory } from '@/lib/accurate';
 
 // Non-inventory item types to exclude from conversion master
 const SKIP_ITEM_TYPES = ['NonInventory', 'Service', 'Assembly', 'FixedAsset', 'OtherAsset'];
-const DEFAULT_ANALYSIS_START = new Date(2025, 0, 1);
 
 // ─── Auto-detect logic ───────────────────────────────────────────────────────
 function autoDetect(item: any, resolvedUnit: string | null): {
@@ -15,26 +14,22 @@ function autoDetect(item: any, resolvedUnit: string | null): {
     displayUnit: string | null;
 } {
     const baseUnit = (resolvedUnit || '').toLowerCase();
-
-    // Already in selling unit
     if (baseUnit === 'sak' || baseUnit === 'karung' || baseUnit === 'galon') {
         return { shouldConvert: false, conversionRatio: null, displayUnit: resolvedUnit };
     }
 
     const itemNameLower = (item.name || '').toLowerCase();
     const isKgItem = itemNameLower.includes('kg');
-
     if (!isKgItem) {
         return { shouldConvert: false, conversionRatio: null, displayUnit: resolvedUnit };
     }
 
-    // Get ratio from Accurate or extract from name
     let sakConversion: number = item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0;
     if (sakConversion < 25) {
         const weightMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
         if (weightMatch) {
             const nameWeight = parseInt(weightMatch[1], 10);
-            if (nameWeight >= 20) sakConversion = nameWeight;
+            if (nameWeight >= 25) sakConversion = nameWeight;
         }
     }
 
@@ -45,12 +40,49 @@ function autoDetect(item: any, resolvedUnit: string | null): {
     return { shouldConvert: false, conversionRatio: null, displayUnit: resolvedUnit };
 }
 
+// ─── Load unit names from ALL available sales caches (global + branch) ───────
+async function loadUnitMapFromAllCaches(): Promise<Map<string, string>> {
+    const unitMap = new Map<string, string>();
+    try {
+        // Find ALL sales cache entries (global + all branches)
+        const allCaches = await prisma.dataCache.findMany({
+            where: { key: { startsWith: 'sales-cache-' } },
+            select: { key: true, data: true },
+        });
+
+        if (allCaches.length === 0) {
+            console.log('[effective] No sales cache found in DB');
+            return unitMap;
+        }
+
+        console.log(`[effective] Found ${allCaches.length} sales cache(s), merging unit names`);
+
+        for (const cache of allCaches) {
+            const cached = cache.data as any;
+            if (!cached?.data) continue;
+
+            for (const [itemNo, itemData] of Object.entries(cached.data as Record<string, any>)) {
+                const unitName: string = itemData?.salesUnitName || '';
+                if (unitName && !unitMap.has(itemNo)) {
+                    // Only set if not already set (first cache wins, prefer global)
+                    unitMap.set(itemNo, unitName);
+                }
+            }
+        }
+
+        console.log(`[effective] Loaded unit names for ${unitMap.size} items from caches`);
+    } catch (err: any) {
+        console.log('[effective] Cache load error:', err.message);
+    }
+    return unitMap;
+}
+
 export async function GET() {
     try {
         // 1. Fetch all items from Accurate
         const accurateItems = await fetchAllInventory();
 
-        // 2. Fetch ProductMaster entries
+        // 2. Fetch ProductMaster entries from DB
         let masterMap = new Map<string, any>();
         try {
             const masters = await prisma.productMaster.findMany();
@@ -59,18 +91,12 @@ export async function GET() {
             console.log('[effective] ProductMaster load failed:', err.message);
         }
 
-        // 3. Fetch sales cache for unit name fallback
+        // 3. Load unit names from ALL available sales caches (global + all branches)
         // Accurate list API often returns unit1Name=null even when unit IS set in Accurate.
         // Sales invoices reliably carry the unit name -> stored as salesUnitName in cache.
-        let salesMap = new Map<string, any>();
-        try {
-            const cached = await loadSalesCache(DEFAULT_ANALYSIS_START);
-            if (cached) salesMap = cached;
-        } catch (err: any) {
-            console.log('[effective] Sales cache load failed:', err.message);
-        }
+        const salesUnitMap = await loadUnitMapFromAllCaches();
 
-        // 4. Filter and combine
+        // 4. Filter and map
         const result = accurateItems
             .filter(item => {
                 if (item.suspended) return false;
@@ -80,13 +106,12 @@ export async function GET() {
             })
             .map(item => {
                 const master = masterMap.get(item.no);
-                const salesData = salesMap.get(item.no);
+                const salesUnit = salesUnitMap.get(item.no) || '';
 
                 // Resolve unit with fallback chain:
-                // 1. unit1Name from Accurate (often null in list API for some items)
-                // 2. salesUnitName from sales cache (most reliably populated)
-                // 3. unit2Name from Accurate (secondary unit)
-                const salesUnit = salesData?.salesUnitName;
+                // 1. unit1Name from Accurate list API (often null)
+                // 2. salesUnitName from any sales cache (global or branch)
+                // 3. unit2Name from Accurate list API
                 const resolvedUnit: string | null =
                     item.unit1Name ||
                     (salesUnit && salesUnit !== 'Sak' && salesUnit !== 'Karung' ? salesUnit : null) ||
