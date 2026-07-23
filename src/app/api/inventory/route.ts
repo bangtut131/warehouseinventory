@@ -454,8 +454,20 @@ export async function GET(request: NextRequest) {
                 totalSalesQtyBox: filteredTotalQtyBox || 0,
                 totalSalesRevenue: filteredTotalRevenue,
                 // Unit conversion: for Sak items, conversion already applied, set to 0
-                unitConversion: useSakQty ? 0 : (salesData.unitConversion || (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0)),
-                salesUnitName: useSakQty ? '' : (salesData.salesUnitName || (item.ratio2 && item.ratio2 > 1 ? 'Box' : '')),
+                // For Box toggle: prefer ratio3 (outer Box) over ratio2 (middle Pack)
+                // e.g., FG-052: ratio2=6(Pack), ratio3=120(Box) → use 120 for Box toggle
+                unitConversion: useSakQty ? 0 : (
+                    salesData.unitConversion ||
+                    (item.ratio3 && item.ratio3 > 1 ? item.ratio3 :
+                    (item.ratio2 && item.ratio2 > 1 ? item.ratio2 : 0))
+                ),
+                salesUnitName: useSakQty ? '' : (
+                    salesData.salesUnitName ||
+                    item.unit3Name ||
+                    item.unit2Name ||
+                    (item.ratio3 && item.ratio3 > 1 ? 'Box' :
+                    (item.ratio2 && item.ratio2 > 1 ? 'Box' : ''))
+                ),
                 poOutstanding: poQty,
                 netShortage,
                 suggestedOrder,

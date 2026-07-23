@@ -38,15 +38,18 @@ function autoDetect(item: any, resolvedUnit: string | null, salesUnitName?: stri
         }
     } else if (ratio2 >= 2) {
         // ── NON-KG ITEMS: Box/Pack/etc conversion from Accurate master ────────
-        // e.g., unit1=Btl, unit2=Box, ratio2=36 → 1 Box = 36 Btl
-        // shouldConvert=false: API keeps stock in base unit (Btl)
-        // The Box/Pcs toggle on dashboard already divides by ratio2 automatically
-        // We surface this info here so user can see the conversion exists
+        // e.g., FG-052: unit1=Bks, unit2=Pack(6), unit3=Box(120)
+        // Prefer ratio3 (outer Box) over ratio2 (middle Pack)
+        // shouldConvert=false: API keeps stock in base unit (Bks)
+        // The Box/Pcs toggle on dashboard divides by ratio3 (or ratio2) automatically
+        const ratio3: number = item.ratio3 && item.ratio3 > 1 ? item.ratio3 : 0;
+        const boxRatio = ratio3 || ratio2;
         const displayUnitName =
+            item.unit3Name ||
             item.unit2Name ||
             (salesUnitName && salesUnitName !== 'Sak' && salesUnitName !== 'Karung' ? salesUnitName : null) ||
             'Box';
-        return { shouldConvert: false, conversionRatio: ratio2, displayUnit: displayUnitName };
+        return { shouldConvert: false, conversionRatio: boxRatio, displayUnit: displayUnitName };
     }
 
     return { shouldConvert: false, conversionRatio: null, displayUnit: resolvedUnit };
