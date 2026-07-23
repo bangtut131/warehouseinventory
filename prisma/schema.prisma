@@ -146,7 +146,7 @@ model SpecialWarehouseTransferBatch {
   @@unique([warehouseId, itemNo, transferId]) // Prevent duplicate transfers
 }
 
-// Master Data: Konversi satuan barang (source of truth untuk konversi Kg→Sak dll)
+// Master Data: Konversi satuan barang (source of truth untuk konversi Kg ke Sak dll)
 model ProductMaster {
   id              Int      @id @default(autoincrement())
   itemNo          String   @unique
