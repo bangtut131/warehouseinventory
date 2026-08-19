@@ -99,3 +99,30 @@ export function getUnitLabel(item: { unitConversion: number; salesUnitName: stri
     if (item.salesUnitName) return item.salesUnitName;
     return 'Box';
 }
+
+/**
+ * Get the correct Box sales quantity, fixing the "Pcs=Box" bug.
+ *
+ * Root cause: if an item is ALWAYS sold in base unit (e.g. Btl, never per Box),
+ * the cache's unitConversion stays 0 and convertQtyBox() is skipped,
+ * leaving totalSalesQtyBox === totalSalesQty (both in base unit).
+ *
+ * Fix: when that bug condition is detected AND we have a master ratio (unitConversion > 1),
+ * divide totalSalesQty by unitConversion to get the correct Box qty.
+ *
+ * Safe for all other item types:
+ * - Sak items: unitConversion = 0 → no division
+ * - Items correctly sold in Box: totalSalesQtyBox ≠ totalSalesQty → no division
+ * - Items without ratio: unitConversion = 0 → no division
+ */
+export function getSalesQtyBox(
+    totalSalesQty: number,
+    totalSalesQtyBox: number,
+    unitConversion: number
+): number {
+    // Only fix when: has a master ratio AND qtyBox is identical to qty (bug condition)
+    if (unitConversion > 1 && Math.abs(totalSalesQtyBox - totalSalesQty) < 0.01) {
+        return parseFloat((totalSalesQty / unitConversion).toFixed(2));
+    }
+    return totalSalesQtyBox;
+}

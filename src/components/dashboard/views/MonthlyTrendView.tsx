@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { InventoryItem } from '@/lib/types';
 import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
-import { UnitToggle, QtyUnit } from '../UnitToggle';
+import { UnitToggle, QtyUnit, getSalesQtyBox } from '../UnitToggle';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
@@ -59,13 +59,15 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
     }, [dateHeaders]);
 
     // Helper: get display qty based on unit toggle
-    const getQty = (qty: number, qtyBox: number): number => {
-        return qtyUnit === 'pcs' ? qty : qtyBox;
+    // Uses getSalesQtyBox to fix: items always sold in base unit had qtyBox === qty (bug)
+    const getQty = (qty: number, qtyBox: number, itemUnitConversion: number): number => {
+        if (qtyUnit === 'pcs') return qty;
+        return getSalesQtyBox(qty, qtyBox, itemUnitConversion);
     };
 
     // Helper: format qty for display
-    const fmtQty = (qty: number, qtyBox: number): string => {
-        const val = getQty(qty, qtyBox);
+    const fmtQty = (qty: number, qtyBox: number, itemUnitConversion: number): string => {
+        const val = getQty(qty, qtyBox, itemUnitConversion);
         if (val === 0) return '-';
         if (qtyUnit === 'box' && !Number.isInteger(val)) {
             return val.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -88,7 +90,7 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
         const vals = last2MonthIndices.map(idx => {
             const m = item.monthlySales[idx];
             if (!m) return 0;
-            return getQty(m.qty, m.qtyBox);
+            return getQty(m.qty, m.qtyBox, item.unitConversion);
         });
         const sum = vals.reduce((a, b) => a + b, 0);
         return sum / 2;
@@ -150,7 +152,7 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                             </thead>
                             <TableBody>
                                 {sortedItems.map((item, index) => {
-                                    const salesData = item.monthlySales.map(m => getQty(m.qty, m.qtyBox));
+                                    const salesData = item.monthlySales.map(m => getQty(m.qty, m.qtyBox, item.unitConversion));
                                     const maxQty = Math.max(...salesData, 1);
                                     // Trend: compare last 3 vs first 3
                                     const firstHalf = salesData.slice(0, 3).reduce((s, v) => s + v, 0);
@@ -175,7 +177,7 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                             <TableCell className="max-w-[150px] truncate text-xs freeze-col-3" title={item.name}>{item.name}</TableCell>
                                             <TableCell className="text-center">{trend}</TableCell>
                                             {item.monthlySales.map((m, idx) => {
-                                                const val = getQty(m.qty, m.qtyBox);
+                                                const val = getQty(m.qty, m.qtyBox, item.unitConversion);
                                                 const intensity = maxQty > 0 ? val / maxQty : 0;
                                                 const isLast2 = last2MonthIndices.includes(idx);
                                                 const bg = val === 0 ? 'bg-gray-100'
@@ -184,7 +186,7 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
                                                             : 'bg-emerald-100';
                                                 return (
                                                     <TableCell key={idx} className={`text-center text-xs font-medium px-1 ${bg} ${isLast2 ? 'ring-1 ring-amber-400 ring-inset' : ''}`}>
-                                                        {fmtQty(m.qty, m.qtyBox)}
+                                                        {fmtQty(m.qty, m.qtyBox, item.unitConversion)}
                                                     </TableCell>
                                                 );
                                             })}

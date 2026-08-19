@@ -6,6 +6,7 @@ import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { getSalesQtyBox } from '../UnitToggle';
 
 interface ABCAnalysisViewProps {
     items: InventoryItem[];
@@ -157,14 +158,17 @@ export const ABCAnalysisView: React.FC<ABCAnalysisViewProps> = ({ items }) => {
                                         <TableCell className="text-right">{formatIDR(item.annualRevenue)}</TableCell>
                                         <TableCell className="text-right">{item.totalSalesQty.toLocaleString()}</TableCell>
                                         <TableCell className="text-right">
-                                            {item.totalSalesQtyBox > 0 ? (
-                                                <div className="flex flex-col items-end">
-                                                    <span>{item.totalSalesQtyBox.toLocaleString()} {item.salesUnitName}</span>
-                                                    {item.unitConversion > 0 && (
-                                                        <span className="text-[10px] opacity-70">(@ {item.unitConversion})</span>
-                                                    )}
-                                                </div>
-                                            ) : '-'}
+                                            {(() => {
+                                                const correctedQtyBox = getSalesQtyBox(item.totalSalesQty, item.totalSalesQtyBox, item.unitConversion);
+                                                return correctedQtyBox > 0 ? (
+                                                    <div className="flex flex-col items-end">
+                                                        <span>{correctedQtyBox.toLocaleString()} {item.salesUnitName || 'Box'}</span>
+                                                        {item.unitConversion > 0 && (
+                                                            <span className="text-[10px] opacity-70">(@ {item.unitConversion})</span>
+                                                        )}
+                                                    </div>
+                                                ) : '-';
+                                            })()}
                                         </TableCell>
                                         <TableCell className="text-right">{item.revPct.toFixed(2)}%</TableCell>
                                         <TableCell className="text-right font-medium">{item.cumPct.toFixed(1)}%</TableCell>

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { InventoryItem } from '@/lib/types';
 import { useTableControls } from '@/lib/useTableControls';
 import { TableToolbar, SortableHead } from '../TableToolbar';
-import { UnitToggle, QtyUnit, formatQty, getUnitLabel } from '../UnitToggle';
+import { UnitToggle, QtyUnit, formatQty, getUnitLabel, getSalesQtyBox } from '../UnitToggle';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
@@ -94,10 +94,13 @@ export const TopItemsView: React.FC<TopItemsViewProps> = ({ items }) => {
                                 {filtered.map((item, index) => {
                                     const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`;
                                     // Show qty based on selected unit
-                                    const salesQty = qtyUnit === 'box' && item.totalSalesQtyBox > 0
-                                        ? item.totalSalesQtyBox
+                                    // getSalesQtyBox fixes: items always sold in base unit
+                                    // had totalSalesQtyBox === totalSalesQty (never converted in cache)
+                                    const correctedQtyBox = getSalesQtyBox(item.totalSalesQty, item.totalSalesQtyBox, item.unitConversion);
+                                    const salesQty = qtyUnit === 'box' && correctedQtyBox > 0
+                                        ? correctedQtyBox
                                         : item.totalSalesQty;
-                                    const salesLabel = qtyUnit === 'box' && item.totalSalesQtyBox > 0
+                                    const salesLabel = qtyUnit === 'box' && correctedQtyBox > 0
                                         ? (item.salesUnitName || 'Box')
                                         : (item.unit || 'Pcs');
 
