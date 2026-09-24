@@ -23,7 +23,7 @@ const MONTH_NAMES_ID: Record<string, string> = {
 
 export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => {
     const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
-    const [showAll, setShowAll] = useState(false);
+    const [showAll, setShowAll] = useState(true);
     const trendItems = showAll ? items : items.filter(i => i.totalSalesQty > 0);
 
     const { search, setSearch, sort, toggleSort, filters, setFilter, clearAll, filtered, activeFilterCount } = useTableControls(

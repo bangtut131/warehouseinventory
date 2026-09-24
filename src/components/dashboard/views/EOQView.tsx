@@ -14,7 +14,7 @@ interface EOQViewProps {
 
 export const EOQView: React.FC<EOQViewProps> = ({ items }) => {
     const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
-    const [showAll, setShowAll] = useState(false);
+    const [showAll, setShowAll] = useState(true);
     const activeItems = showAll ? items : items.filter(i => i.eoq > 0 && i.averageDailyUsage > 0);
 
     const { search, setSearch, sort, toggleSort, filters, setFilter, clearAll, filtered, activeFilterCount } = useTableControls(

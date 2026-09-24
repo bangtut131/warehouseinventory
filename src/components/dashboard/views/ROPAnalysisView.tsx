@@ -14,7 +14,7 @@ interface ROPAnalysisViewProps {
 
 export const ROPAnalysisView: React.FC<ROPAnalysisViewProps> = ({ items }) => {
     const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
-    const [showAll, setShowAll] = useState(false); // toggle: include items with no sales history
+    const [showAll, setShowAll] = useState(true); // toggle: include items with no sales history
 
     // By default only show items with sales data (avgDailyUsage > 0)
     // When showAll=true: include all items (including those with stock but no sales in selected period)
