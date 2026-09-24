@@ -23,7 +23,8 @@ const MONTH_NAMES_ID: Record<string, string> = {
 
 export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => {
     const [qtyUnit, setQtyUnit] = useState<QtyUnit>('pcs');
-    const trendItems = items.filter(i => i.totalSalesQty > 0);
+    const [showAll, setShowAll] = useState(false);
+    const trendItems = showAll ? items : items.filter(i => i.totalSalesQty > 0);
 
     const { search, setSearch, sort, toggleSort, filters, setFilter, clearAll, filtered, activeFilterCount } = useTableControls(
         trendItems,
@@ -110,9 +111,22 @@ export const MonthlyTrendView: React.FC<MonthlyTrendViewProps> = ({ items }) => 
         <div className="space-y-4">
             <Card>
                 <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                         <CardTitle>📈 Monthly Sales Trend</CardTitle>
-                        <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <button
+                                onClick={() => setShowAll(v => !v)}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                                    showAll
+                                        ? 'bg-amber-100 border-amber-400 text-amber-800'
+                                        : 'bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200'
+                                }`}
+                                title={showAll ? 'Sembunyikan item tanpa penjualan' : 'Tampilkan semua item termasuk yang belum ada penjualan'}
+                            >
+                                {showAll ? '👁 Semua Item' : '👁 Ada Penjualan'}
+                            </button>
+                            <UnitToggle unit={qtyUnit} onChange={setQtyUnit} />
+                        </div>
                     </div>
                 </CardHeader>
                 <CardContent>
