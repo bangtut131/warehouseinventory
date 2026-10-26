@@ -312,6 +312,15 @@ export async function GET(request: NextRequest) {
                     }
                 }
                 isBulkUnit = isKgItem && sakConversion >= 25 && !skipConversion;
+                // Guard: kemasan kecil (nama '1 Kg'/'2 Kg', < 5 kg) dengan unit2 Box (bukan Sak/Karung)
+                // = isi per Box, bukan curah per Sak -> jangan dipaksa jadi Sak (mis. SAP-PK-043).
+                if (isBulkUnit) {
+                    const smallKgMatch = (item.name || '').match(/(\d+)\s*[Kk][Gg]/);
+                    const smallKg = smallKgMatch ? parseInt(smallKgMatch[1], 10) : 0;
+                    const unit2Lower = (item.unit2Name || '').toLowerCase();
+                    const unit2IsSak = unit2Lower === 'sak' || unit2Lower === 'karung';
+                    if (smallKg > 0 && smallKg < 5 && !unit2IsSak) isBulkUnit = false;
+                }
                 if (isBulkUnit) {
                     quantity = parseFloat((quantity / sakConversion).toFixed(2));
                     unit = 'Sak';
